@@ -5,7 +5,7 @@ import EnhancedReturnProcess from './EnhancedReturnProcess';
 import AadhaarUploadSystem from './AadhaarUploadSystem';
 import BlacklistManagement from './BlacklistManagement';
 
-const UpdatedAdminDashboard = () => {
+const AdminDashboard = () => {
   // State management
   const [bookings, setBookings] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -524,4 +524,4 @@ const UpdatedAdminDashboard = () => {
   );
 };
 
-export default UpdatedAdminDashboard;
+export default AdminDashboard;
