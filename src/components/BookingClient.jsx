@@ -261,21 +261,7 @@ export default function BookingClientPage() {
         {currentStep === 1 && (
           <ThemedCard title="Select Vehicle">
             <div className="space-y-8">
-              {/* Current Rate Display */}
-              <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-6`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-green-200">Current Rate</h3>
-                    <p className={`text-2xl font-bold ${theme.colors.stats.revenue.text}`}>
-                      ₹{settings.hourlyRate}/hour
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-green-200">Minimum: {settings.minimumHours || 1} hour(s)</p>
-                    <p className="text-sm text-green-200">Business: {settings.businessName}</p>
-                  </div>
-                </div>
-              </div>
+            
 
               {/* Vehicle Selection */}
               <div>
@@ -292,7 +278,7 @@ export default function BookingClientPage() {
                     </Link>
                   </ThemedCard>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
                     {availableVehicles.map((vehicle) => (
                       <ThemedCard
                         key={vehicle._id}
@@ -328,35 +314,7 @@ export default function BookingClientPage() {
                 )}
               </div>
 
-              {/* Booking Details */}
-              {bookingData.selectedVehicle && (
-                <ThemedCard className="border-t border-gray-600 pt-8">
-                  <h3 className="text-lg font-semibold text-white mb-4">Booking Details</h3>
-                  <div className="bg-gray-800/50 rounded-lg p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <span className="font-medium text-gray-300">Vehicle:</span>
-                        <span className="ml-2 text-white">
-                          {bookingData.selectedVehicle.type} - {bookingData.selectedVehicle.model}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="font-medium text-gray-300">Plate Number:</span>
-                        <span className="ml-2 font-mono font-bold text-white">
-                          {bookingData.selectedVehicle.plateNumber}
-                        </span>
-                      </div>
-                    </div>
-                    <div className={`mt-4 p-4 ${theme.colors.stats.revenue.bg} rounded-lg`}>
-                      <p className="text-green-200 text-sm">
-                        <strong>Note:</strong> Booking will start immediately when completed.
-                        Payment will be collected when the customer returns the vehicle
-                        based on actual usage time at ₹{settings.hourlyRate}/hour.
-                      </p>
-                    </div>
-                  </div>
-                </ThemedCard>
-              )}
+
             </div>
           </ThemedCard>
         )}
@@ -393,16 +351,7 @@ export default function BookingClientPage() {
               />
             </div>
 
-            {/* Aadhar Note */}
-            <div className={`mt-8 ${theme.colors.stats.customers.bg} border ${theme.colors.stats.customers.border} rounded-lg p-6`}>
-              <h3 className={`text-lg font-semibold ${theme.colors.stats.customers.text} mb-2`}>
-                📄 Aadhar Card Collection
-              </h3>
-              <p className={theme.colors.stats.customers.light}>
-                <strong>Note:</strong> Aadhar card will be collected physically from the customer and uploaded
-                separately in the back office system for record keeping.
-              </p>
-            </div>
+
           </ThemedCard>
         )}
 
