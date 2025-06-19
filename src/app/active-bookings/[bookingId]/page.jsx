@@ -1,4 +1,3 @@
-// src/app/active-bookings/[bookingId]/page.js
 'use client';
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
