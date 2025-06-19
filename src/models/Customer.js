@@ -1,37 +1,32 @@
-// src/models/Customer.js
 import mongoose from 'mongoose';
 
 const customerSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    trim: true
   },
-  mobile: {
+  phone: {
     type: String,
     required: true,
-    match: [/^[6-9]\d{9}$/, 'Please enter a valid mobile number']
   },
-  licenseNumber: {
+  driverLicense: {
     type: String,
     required: true,
-    uppercase: true,
-    trim: true
+  },
+  aadharCardPhoto: {
+    type: String, // URL or file path to uploaded Aadhar card image
+    default: '',
   },
   totalBookings: {
     type: Number,
-    default: 0
+    default: 0,
   },
-  isBlacklisted: {
-    type: Boolean,
-    default: false
-  }
+  lastVisit: {
+    type: Date,
+    default: Date.now,
+  },
 }, {
-  timestamps: true
+  timestamps: true,
 });
-
-// Index for faster searches
-customerSchema.index({ mobile: 1 });
-customerSchema.index({ licenseNumber: 1 });
 
 export default mongoose.models.Customer || mongoose.model('Customer', customerSchema);

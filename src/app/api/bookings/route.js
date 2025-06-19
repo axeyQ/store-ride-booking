@@ -1,142 +1,131 @@
-// src/app/api/bookings/route.js
-import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Booking from '@/models/Booking';
+import Customer from '@/models/Customer';
 import Vehicle from '@/models/Vehicle';
+import { NextResponse } from 'next/server';
 
-// GET /api/bookings - Get all bookings with filters
 export async function GET(request) {
   try {
     await connectDB();
-    
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
-    const limit = parseInt(searchParams.get('limit')) || 50;
-    const page = parseInt(searchParams.get('page')) || 1;
-    const skip = (page - 1) * limit;
     
-    // Build query
+    // Build query based on status filter
     let query = {};
     if (status) {
-      query['booking.status'] = status;
+      query.status = status;
+      console.log('Filtering bookings by status:', status);
     }
     
+    console.log('Query:', query);
+    
     const bookings = await Booking.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .skip(skip);
+      .populate('vehicleId', 'type model plateNumber')
+      .populate('customerId', 'name phone driverLicense')
+      .sort({ createdAt: -1 });
     
-    const total = await Booking.countDocuments(query);
+    console.log(`Found ${bookings.length} bookings with query:`, query);
     
-    return NextResponse.json({
-      success: true,
-      data: bookings,
-      pagination: {
-        total,
-        page,
-        limit,
-        pages: Math.ceil(total / limit)
-      }
-    });
-    
+    return NextResponse.json({ success: true, bookings });
   } catch (error) {
-    console.error('Error fetching bookings:', error);
+    console.error('Bookings API error:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch bookings' },
+      { success: false, error: error.message },
       { status: 500 }
     );
   }
 }
 
-// POST /api/bookings - Create new booking
 export async function POST(request) {
-    try {
-      await connectDB();
-      
-      const body = await request.json();
-      const {
-        name,
-        mobile,
-        dlNumber,
-        // REMOVED: aadhaarNumber - will be added later
-        vehicleType,
-        vehicleNumber,
-        pickupDate,
-        pickupTime,
-        signature,
-        otp
-      } = body;
-      
-      // Validate required fields (removed aadhaar validation)
-      if (!name || !mobile || !dlNumber || !vehicleNumber || !signature || !otp) {
-        return NextResponse.json(
-          { success: false, error: 'Missing required fields' },
-          { status: 400 }
-        );
-      }
-      
-      // Check if vehicle is available
-      const existingBooking = await Booking.isVehicleAvailable(vehicleNumber, pickupDate);
-      if (existingBooking) {
-        return NextResponse.json(
-          { success: false, error: 'Vehicle not available for selected date' },
-          { status: 409 }
-        );
-      }
-      
-      // Create booking
-      const booking = new Booking({
-        customerDetails: {
-          name,
-          mobile,
-          dlNumber
-          // aadhaarNumber will be added later via documents endpoint
-        },
-        vehicleDetails: {
-          type: vehicleType,
-          vehicleNumber,
-          pickupDate: new Date(pickupDate),
-          pickupTime
-        },
-        digitalSignature: {
-          signatureImage: signature,
-          timestamp: new Date(),
-          ipAddress: request.ip || 'store-terminal'
-        },
-        verification: {
-          otpGenerated: otp,
-          otpVerified: true,
-          verificationTime: new Date()
-        },
-        booking: {
-          status: 'active',
-          createdBy: 'staff', // This can be dynamic based on logged-in user
-          ratePerHour: 80
-        }
-      });
-      
-      await booking.save();
-      
-      // Update vehicle status
-      await Vehicle.findOneAndUpdate(
-        { vehicleNumber },
-        { 
-          status: 'rented',
-          currentBooking: booking._id
-        }
-      );
-      
-      return NextResponse.json({
-        success: true,
-        data: booking,
-        message: 'Booking created successfully'
-      }, { status: 201 });
-      
-    } catch (error) {
-      console.error('Error creating booking:', error);
+  try {
+    await connectDB();
+    const body = await request.json();
+    
+    // Validate only essential required fields
+    if (!body.vehicleId || !body.customer || !body.signature) {
       return NextResponse.json(
-        { success: false, error: 'Failed to create booking' },
-        { status: 500 }
+        { success: false, error: 'Missing required fields: vehicleId, customer, or signature' },
+        { status: 400 }
       );
     }
+
+    // Validate customer has required fields
+    if (!body.customer.name || !body.customer.phone || !body.customer.driverLicense) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required customer fields: name, phone, or driverLicense' },
+        { status: 400 }
+      );
+    }
+    
+    // Create clean customer object (only include allowed fields)
+    const cleanCustomerData = {
+      name: body.customer.name,
+      phone: body.customer.phone,
+      driverLicense: body.customer.driverLicense
+    };
+    
+    // Create or find customer (by driver license only)
+    let customer = await Customer.findOne({
+      driverLicense: cleanCustomerData.driverLicense
+    });
+    
+    if (!customer) {
+      customer = new Customer(cleanCustomerData);
+      await customer.save();
+    } else {
+      // Update customer info and increment booking count
+      customer.name = cleanCustomerData.name;
+      customer.phone = cleanCustomerData.phone;
+      customer.driverLicense = cleanCustomerData.driverLicense;
+      customer.totalBookings += 1;
+      customer.lastVisit = new Date();
+      await customer.save();
+    }
+    
+    // Check if vehicle is available
+    const vehicle = await Vehicle.findById(body.vehicleId);
+    if (!vehicle) {
+      return NextResponse.json(
+        { success: false, error: 'Vehicle not found' },
+        { status: 404 }
+      );
+    }
+    
+    if (vehicle.status !== 'available') {
+      return NextResponse.json(
+        { success: false, error: 'Vehicle is not available' },
+        { status: 400 }
+      );
+    }
+    
+    // Update vehicle status to rented
+    await Vehicle.findByIdAndUpdate(body.vehicleId, { status: 'rented' });
+    
+    // Create booking with current time
+    const booking = new Booking({
+      vehicleId: body.vehicleId,
+      customerId: customer._id,
+      signature: body.signature,
+      helmetProvided: body.helmetProvided || false,
+      aadharCardCollected: body.aadharCardCollected || false,
+      vehicleInspected: body.vehicleInspected || false,
+      additionalNotes: body.additionalNotes || '',
+      startTime: new Date() // Always use current time
+    });
+    
+    await booking.save();
+    
+    // Populate the booking for response
+    const populatedBooking = await Booking.findById(booking._id)
+      .populate('vehicleId', 'type model plateNumber')
+      .populate('customerId', 'name phone driverLicense');
+    
+    return NextResponse.json({ success: true, booking: populatedBooking });
+  } catch (error) {
+    console.error('Booking creation error:', error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
   }
+}
