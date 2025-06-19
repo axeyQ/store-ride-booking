@@ -1,16 +1,12 @@
 import connectDB from '@/lib/db';
 import Booking from '@/models/Booking';
-import Vehicle from '@/models/Vehicle';
 import { NextResponse } from 'next/server';
 
-// Import the new pricing calculation function
+// Advanced pricing calculation function (same as in complete booking)
 async function calculateAdvancedPricing(startTime, endTime) {
   try {
-    // Get current settings
-    const settingsResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings`);
-    const settingsData = await settingsResponse.json();
-    
-    const settings = settingsData.success ? settingsData.settings : {
+    // Get current settings - in a real app, these would be cached
+    const settings = {
       hourlyRate: 80,
       graceMinutes: 15,
       blockMinutes: 30,
@@ -22,7 +18,7 @@ async function calculateAdvancedPricing(startTime, endTime) {
     const end = new Date(endTime);
     const totalMinutes = Math.max(0, Math.floor((end - start) / (1000 * 60)));
     
-    if (totalMinutes === 0) return { totalAmount: 0, breakdown: [] };
+    if (totalMinutes === 0) return { totalAmount: 0, breakdown: [], totalMinutes: 0 };
     
     const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
     const halfRate = Math.round(hourlyRate / 2);
@@ -51,7 +47,7 @@ async function calculateAdvancedPricing(startTime, endTime) {
     remainingMinutes -= firstBlockUsed;
     currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
     
-    // Subsequent blocks: 30-minute increments
+    // Subsequent blocks
     let blockNumber = 2;
     while (remainingMinutes > 0) {
       const blockUsed = Math.min(remainingMinutes, blockMinutes);
@@ -89,22 +85,17 @@ function isNightCharge(startTime, durationMinutes, nightChargeTime) {
     const nightThreshold = new Date(startTime);
     nightThreshold.setHours(nightHour, nightMinute, 0, 0);
     
-    // If the block crosses or includes the night threshold
     return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
   } catch (error) {
-    return false; // Default to no night charge if error
+    return false;
   }
 }
 
-export async function PATCH(request, { params }) {
+export async function GET(request, { params }) {
   try {
     await connectDB();
     const { id } = params;
-    const body = await request.json();
     
-    console.log('Completing booking:', id, body);
-    
-    // Find the booking by ID (not bookingId)
     const booking = await Booking.findById(id);
     if (!booking) {
       return NextResponse.json(
@@ -120,58 +111,18 @@ export async function PATCH(request, { params }) {
       );
     }
     
-    const endTime = new Date(body.endTime || new Date());
+    // Calculate current amount using advanced pricing
+    const pricingResult = await calculateAdvancedPricing(booking.startTime, new Date());
     
-    // Calculate advanced pricing
-    const pricingResult = await calculateAdvancedPricing(booking.startTime, endTime);
-    let finalAmount = pricingResult.totalAmount;
-    
-    // Apply any manual adjustments
-    if (body.discountAmount) finalAmount -= body.discountAmount;
-    if (body.additionalCharges) finalAmount += body.additionalCharges;
-    
-    // Ensure minimum amount
-    finalAmount = Math.max(0, finalAmount);
-    
-    // Calculate actual duration in hours for backward compatibility
-    const actualDurationHours = Math.ceil(pricingResult.totalMinutes / 60);
-    
-    // Update booking with completion data
-    booking.endTime = endTime;
-    booking.actualDuration = actualDurationHours;
-    booking.finalAmount = finalAmount;
-    booking.paymentMethod = body.paymentMethod;
-    booking.status = 'completed';
-    
-    // Add return-specific fields
-    if (body.vehicleCondition) booking.vehicleCondition = body.vehicleCondition;
-    if (body.returnNotes) booking.returnNotes = body.returnNotes;
-    if (body.damageNotes) booking.damageNotes = body.damageNotes;
-    if (body.discountAmount) booking.discountAmount = body.discountAmount;
-    if (body.additionalCharges) booking.additionalCharges = body.additionalCharges;
-    
-    // Store pricing breakdown for future reference
-    booking.pricingBreakdown = pricingResult.breakdown;
-    
-    await booking.save();
-    
-    // Update vehicle status back to available
-    await Vehicle.findByIdAndUpdate(booking.vehicleId, { status: 'available' });
-    
-    // Return populated booking
-    const updatedBooking = await Booking.findById(id)
-      .populate('vehicleId', 'type model plateNumber')
-      .populate('customerId', 'name phone driverLicense');
-    
-    console.log('Booking completed successfully:', updatedBooking.bookingId, 'Amount:', finalAmount);
-    
-    return NextResponse.json({ 
-      success: true, 
-      booking: updatedBooking,
-      pricingDetails: pricingResult
+    return NextResponse.json({
+      success: true,
+      currentAmount: pricingResult.totalAmount,
+      breakdown: pricingResult.breakdown,
+      totalMinutes: pricingResult.totalMinutes,
+      totalHours: Math.ceil(pricingResult.totalMinutes / 60)
     });
   } catch (error) {
-    console.error('Error completing booking:', error);
+    console.error('Current amount API error:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
