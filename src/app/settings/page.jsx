@@ -1,8 +1,19 @@
+// src/app/settings/page.jsx - Redesigned with Theme System
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { 
+  ThemedLayout, 
+  ThemedCard, 
+  ThemedButton, 
+  ThemedInput,
+  ThemedSelect,
+  ThemedBadge 
+} from '@/components/themed';
+import { theme } from '@/lib/theme';
+import { cn } from '@/lib/utils';
 
-export default function SettingsPage() {
+export default function ThemedSettingsPage() {
   const [settings, setSettings] = useState({
     // Business Settings
     businessName: 'MR Travels',
@@ -27,7 +38,7 @@ export default function SettingsPage() {
       end: '22:00'
     },
     maxAdvanceBookingDays: 7,
-    reminderTimeBeforeReturn: 30, // minutes
+    reminderTimeBeforeReturn: 30,
     
     // Notification Settings
     smsNotifications: true,
@@ -49,6 +60,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [errors, setErrors] = useState({});
 
   useEffect(() => {
     fetchSettings();
@@ -58,7 +70,6 @@ export default function SettingsPage() {
     try {
       const response = await fetch('/api/settings');
       const data = await response.json();
-      
       if (data.success) {
         setSettings(prev => ({ ...prev, ...data.settings }));
       }
@@ -69,7 +80,46 @@ export default function SettingsPage() {
     }
   };
 
+  const validateSettings = () => {
+    const newErrors = {};
+    
+    // Business validation
+    if (!settings.businessName?.trim()) {
+      newErrors.businessName = 'Business name is required';
+    }
+    
+    // Pricing validation
+    if (!settings.hourlyRate || settings.hourlyRate <= 0) {
+      newErrors.hourlyRate = 'Hourly rate must be greater than 0';
+    }
+    
+    if (settings.graceMinutes < 0 || settings.graceMinutes > 60) {
+      newErrors.graceMinutes = 'Grace period must be between 0 and 60 minutes';
+    }
+    
+    if (settings.blockMinutes <= 0 || settings.blockMinutes > 120) {
+      newErrors.blockMinutes = 'Block duration must be between 1 and 120 minutes';
+    }
+    
+    if (settings.nightMultiplier < 1 || settings.nightMultiplier > 5) {
+      newErrors.nightMultiplier = 'Night multiplier must be between 1 and 5';
+    }
+    
+    // Time format validation
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(settings.nightChargeTime)) {
+      newErrors.nightChargeTime = 'Night charge time must be in HH:MM format';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSave = async () => {
+    if (!validateSettings()) {
+      return;
+    }
+    
     try {
       setSaving(true);
       const response = await fetch('/api/settings', {
@@ -77,12 +127,10 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       });
-      
       const data = await response.json();
-      
       if (data.success) {
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+        setTimeout(() => setSaved(false), 3000);
       } else {
         alert('Error saving settings: ' + data.error);
       }
@@ -109,6 +157,11 @@ export default function SettingsPage() {
         [field]: value
       }));
     }
+    
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: null }));
+    }
   };
 
   const resetToDefaults = () => {
@@ -121,8 +174,12 @@ export default function SettingsPage() {
         gstNumber: '',
         hourlyRate: 80,
         minimumHours: 1,
+        graceMinutes: 15,
+        blockMinutes: 30,
         lateFeePerHour: 20,
         securityDeposit: 500,
+        nightChargeTime: '22:30',
+        nightMultiplier: 2,
         operatingHours: { start: '06:00', end: '22:00' },
         maxAdvanceBookingDays: 7,
         reminderTimeBeforeReturn: 30,
@@ -148,76 +205,117 @@ export default function SettingsPage() {
     }
   };
 
+  // Pricing examples calculation
+  const getPricingExamples = () => {
+    const { hourlyRate, graceMinutes, blockMinutes, nightMultiplier } = settings;
+    const halfRate = Math.round(hourlyRate / 2);
+    
+    return {
+      day: [
+        { duration: '30 minutes', amount: hourlyRate },
+        { duration: '1 hour', amount: hourlyRate },
+        { duration: '1.5 hours', amount: hourlyRate + halfRate },
+        { duration: '2 hours', amount: hourlyRate + halfRate * 2 }
+      ],
+      night: [
+        { duration: '1 hour (night)', amount: hourlyRate * nightMultiplier },
+        { duration: '1.5 hours (night)', amount: (hourlyRate + halfRate) * nightMultiplier }
+      ]
+    };
+  };
+
+  const tabs = [
+    { id: 'business', label: '🏢 Business', icon: '🏢' },
+    { id: 'pricing', label: '💰 Pricing', icon: '💰' },
+    { id: 'operations', label: '⚙️ Operations', icon: '⚙️' },
+    { id: 'notifications', label: '📱 Notifications', icon: '📱' },
+    { id: 'system', label: '🛡️ System', icon: '🛡️' }
+  ];
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-xl">Loading settings...</div>
+      <ThemedLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <ThemedCard>
+            <div className="flex items-center space-x-3 p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+              <span className="text-white text-xl">Loading settings...</span>
+            </div>
+          </ThemedCard>
         </div>
-      </div>
+      </ThemedLayout>
     );
   }
 
+  const pricingExamples = getPricingExamples();
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <Link href="/" className="text-blue-600 hover:text-blue-800">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </Link>
-              <h1 className="text-3xl font-bold text-gray-900">System Settings</h1>
+    <ThemedLayout>
+      <div className="container mx-auto px-6 py-8">
+        {/* Hero Section */}
+        <div className="text-center mb-8">
+          <h2 className={theme.typography.hero}>
+            System <span className={theme.typography.gradient}>Settings</span>
+          </h2>
+          <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
+            Configure your rental business parameters and preferences
+          </p>
+        </div>
+
+        {/* Settings Header */}
+        <ThemedCard className="mb-8">
+          <div className="flex justify-between items-center p-6">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Configuration Management</h3>
+              <p className="text-gray-400">Customize your rental system settings</p>
             </div>
             <div className="flex items-center space-x-3">
-              <button
+              <ThemedButton
+                variant="secondary"
                 onClick={resetToDefaults}
-                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium"
               >
                 Reset to Defaults
-              </button>
-              <button
+              </ThemedButton>
+              <ThemedButton
+                variant={saved ? "success" : "primary"}
                 onClick={handleSave}
                 disabled={saving}
-                className={`px-6 py-2 rounded-lg font-medium ${
-                  saving
-                    ? 'bg-gray-400 text-gray-700 cursor-not-allowed'
-                    : saved
-                    ? 'bg-green-600 text-white'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}
+                className="flex items-center gap-2"
               >
-                {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save Settings'}
-              </button>
+                {saving ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Saving...
+                  </>
+                ) : saved ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Saved!
+                  </>
+                ) : (
+                  'Save Settings'
+                )}
+              </ThemedButton>
             </div>
           </div>
-        </div>
-      </header>
+        </ThemedCard>
 
-      <div className="max-w-6xl mx-auto px-4 py-6">
         {/* Settings Navigation */}
-        <div className="bg-white rounded-xl shadow-lg mb-6">
-          <div className="border-b border-gray-200">
+        <ThemedCard className="mb-6">
+          <div className="border-b border-gray-700">
             <nav className="flex space-x-8 px-6">
-              {[
-                { id: 'business', label: '🏢 Business', icon: '🏢' },
-                { id: 'pricing', label: '💰 Pricing', icon: '💰' },
-                { id: 'operations', label: '⚙️ Operations', icon: '⚙️' },
-                { id: 'notifications', label: '📱 Notifications', icon: '📱' },
-                { id: 'system', label: '🛡️ System', icon: '🛡️' }
-              ].map((tab) => (
+              {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
+                  className={cn(
+                    "py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors",
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
+                      ? "border-cyan-500 text-cyan-400"
+                      : "border-transparent text-gray-400 hover:text-gray-300"
+                  )}
                 >
                   <span>{tab.icon}</span>
                   {tab.label}
@@ -230,61 +328,48 @@ export default function SettingsPage() {
             {/* Business Settings */}
             {activeTab === 'business' && (
               <div className="space-y-6">
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Business Information</h3>
-                
+                <h3 className="text-2xl font-bold text-white mb-6">Business Information</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Business Name</label>
-                    <input
-                      type="text"
-                      value={settings.businessName}
-                      onChange={(e) => handleInputChange('businessName', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <ThemedInput
+                    label="Business Name"
+                    value={settings.businessName}
+                    onChange={(e) => handleInputChange('businessName', e.target.value)}
+                    error={errors.businessName}
+                    required
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Business Phone</label>
-                    <input
-                      type="tel"
-                      value={settings.businessPhone}
-                      onChange={(e) => handleInputChange('businessPhone', e.target.value)}
-                      placeholder="Enter business phone number"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <ThemedInput
+                    label="Business Phone"
+                    type="tel"
+                    value={settings.businessPhone}
+                    onChange={(e) => handleInputChange('businessPhone', e.target.value)}
+                    placeholder="Enter business phone number"
+                  />
                   
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Business Address</label>
+                    <label className="block text-lg font-semibold text-white mb-2">Business Address</label>
                     <textarea
                       value={settings.businessAddress}
                       onChange={(e) => handleInputChange('businessAddress', e.target.value)}
                       rows="3"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className={theme.components.input.base + " resize-none"}
                     />
                   </div>
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Business Email</label>
-                    <input
-                      type="email"
-                      value={settings.businessEmail}
-                      onChange={(e) => handleInputChange('businessEmail', e.target.value)}
-                      placeholder="business@mrtravels.com"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <ThemedInput
+                    label="Business Email"
+                    type="email"
+                    value={settings.businessEmail}
+                    onChange={(e) => handleInputChange('businessEmail', e.target.value)}
+                    placeholder="business@mrtravels.com"
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">GST Number</label>
-                    <input
-                      type="text"
-                      value={settings.gstNumber}
-                      onChange={(e) => handleInputChange('gstNumber', e.target.value)}
-                      placeholder="Enter GST number (optional)"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <ThemedInput
+                    label="GST Number"
+                    value={settings.gstNumber}
+                    onChange={(e) => handleInputChange('gstNumber', e.target.value)}
+                    placeholder="Enter GST number (optional)"
+                  />
                 </div>
               </div>
             )}
@@ -292,128 +377,97 @@ export default function SettingsPage() {
             {/* Pricing Settings */}
             {activeTab === 'pricing' && (
               <div className="space-y-6">
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Pricing Configuration</h3>
-                
+                <h3 className="text-2xl font-bold text-white mb-6">Pricing Configuration</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Base Hourly Rate (₹)</label>
-                    <input
-                      type="number"
-                      value={settings.hourlyRate}
-                      onChange={(e) => handleInputChange('hourlyRate', parseInt(e.target.value) || 0)}
-                      min="1"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">Base rate for first period</p>
-                  </div>
+                  <ThemedInput
+                    label="Base Hourly Rate (₹)"
+                    type="number"
+                    value={settings.hourlyRate}
+                    onChange={(e) => handleInputChange('hourlyRate', parseInt(e.target.value) || 0)}
+                    min="1"
+                    error={errors.hourlyRate}
+                    required
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Grace Period (Minutes)</label>
-                    <input
-                      type="number"
-                      value={settings.graceMinutes}
-                      onChange={(e) => handleInputChange('graceMinutes', parseInt(e.target.value) || 0)}
-                      min="0"
-                      max="60"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">Free minutes added to first hour</p>
-                  </div>
+                  <ThemedInput
+                    label="Grace Period (Minutes)"
+                    type="number"
+                    value={settings.graceMinutes}
+                    onChange={(e) => handleInputChange('graceMinutes', parseInt(e.target.value) || 0)}
+                    min="0"
+                    max="60"
+                    error={errors.graceMinutes}
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Block Duration (Minutes)</label>
-                    <input
-                      type="number"
-                      value={settings.blockMinutes}
-                      onChange={(e) => handleInputChange('blockMinutes', parseInt(e.target.value) || 30)}
-                      min="15"
-                      max="60"
-                      step="15"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">Duration of subsequent billing blocks</p>
-                  </div>
+                  <ThemedInput
+                    label="Block Duration (Minutes)"
+                    type="number"
+                    value={settings.blockMinutes}
+                    onChange={(e) => handleInputChange('blockMinutes', parseInt(e.target.value) || 30)}
+                    min="15"
+                    max="60"
+                    step="15"
+                    error={errors.blockMinutes}
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Night Charge Time</label>
-                    <input
-                      type="time"
-                      value={settings.nightChargeTime}
-                      onChange={(e) => handleInputChange('nightChargeTime', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">When night charges begin (e.g., 22:30 = 10:30 PM)</p>
-                  </div>
+                  <ThemedInput
+                    label="Night Charge Time"
+                    type="time"
+                    value={settings.nightChargeTime}
+                    onChange={(e) => handleInputChange('nightChargeTime', e.target.value)}
+                    error={errors.nightChargeTime}
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Night Charge Multiplier</label>
-                    <select
-                      value={settings.nightMultiplier}
-                      onChange={(e) => handleInputChange('nightMultiplier', parseFloat(e.target.value))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-                    >
-                      <option value="1.5">1.5x (₹{Math.round(settings.hourlyRate * 1.5)})</option>
-                      <option value="2">2x (₹{settings.hourlyRate * 2})</option>
-                      <option value="2.5">2.5x (₹{Math.round(settings.hourlyRate * 2.5)})</option>
-                      <option value="3">3x (₹{settings.hourlyRate * 3})</option>
-                    </select>
-                    <p className="text-sm text-gray-500 mt-1">Multiplier for night charges</p>
-                  </div>
+                  <ThemedSelect
+                    label="Night Charge Multiplier"
+                    value={settings.nightMultiplier.toString()}
+                    onValueChange={(value) => handleInputChange('nightMultiplier', parseFloat(value))}
+                    options={[
+                      { value: '1.5', label: `1.5x (₹${Math.round(settings.hourlyRate * 1.5)})` },
+                      { value: '2', label: `2x (₹${settings.hourlyRate * 2})` },
+                      { value: '2.5', label: `2.5x (₹${Math.round(settings.hourlyRate * 2.5)})` },
+                      { value: '3', label: `3x (₹${settings.hourlyRate * 3})` }
+                    ]}
+                    error={errors.nightMultiplier}
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Late Fee per Hour (₹)</label>
-                    <input
-                      type="number"
-                      value={settings.lateFeePerHour}
-                      onChange={(e) => handleInputChange('lateFeePerHour', parseInt(e.target.value) || 0)}
-                      min="0"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">Additional penalty for overdue returns</p>
-                  </div>
+                  <ThemedInput
+                    label="Late Fee per Hour (₹)"
+                    type="number"
+                    value={settings.lateFeePerHour}
+                    onChange={(e) => handleInputChange('lateFeePerHour', parseInt(e.target.value) || 0)}
+                    min="0"
+                  />
                 </div>
-                
+
                 {/* Advanced Pricing Preview */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mt-8">
-                  <h4 className="font-semibold text-blue-900 mb-4">💡 Advanced Pricing Preview</h4>
+                <div className="bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-700/50 rounded-lg p-6 mt-8">
+                  <h4 className="font-semibold text-blue-200 mb-4">💡 Advanced Pricing Preview</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <h5 className="font-medium text-blue-800 mb-3">Day Time Examples:</h5>
+                      <h5 className="font-medium text-blue-300 mb-3">Day Time Examples:</h5>
                       <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>0-{60 + settings.graceMinutes} minutes:</span>
-                          <span className="font-semibold">₹{settings.hourlyRate}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Up to {60 + settings.graceMinutes + settings.blockMinutes} minutes:</span>
-                          <span className="font-semibold">₹{settings.hourlyRate + Math.round(settings.hourlyRate / 2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Up to {60 + settings.graceMinutes + settings.blockMinutes * 2} minutes:</span>
-                          <span className="font-semibold">₹{settings.hourlyRate + Math.round(settings.hourlyRate / 2) * 2}</span>
-                        </div>
+                        {pricingExamples.day.map((example, index) => (
+                          <div key={index} className="flex justify-between">
+                            <span className="text-blue-200">{example.duration}:</span>
+                            <span className="font-semibold text-white">₹{example.amount}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                    
                     <div>
-                      <h5 className="font-medium text-blue-800 mb-3">Night Time Examples (after {settings.nightChargeTime}):</h5>
+                      <h5 className="font-medium text-blue-300 mb-3">Night Time Examples (after {settings.nightChargeTime}):</h5>
                       <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>First period (crosses night time):</span>
-                          <span className="font-semibold text-orange-600">₹{settings.hourlyRate * settings.nightMultiplier}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>30-min blocks (crosses night time):</span>
-                          <span className="font-semibold text-orange-600">₹{Math.round(settings.hourlyRate / 2) * settings.nightMultiplier}</span>
-                        </div>
-                        <div className="text-xs text-blue-700 mt-2">
-                          Night charges apply to blocks that cross {settings.nightChargeTime}
-                        </div>
+                        {pricingExamples.night.map((example, index) => (
+                          <div key={index} className="flex justify-between">
+                            <span className="text-blue-200">{example.duration}:</span>
+                            <span className="font-semibold text-orange-400">₹{example.amount}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="mt-4 p-3 bg-blue-100 rounded text-sm text-blue-800">
+                  <div className="mt-4 p-3 bg-blue-800/30 rounded text-sm text-blue-200">
                     <strong>Billing Structure:</strong> First {60 + settings.graceMinutes} minutes = ₹{settings.hourlyRate}, 
                     then ₹{Math.round(settings.hourlyRate / 2)} per {settings.blockMinutes}-minute block. 
                     Night multiplier (×{settings.nightMultiplier}) applies to any block crossing {settings.nightChargeTime}.
@@ -425,88 +479,59 @@ export default function SettingsPage() {
             {/* Operations Settings */}
             {activeTab === 'operations' && (
               <div className="space-y-6">
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Operational Settings</h3>
-                
+                <h3 className="text-2xl font-bold text-white mb-6">Operational Settings</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Operating Hours - Start</label>
-                    <input
-                      type="time"
-                      value={settings.operatingHours.start}
-                      onChange={(e) => handleInputChange('start', e.target.value, 'operatingHours')}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <ThemedInput
+                    label="Operating Hours - Start"
+                    type="time"
+                    value={settings.operatingHours.start}
+                    onChange={(e) => handleInputChange('start', e.target.value, 'operatingHours')}
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Operating Hours - End</label>
-                    <input
-                      type="time"
-                      value={settings.operatingHours.end}
-                      onChange={(e) => handleInputChange('end', e.target.value, 'operatingHours')}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <ThemedInput
+                    label="Operating Hours - End"
+                    type="time"
+                    value={settings.operatingHours.end}
+                    onChange={(e) => handleInputChange('end', e.target.value, 'operatingHours')}
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Max Advance Booking (Days)</label>
-                    <input
-                      type="number"
-                      value={settings.maxAdvanceBookingDays}
-                      onChange={(e) => handleInputChange('maxAdvanceBookingDays', parseInt(e.target.value) || 1)}
-                      min="1"
-                      max="30"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <ThemedInput
+                    label="Max Advance Booking (Days)"
+                    type="number"
+                    value={settings.maxAdvanceBookingDays}
+                    onChange={(e) => handleInputChange('maxAdvanceBookingDays', parseInt(e.target.value) || 1)}
+                    min="1"
+                    max="30"
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Return Reminder (Minutes)</label>
-                    <input
-                      type="number"
-                      value={settings.reminderTimeBeforeReturn}
-                      onChange={(e) => handleInputChange('reminderTimeBeforeReturn', parseInt(e.target.value) || 30)}
-                      min="5"
-                      max="120"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">Send reminder before expected return</p>
-                  </div>
+                  <ThemedInput
+                    label="Return Reminder (Minutes)"
+                    type="number"
+                    value={settings.reminderTimeBeforeReturn}
+                    onChange={(e) => handleInputChange('reminderTimeBeforeReturn', parseInt(e.target.value) || 30)}
+                    min="5"
+                    max="120"
+                  />
                 </div>
 
                 <div className="space-y-4">
-                  <h4 className="text-lg font-semibold text-gray-900">Document Requirements</h4>
-                  
+                  <h4 className="text-lg font-semibold text-white">Document Requirements</h4>
                   <div className="space-y-3">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.requireAadharPhoto}
-                        onChange={(e) => handleInputChange('requireAadharPhoto', e.target.checked)}
-                        className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span className="ml-3 text-sm font-medium text-gray-700">Require Aadhar card photo</span>
-                    </label>
-                    
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.requireSignature}
-                        onChange={(e) => handleInputChange('requireSignature', e.target.checked)}
-                        className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span className="ml-3 text-sm font-medium text-gray-700">Require digital signature</span>
-                    </label>
-                    
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.requireLicenseVerification}
-                        onChange={(e) => handleInputChange('requireLicenseVerification', e.target.checked)}
-                        className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span className="ml-3 text-sm font-medium text-gray-700">Verify driving license</span>
-                    </label>
+                    {[
+                      { key: 'requireAadharPhoto', label: 'Require Aadhar card photo' },
+                      { key: 'requireSignature', label: 'Require digital signature' },
+                      { key: 'requireLicenseVerification', label: 'Verify driving license' }
+                    ].map((requirement) => (
+                      <label key={requirement.key} className="flex items-center space-x-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings[requirement.key]}
+                          onChange={(e) => handleInputChange(requirement.key, e.target.checked)}
+                          className="w-5 h-5 text-cyan-600 border-gray-600 rounded focus:ring-cyan-500 bg-gray-800"
+                        />
+                        <span className="text-white">{requirement.label}</span>
+                      </label>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -515,58 +540,36 @@ export default function SettingsPage() {
             {/* Notifications Settings */}
             {activeTab === 'notifications' && (
               <div className="space-y-6">
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Notification Preferences</h3>
-                
+                <h3 className="text-2xl font-bold text-white mb-6">Notification Preferences</h3>
                 <div className="space-y-6">
-                  <div className="border border-gray-200 rounded-lg p-6">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Communication Channels</h4>
-                    
+                  <div className="border border-gray-600 rounded-lg p-6">
+                    <h4 className="text-lg font-semibold text-white mb-4">Communication Channels</h4>
                     <div className="space-y-4">
-                      <label className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm font-medium text-gray-700">📱 SMS Notifications</span>
-                          <p className="text-sm text-gray-500">Send booking confirmations and reminders via SMS</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={settings.smsNotifications}
-                          onChange={(e) => handleInputChange('smsNotifications', e.target.checked)}
-                          className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                      </label>
-                      
-                      <label className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm font-medium text-gray-700">📧 Email Notifications</span>
-                          <p className="text-sm text-gray-500">Send receipts and updates via email</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={settings.emailNotifications}
-                          onChange={(e) => handleInputChange('emailNotifications', e.target.checked)}
-                          className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                      </label>
-                      
-                      <label className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm font-medium text-gray-700">💬 WhatsApp Notifications</span>
-                          <p className="text-sm text-gray-500">Send updates via WhatsApp Business</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={settings.whatsappNotifications}
-                          onChange={(e) => handleInputChange('whatsappNotifications', e.target.checked)}
-                          className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                      </label>
+                      {[
+                        { key: 'smsNotifications', label: '📱 SMS Notifications', description: 'Send booking confirmations and reminders via SMS' },
+                        { key: 'emailNotifications', label: '📧 Email Notifications', description: 'Send receipts and updates via email' },
+                        { key: 'whatsappNotifications', label: '💬 WhatsApp Notifications', description: 'Send updates via WhatsApp Business' }
+                      ].map((notification) => (
+                        <label key={notification.key} className="flex items-start justify-between cursor-pointer">
+                          <div className="flex-1">
+                            <span className="text-white font-medium">{notification.label}</span>
+                            <p className="text-sm text-gray-400">{notification.description}</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={settings[notification.key]}
+                            onChange={(e) => handleInputChange(notification.key, e.target.checked)}
+                            className="w-5 h-5 text-cyan-600 border-gray-600 rounded focus:ring-cyan-500 bg-gray-800 mt-1"
+                          />
+                        </label>
+                      ))}
                     </div>
                   </div>
                   
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-                    <h4 className="font-semibold text-yellow-900 mb-2">🚧 Coming Soon</h4>
-                    <p className="text-sm text-yellow-800">
-                      Notification features will be implemented in the next update. 
+                  <div className="bg-gradient-to-r from-orange-900/50 to-orange-800/50 border border-orange-700/50 rounded-lg p-6">
+                    <h4 className="font-semibold text-orange-200 mb-2">🚧 Coming Soon</h4>
+                    <p className="text-sm text-orange-300">
+                      Notification features will be implemented in the next update.
                       Configure your preferences now for when they become available.
                     </p>
                   </div>
@@ -577,108 +580,137 @@ export default function SettingsPage() {
             {/* System Settings */}
             {activeTab === 'system' && (
               <div className="space-y-6">
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">System & Data Management</h3>
-                
+                <h3 className="text-2xl font-bold text-white mb-6">System & Data Management</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-gray-900">Backup Settings</h4>
-                    
-                    <label className="flex items-center">
+                    <h4 className="text-lg font-semibold text-white">Backup Settings</h4>
+                    <label className="flex items-center space-x-3 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={settings.autoBackup}
                         onChange={(e) => handleInputChange('autoBackup', e.target.checked)}
-                        className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        className="w-5 h-5 text-cyan-600 border-gray-600 rounded focus:ring-cyan-500 bg-gray-800"
                       />
-                      <span className="ml-3 text-sm font-medium text-gray-700">Enable automatic backups</span>
+                      <span className="text-white">Enable automatic backups</span>
                     </label>
                     
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Backup Frequency</label>
-                      <select
-                        value={settings.backupFrequency}
-                        onChange={(e) => handleInputChange('backupFrequency', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
-                      </select>
-                    </div>
+                    <ThemedSelect
+                      label="Backup Frequency"
+                      value={settings.backupFrequency}
+                      onValueChange={(value) => handleInputChange('backupFrequency', value)}
+                      options={[
+                        { value: 'daily', label: 'Daily' },
+                        { value: 'weekly', label: 'Weekly' },
+                        { value: 'monthly', label: 'Monthly' }
+                      ]}
+                    />
                     
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Data Retention (Months)</label>
-                      <input
-                        type="number"
-                        value={settings.dataRetentionMonths}
-                        onChange={(e) => handleInputChange('dataRetentionMonths', parseInt(e.target.value) || 12)}
-                        min="6"
-                        max="60"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      />
-                      <p className="text-sm text-gray-500 mt-1">How long to keep completed booking data</p>
-                    </div>
+                    <ThemedInput
+                      label="Data Retention (Months)"
+                      type="number"
+                      value={settings.dataRetentionMonths}
+                      onChange={(e) => handleInputChange('dataRetentionMonths', parseInt(e.target.value) || 12)}
+                      min="6"
+                      max="60"
+                    />
                   </div>
                   
                   <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-gray-900">Data Export</h4>
-                    
-                    <button
+                    <h4 className="text-lg font-semibold text-white">Data Export</h4>
+                    <ThemedButton
+                      variant="success"
                       onClick={exportData}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-medium"
+                      className="w-full flex items-center justify-center gap-2"
                     >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
                       📊 Export All Data
-                    </button>
-                    
-                    <p className="text-sm text-gray-500">
+                    </ThemedButton>
+                    <p className="text-sm text-gray-400">
                       Export all bookings, customers, and vehicle data to CSV files for backup or analysis.
                     </p>
                     
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                      <h5 className="font-semibold text-red-900 mb-2">⚠️ Data Security</h5>
-                      <p className="text-sm text-red-800">
-                        Exported data contains sensitive customer information. 
+                    <div className="bg-gradient-to-r from-red-900/50 to-red-800/50 border border-red-700/50 rounded-lg p-4">
+                      <h5 className="font-semibold text-red-200 mb-2">⚠️ Data Security</h5>
+                      <p className="text-sm text-red-300">
+                        Exported data contains sensitive customer information.
                         Handle with care and ensure secure storage.
                       </p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* System Status */}
+                <div className="bg-gradient-to-r from-green-900/50 to-green-800/50 border border-green-700/50 rounded-lg p-6">
+                  <h4 className="font-semibold text-green-200 mb-4">System Health Status</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl mb-2">🟢</div>
+                      <div className="text-green-200 text-sm">Database</div>
+                      <div className="text-green-400 font-medium">Online</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-2">🟢</div>
+                      <div className="text-green-200 text-sm">API Status</div>
+                      <div className="text-green-400 font-medium">Healthy</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-2">🟢</div>
+                      <div className="text-green-200 text-sm">Backup</div>
+                      <div className="text-green-400 font-medium">2h ago</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-2">🟢</div>
+                      <div className="text-green-200 text-sm">Uptime</div>
+                      <div className="text-green-400 font-medium">99.9%</div>
                     </div>
                   </div>
                 </div>
               </div>
             )}
           </div>
-        </div>
-        
+        </ThemedCard>
+
         {/* Quick Actions */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Link
-              href="/admin"
-              className="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-lg text-center font-medium"
-            >
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Link href="/admin">
+            <ThemedButton variant="primary" className="w-full flex items-center justify-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
               📊 Admin Dashboard
-            </Link>
-            <Link
-              href="/admin/bookings"
-              className="bg-green-600 hover:bg-green-700 text-white p-4 rounded-lg text-center font-medium"
-            >
+            </ThemedButton>
+          </Link>
+          
+          <Link href="/admin/bookings">
+            <ThemedButton variant="secondary" className="w-full flex items-center justify-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v11a2 2 0 002 2h9.5M15 8v7m0 0l3-3m-3 3l-3-3" />
+              </svg>
               📋 All Bookings
-            </Link>
-            <Link
-              href="/customers"
-              className="bg-purple-600 hover:bg-purple-700 text-white p-4 rounded-lg text-center font-medium"
-            >
+            </ThemedButton>
+          </Link>
+          
+          <Link href="/customers">
+            <ThemedButton variant="secondary" className="w-full flex items-center justify-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+              </svg>
               👥 Customers
-            </Link>
-            <Link
-              href="/vehicles"
-              className="bg-orange-600 hover:bg-orange-700 text-white p-4 rounded-lg text-center font-medium"
-            >
+            </ThemedButton>
+          </Link>
+          
+          <Link href="/vehicles">
+            <ThemedButton variant="secondary" className="w-full flex items-center justify-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
               🚗 Vehicles
-            </Link>
-          </div>
+            </ThemedButton>
+          </Link>
         </div>
       </div>
-    </div>
+    </ThemedLayout>
   );
 }
