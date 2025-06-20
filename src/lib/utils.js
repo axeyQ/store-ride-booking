@@ -14,50 +14,31 @@ export function generateBookingId() {
   return `MRT-${dateStr}-${randomNum}`;
 }
 
-export function calculateAmount(hours, ratePerHour = 80) {
-  return hours * ratePerHour;
-}
-
 export function formatCurrency(amount) {
   return `₹${amount.toLocaleString('en-IN')}`;
 }
 
-export function calculateDuration(startTime, endTime) {
-  const diffMs = new Date(endTime) - new Date(startTime);
-  return Math.ceil(diffMs / (1000 * 60 * 60)); // Convert to hours and round up
+export function calculateDuration(startTime, endTime = new Date()) {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const diffMs = end - start;
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  
+  return {
+    hours,
+    minutes,
+    totalHours: Math.ceil(diffMs / (1000 * 60 * 60)),
+    totalMinutes: Math.floor(diffMs / (1000 * 60))
+  };
 }
 
-export function formatDateTime(date) {
-  return new Date(date).toLocaleString('en-IN', {
+export function formatDateTime(dateString) {
+  return new Date(dateString).toLocaleString('en-IN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
   });
-}
-
-// Theme utilities
-export function getThemeColor(colorName, opacity = 1) {
-  const colors = {
-    cyan: `rgba(6, 182, 212, ${opacity})`,
-    blue: `rgba(59, 130, 246, ${opacity})`,
-    green: `rgba(34, 197, 94, ${opacity})`,
-    orange: `rgba(249, 115, 22, ${opacity})`,
-    purple: `rgba(168, 85, 247, ${opacity})`,
-    red: `rgba(239, 68, 68, ${opacity})`
-  };
-  return colors[colorName] || colors.cyan;
-}
-
-export function getStatusColor(status) {
-  const statusColors = {
-    active: 'orange',
-    completed: 'green',
-    available: 'green',
-    rented: 'orange',
-    maintenance: 'red',
-    cancelled: 'red'
-  };
-  return statusColors[status] || 'gray';
 }

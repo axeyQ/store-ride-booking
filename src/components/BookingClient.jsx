@@ -618,11 +618,17 @@ export default function EnhancedBookingClientPage() {
                   <div className="text-lg font-medium text-white">
                     I have read and agree to the rental terms and conditions. I understand that:
                     <ul className="mt-2 text-sm text-gray-300 list-disc list-inside space-y-1">
-                      <li>Payment will be collected upon vehicle return</li>
-                      <li>Rate is ₹{settings.hourlyRate} per hour or part thereof</li>
-                      <li>I am responsible for vehicle safety and damages</li>
-                      <li>Helmet must be worn at all times</li>
-                      <li>Late return incurs additional charges of ₹{settings.lateFeePerHour || 20}/hour</li>
+                      <li>Bring your <strong>Aadhar Card</strong> and <strong>Driving License</strong> at the pickup time</li>
+                      <li>Rate is <strong>₹{settings.hourlyRate}</strong> per hour</li>
+                      <li>For first hour the amount will be <strong>₹{settings.hourlyRate}</strong> even after you come within a minute after pickup time.</li>
+                      <li>For first 75 minutes (base hour + 15 minutes grace period), amount will be <strong>₹{settings.hourlyRate}</strong>, but after that in each 30 minute block the amount <strong>₹{(settings.hourlyRate)/2} will be added.</strong></li>
+                      <li>Either you need to provide your <strong>Aadhar Card</strong> or a security deposit of <strong>₹ 500</strong>, it will be returned once you return the vehicle in provided condition.</li>
+                      <li>Please wear the helmet(provided by the firm) and follow traffic rules. If you are caught by police, you are <strong>solely responsible</strong> and have to <strong>pay the required fines</strong>.</li>
+                      <li>If any damage is found on the vehicle then you have to pay the repair cost.</li>
+                      <li>If you do not return before 10:00 P.M then <strong>₹{settings.hourlyRate}</strong> extra will be charged for that hour that is <strong>₹{settings.hourlyRate + settings.hourlyRate}</strong></li>
+                      <li>If you are not able to return the vehicle before 10:30 P.M then store will be closed and you'll have return it back in the morning with <strong>₹500</strong> fine.</li>
+                      <li>If <strong>3 people</strong> are found on a single vehicle then <strong>₹500</strong> fine will be charged.</li>
+                      <li>You'll get the fuel till the fuel station and if by some reason fuel is done for then you can call us and we'll provide the fuel so that you can reach the fuel station.</li>
                     </ul>
                   </div>
                 </label>
