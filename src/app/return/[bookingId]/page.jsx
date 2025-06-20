@@ -1,7 +1,8 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import QRCode from 'qrcode';
 import { 
   ThemedLayout, 
   ThemedCard, 
@@ -22,6 +23,20 @@ export default function ThemedVehicleReturnPage() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [paymentReceived, setPaymentReceived] = useState(false);
+
+  // Advanced pricing state
+  const [advancedPricing, setAdvancedPricing] = useState({
+    totalAmount: 0,
+    breakdown: [],
+    totalMinutes: 0,
+    summary: ''
+  });
+
+  // UPI Configuration
+  const UPI_ID = '6261302374@ybl'; // Your test UPI ID
+  const BUSINESS_NAME = 'MR Travels';
 
   // Return form state
   const [returnData, setReturnData] = useState({
@@ -45,6 +60,23 @@ export default function ThemedVehicleReturnPage() {
     return () => clearInterval(timeInterval);
   }, [bookingId]);
 
+  // Fetch advanced pricing when booking is loaded or time updates
+  useEffect(() => {
+    if (booking) {
+      fetchAdvancedPricing();
+      // Update pricing every minute
+      const pricingInterval = setInterval(fetchAdvancedPricing, 60000);
+      return () => clearInterval(pricingInterval);
+    }
+  }, [booking, currentTime]);
+
+  // Generate UPI QR Code when payment method changes to UPI or amount updates
+  useEffect(() => {
+    if (returnData.paymentMethod === 'upi' && booking && advancedPricing.totalAmount > 0) {
+      generateUPIQRCode();
+    }
+  }, [returnData.paymentMethod, booking, advancedPricing.totalAmount, returnData.discountAmount, returnData.additionalCharges]);
+
   const fetchBookingDetails = async () => {
     try {
       const response = await fetch(`/api/bookings/${bookingId}`);
@@ -66,6 +98,47 @@ export default function ThemedVehicleReturnPage() {
     }
   };
 
+  // Fetch advanced pricing from API
+  const fetchAdvancedPricing = async () => {
+    if (!booking) return;
+    
+    try {
+      const response = await fetch(`/api/bookings/current-amount/${booking._id}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setAdvancedPricing({
+          totalAmount: data.currentAmount,
+          breakdown: data.breakdown || [],
+          totalMinutes: data.totalMinutes || 0,
+          summary: data.summary || ''
+        });
+      } else {
+        console.error('Error fetching advanced pricing:', data.error);
+        // Fallback to simple calculation
+        const duration = calculateDuration(booking.startTime, currentTime);
+        const baseAmount = duration.totalHours * 80;
+        setAdvancedPricing({
+          totalAmount: baseAmount,
+          breakdown: [],
+          totalMinutes: duration.totalMinutes,
+          summary: `${duration.hours}h ${duration.minutes}m (simple calculation)`
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching advanced pricing:', error);
+      // Fallback to simple calculation
+      const duration = calculateDuration(booking.startTime, currentTime);
+      const baseAmount = duration.totalHours * 80;
+      setAdvancedPricing({
+        totalAmount: baseAmount,
+        breakdown: [],
+        totalMinutes: duration.totalMinutes,
+        summary: `${duration.hours}h ${duration.minutes}m (simple calculation)`
+      });
+    }
+  };
+
   const calculateDuration = (startTime, endTime = currentTime) => {
     const start = new Date(startTime);
     const end = new Date(endTime);
@@ -81,16 +154,51 @@ export default function ThemedVehicleReturnPage() {
   };
 
   const calculateFinalAmount = () => {
-    if (!booking) return 0;
-    const duration = calculateDuration(booking.startTime, currentTime);
-    const baseAmount = duration.totalHours * 80;
     const discount = returnData.discountAmount || 0;
     const additionalCharges = returnData.additionalCharges || 0;
-    return Math.max(0, baseAmount - discount + additionalCharges);
+    return Math.max(0, advancedPricing.totalAmount - discount + additionalCharges);
+  };
+
+  const generateUPIQRCode = async () => {
+    try {
+      const finalAmount = calculateFinalAmount();
+      const transactionNote = `Vehicle Return ${booking.bookingId} - ${booking.vehicleId.model}`;
+      
+      // UPI Payment URL format
+      const upiUrl = `upi://pay?pa=${UPI_ID}&pn=${encodeURIComponent(BUSINESS_NAME)}&am=${finalAmount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+      
+      // Generate QR Code
+      const qrDataUrl = await QRCode.toDataURL(upiUrl, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      
+      setQrCodeUrl(qrDataUrl);
+    } catch (error) {
+      console.error('Error generating QR code:', error);
+    }
+  };
+
+  const copyUPIDetails = () => {
+    const finalAmount = calculateFinalAmount();
+    const upiDetails = `UPI ID: ${UPI_ID}\nAmount: ₹${finalAmount}\nNote: Vehicle Return ${booking.bookingId}`;
+    navigator.clipboard.writeText(upiDetails);
+    alert('UPI details copied to clipboard!');
   };
 
   const handleReturn = async () => {
     if (!booking) return;
+    
+    // For UPI payments, confirm payment received
+    if (returnData.paymentMethod === 'upi' && !paymentReceived) {
+      alert('Please confirm that UPI payment has been received before completing the return.');
+      return;
+    }
+    
     setProcessing(true);
     try {
       const duration = calculateDuration(booking.startTime, currentTime);
@@ -194,18 +302,22 @@ export default function ThemedVehicleReturnPage() {
             <div>
               <div className="text-3xl font-bold">{duration.hours}h {duration.minutes}m</div>
               <div className="text-green-100">Total Duration</div>
+              <div className="text-xs text-green-200 mt-1">{duration.totalMinutes} minutes</div>
             </div>
             <div>
-              <div className="text-3xl font-bold">{duration.totalHours} hours</div>
-              <div className="text-green-100">Billable Hours</div>
+              <div className="text-3xl font-bold">₹{advancedPricing.totalAmount.toLocaleString('en-IN')}</div>
+              <div className="text-green-100">Advanced Pricing</div>
+              <div className="text-xs text-green-200 mt-1">System calculated</div>
             </div>
             <div>
               <div className="text-3xl font-bold">₹80</div>
-              <div className="text-green-100">Rate per Hour</div>
+              <div className="text-green-100">Base Rate</div>
+              <div className="text-xs text-green-200 mt-1">First hour + grace</div>
             </div>
             <div>
               <div className="text-4xl font-bold">₹{finalAmount.toLocaleString('en-IN')}</div>
               <div className="text-green-100">Final Amount</div>
+              <div className="text-xs text-green-200 mt-1">After adjustments</div>
             </div>
           </div>
         </div>
@@ -263,6 +375,83 @@ export default function ThemedVehicleReturnPage() {
                 </div>
               ))}
             </div>
+
+            {/* UPI QR Code Section */}
+            {returnData.paymentMethod === 'upi' && (
+              <div className="mt-8 p-6 bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-500/50 rounded-xl">
+                <h4 className="text-xl font-bold text-blue-200 mb-4 text-center">
+                  📱 UPI Payment - ₹{finalAmount.toLocaleString('en-IN')}
+                </h4>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* QR Code */}
+                  <div className="text-center">
+                    <div className="bg-white p-4 rounded-xl inline-block mb-4">
+                      {qrCodeUrl ? (
+                        <img src={qrCodeUrl} alt="UPI QR Code" className="w-64 h-64" />
+                      ) : (
+                        <div className="w-64 h-64 flex items-center justify-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-blue-200 text-sm">Scan with any UPI app</p>
+                  </div>
+
+                  {/* UPI Details */}
+                  <div className="space-y-4">
+                    <div className="bg-blue-800/30 rounded-lg p-4">
+                      <h5 className="font-semibold text-blue-200 mb-2">Payment Details</h5>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-blue-300">Amount:</span>
+                          <span className="font-bold text-white">₹{finalAmount.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-blue-300">UPI ID:</span>
+                          <span className="font-mono text-white">{UPI_ID}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-blue-300">Payee:</span>
+                          <span className="text-white">{BUSINESS_NAME}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-blue-300">Note:</span>
+                          <span className="text-white text-xs">Return {booking.bookingId}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <ThemedButton
+                        variant="secondary"
+                        onClick={copyUPIDetails}
+                        className="w-full text-sm"
+                      >
+                        📋 Copy UPI Details
+                      </ThemedButton>
+
+
+
+                      {/* Payment Confirmation */}
+                      <div className="mt-4">
+                        <label className="flex items-center space-x-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={paymentReceived}
+                            onChange={(e) => setPaymentReceived(e.target.checked)}
+                            className="w-5 h-5 text-green-600 border-2 border-gray-300 rounded focus:ring-green-500"
+                          />
+                          <span className="text-white font-medium">
+                            ✅ UPI Payment Received (₹{finalAmount.toLocaleString('en-IN')})
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </ThemedCard>
 
           {/* Vehicle Condition Assessment */}
@@ -354,14 +543,38 @@ export default function ThemedVehicleReturnPage() {
           </div>
         </ThemedCard>
 
-        {/* Final Payment Breakdown */}
+        {/* Advanced Pricing Breakdown */}
         <div className="bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-700/50 rounded-xl p-8 mt-8">
-          <h3 className="text-2xl font-bold text-blue-200 mb-6 text-center">Payment Breakdown</h3>
+          <h3 className="text-2xl font-bold text-blue-200 mb-6 text-center">Advanced Payment Breakdown</h3>
           <div className="space-y-4">
             <div className="flex justify-between text-lg">
-              <span className="text-blue-200">Base Amount ({duration.totalHours} hours × ₹80):</span>
-              <span className="font-semibold text-white">₹{(duration.totalHours * 80).toLocaleString('en-IN')}</span>
+              <span className="text-blue-200">Advanced Pricing Calculation:</span>
+              <span className="font-semibold text-white">₹{advancedPricing.totalAmount.toLocaleString('en-IN')}</span>
             </div>
+            
+            {/* Show pricing breakdown if available */}
+            {advancedPricing.breakdown && advancedPricing.breakdown.length > 0 && (
+              <div className="bg-blue-800/30 rounded-lg p-4">
+                <h5 className="font-semibold text-blue-200 mb-3">Detailed Breakdown:</h5>
+                <div className="space-y-2">
+                  {advancedPricing.breakdown.map((block, index) => (
+                    <div key={index} className="flex justify-between text-sm text-blue-100">
+                      <span>
+                        {block.period} ({block.minutes}min)
+                        {block.isNightCharge && <span className="ml-1 text-orange-300">🌙</span>}
+                      </span>
+                      <span className="font-medium">₹{block.rate}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 pt-2 border-t border-blue-600/30">
+                  <div className="text-xs text-blue-300">
+                    📊 System: {advancedPricing.summary}
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {returnData.discountAmount > 0 && (
               <div className="flex justify-between text-lg text-green-400">
                 <span>Discount:</span>
@@ -391,10 +604,10 @@ export default function ThemedVehicleReturnPage() {
           <ThemedButton
             variant="success"
             onClick={handleReturn}
-            disabled={processing}
+            disabled={processing || (returnData.paymentMethod === 'upi' && !paymentReceived)}
             className={cn(
               "flex-1",
-              processing && "opacity-50 cursor-not-allowed"
+              (processing || (returnData.paymentMethod === 'upi' && !paymentReceived)) && "opacity-50 cursor-not-allowed"
             )}
           >
             {processing ? (

@@ -20,6 +20,14 @@ export default function ThemedBookingDetailsPage() {
   const [error, setError] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // Advanced pricing state
+  const [advancedPricing, setAdvancedPricing] = useState({
+    totalAmount: 0,
+    breakdown: [],
+    totalMinutes: 0,
+    summary: ''
+  });
+
   useEffect(() => {
     if (bookingId) {
       fetchBookingDetails();
@@ -30,6 +38,16 @@ export default function ThemedBookingDetailsPage() {
     }, 60000);
     return () => clearInterval(timeInterval);
   }, [bookingId]);
+
+  // Fetch advanced pricing when booking is loaded or time updates
+  useEffect(() => {
+    if (booking) {
+      fetchAdvancedPricing();
+      // Update pricing every minute
+      const pricingInterval = setInterval(fetchAdvancedPricing, 60000);
+      return () => clearInterval(pricingInterval);
+    }
+  }, [booking, currentTime]);
 
   const fetchBookingDetails = async () => {
     try {
@@ -49,6 +67,47 @@ export default function ThemedBookingDetailsPage() {
     }
   };
 
+  // Fetch advanced pricing from API
+  const fetchAdvancedPricing = async () => {
+    if (!booking) return;
+    
+    try {
+      const response = await fetch(`/api/bookings/current-amount/${booking._id}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setAdvancedPricing({
+          totalAmount: data.currentAmount,
+          breakdown: data.breakdown || [],
+          totalMinutes: data.totalMinutes || 0,
+          summary: data.summary || ''
+        });
+      } else {
+        console.error('Error fetching advanced pricing:', data.error);
+        // Fallback to simple calculation
+        const duration = calculateDuration(booking.startTime);
+        const baseAmount = duration.totalHours * 80;
+        setAdvancedPricing({
+          totalAmount: baseAmount,
+          breakdown: [],
+          totalMinutes: duration.totalMinutes,
+          summary: `${duration.hours}h ${duration.minutes}m (simple calculation)`
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching advanced pricing:', error);
+      // Fallback to simple calculation
+      const duration = calculateDuration(booking.startTime);
+      const baseAmount = duration.totalHours * 80;
+      setAdvancedPricing({
+        totalAmount: baseAmount,
+        breakdown: [],
+        totalMinutes: duration.totalMinutes,
+        summary: `${duration.hours}h ${duration.minutes}m (simple calculation)`
+      });
+    }
+  };
+
   const calculateDuration = (startTime) => {
     const start = new Date(startTime);
     const diffMs = currentTime - start;
@@ -62,11 +121,6 @@ export default function ThemedBookingDetailsPage() {
       totalHours: Math.ceil(diffMs / (1000 * 60 * 60)),
       totalMinutes: Math.floor(diffMs / (1000 * 60))
     };
-  };
-
-  const calculateCurrentAmount = (startTime) => {
-    const duration = calculateDuration(startTime);
-    return duration.totalHours * 80;
   };
 
   const formatDateTime = (dateString) => {
@@ -113,7 +167,6 @@ export default function ThemedBookingDetailsPage() {
   }
 
   const duration = calculateDuration(booking.startTime);
-  const currentAmount = calculateCurrentAmount(booking.startTime);
 
   return (
     <ThemedLayout>
@@ -166,17 +219,17 @@ export default function ThemedBookingDetailsPage() {
             </div>
             <div className="text-center">
               <div className="text-4xl font-bold mb-2">
-                ₹{currentAmount.toLocaleString('en-IN')}
+                ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
               </div>
-              <div className="text-blue-100">Current Amount</div>
+              <div className="text-blue-100">Advanced Pricing</div>
               <div className="text-xs text-blue-200 mt-1">
-                {duration.totalHours} billable hours
+                System calculated
               </div>
             </div>
             <div className="text-center">
               <div className="text-4xl font-bold mb-2">₹80</div>
-              <div className="text-blue-100">Rate per Hour</div>
-              <div className="text-xs text-blue-200 mt-1">Standard rate</div>
+              <div className="text-blue-100">Base Rate</div>
+              <div className="text-xs text-blue-200 mt-1">First hour + grace</div>
             </div>
             <div className="text-center">
               <div className="text-4xl font-bold mb-2">
@@ -272,6 +325,42 @@ export default function ThemedBookingDetailsPage() {
           </div>
         </ThemedCard>
 
+        {/* Advanced Pricing Breakdown */}
+        {advancedPricing.breakdown && advancedPricing.breakdown.length > 0 && (
+          <ThemedCard title="Advanced Pricing Breakdown" description="Detailed billing calculation" className="mb-8">
+            <div className="bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-700/50 rounded-lg p-6">
+              <h4 className="text-xl font-bold text-blue-200 mb-4 text-center">
+                📊 Pricing Calculation Details
+              </h4>
+              
+              <div className="space-y-3 mb-6">
+                {advancedPricing.breakdown.map((block, index) => (
+                  <div key={index} className="flex justify-between items-center p-3 bg-blue-800/30 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-blue-300 font-medium">{block.period}</span>
+                      <span className="text-blue-100 text-sm">({block.minutes} minutes)</span>
+                      {block.isNightCharge && (
+                        <span className="text-orange-300 text-sm">🌙 Night Rate</span>
+                      )}
+                    </div>
+                    <span className="text-white font-bold">₹{block.rate}</span>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="border-t border-blue-600/30 pt-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-blue-200 font-medium">Total Amount:</span>
+                  <span className="text-2xl font-bold text-white">₹{advancedPricing.totalAmount.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="text-center mt-2">
+                  <span className="text-blue-300 text-sm">📈 {advancedPricing.summary}</span>
+                </div>
+              </div>
+            </div>
+          </ThemedCard>
+        )}
+
         {/* Pre-Rental Checklist */}
         <ThemedCard title="Pre-Rental Checklist" description="Safety and compliance verification" className="mb-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -344,24 +433,23 @@ export default function ThemedBookingDetailsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center mb-6">
               <div>
                 <div className="text-2xl font-bold text-blue-400 mb-2">₹80</div>
-                <div className="text-blue-200 text-sm">Rate per Hour</div>
+                <div className="text-blue-200 text-sm">Base Rate</div>
+                <div className="text-xs text-blue-300 mt-1">First hour + grace</div>
               </div>
               <div>
                 <div className="text-2xl font-bold text-blue-400 mb-2">{duration.totalHours}</div>
                 <div className="text-blue-200 text-sm">Billable Hours</div>
+                <div className="text-xs text-blue-300 mt-1">Rounded up</div>
               </div>
               <div>
                 <div className="text-3xl font-bold text-white mb-2">
-                  ₹{currentAmount.toLocaleString('en-IN')}
+                  ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
                 </div>
-                <div className="text-blue-200 text-sm">Current Total</div>
+                <div className="text-blue-200 text-sm">Advanced Total</div>
+                <div className="text-xs text-blue-300 mt-1">System calculated</div>
               </div>
             </div>
-            <div className="text-center">
-              <p className="text-blue-200 font-medium">
-                💳 Payment will be collected when customer returns the vehicle
-              </p>
-            </div>
+
           </div>
         </ThemedCard>
 

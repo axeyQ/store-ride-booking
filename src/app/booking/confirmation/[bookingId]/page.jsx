@@ -1,4 +1,3 @@
-// src/app/booking/confirmation/[bookingId]/page.js
 'use client';
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';

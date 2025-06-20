@@ -1,14 +1,14 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { 
-  ThemedLayout, 
-  ThemedCard, 
-  ThemedStatsCard, 
-  ThemedButton, 
+import {
+  ThemedLayout,
+  ThemedCard,
+  ThemedStatsCard,
+  ThemedButton,
   ThemedInput,
   ThemedSelect,
-  ThemedBadge 
+  ThemedBadge
 } from '@/components/themed';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ export default function ThemedActiveBookingsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterVehicle, setFilterVehicle] = useState('all');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentAmounts, setCurrentAmounts] = useState({});
 
   useEffect(() => {
     fetchActiveBookings();
@@ -28,6 +29,16 @@ export default function ThemedActiveBookingsPage() {
     }, 60000);
     return () => clearInterval(timeInterval);
   }, []);
+
+  // Update current amounts when bookings change
+  useEffect(() => {
+    if (bookings.length > 0) {
+      updateCurrentAmounts();
+      // Update amounts every minute
+      const amountInterval = setInterval(updateCurrentAmounts, 60000);
+      return () => clearInterval(amountInterval);
+    }
+  }, [bookings]);
 
   const fetchActiveBookings = async () => {
     try {
@@ -48,17 +59,54 @@ export default function ThemedActiveBookingsPage() {
     }
   };
 
+  // Fetch advanced pricing for a specific booking
+  const fetchCurrentAmount = async (bookingId) => {
+    try {
+      const response = await fetch(`/api/bookings/current-amount/${bookingId}`);
+      const data = await response.json();
+      if (data.success) {
+        return data.currentAmount;
+      } else {
+        console.error('Error fetching current amount for booking:', bookingId, data.error);
+        // Fallback to simple calculation
+        const booking = bookings.find(b => b._id === bookingId);
+        if (booking) {
+          const duration = calculateDuration(booking.startTime);
+          return duration.totalHours * 80;
+        }
+        return 0;
+      }
+    } catch (error) {
+      console.error('Error fetching current amount:', error);
+      // Fallback to simple calculation
+      const booking = bookings.find(b => b._id === bookingId);
+      if (booking) {
+        const duration = calculateDuration(booking.startTime);
+        return duration.totalHours * 80;
+      }
+      return 0;
+    }
+  };
+
+  // Update current amounts for all active bookings
+  const updateCurrentAmounts = async () => {
+    const amounts = {};
+    for (const booking of bookings) {
+      amounts[booking._id] = await fetchCurrentAmount(booking._id);
+    }
+    setCurrentAmounts(amounts);
+  };
+
   const calculateDuration = (startTime) => {
     const start = new Date(startTime);
     const diffMs = currentTime - start;
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    return { hours, minutes, totalHours: Math.ceil(diffMs / (1000 * 60 * 60)) };
-  };
-
-  const calculateCurrentAmount = (startTime) => {
-    const duration = calculateDuration(startTime);
-    return duration.totalHours * 80; // ₹80 per hour
+    return { 
+      hours, 
+      minutes, 
+      totalHours: Math.ceil(diffMs / (1000 * 60 * 60)) 
+    };
   };
 
   const formatTime = (dateString) => {
@@ -81,6 +129,9 @@ export default function ThemedActiveBookingsPage() {
     const matchesFilter = filterVehicle === 'all' || vehicle.type === filterVehicle;
     return matchesSearch && matchesFilter;
   });
+
+  // Calculate total current revenue using advanced pricing
+  const totalCurrentRevenue = Object.values(currentAmounts).reduce((sum, amount) => sum + amount, 0);
 
   if (loading) {
     return (
@@ -117,42 +168,31 @@ export default function ThemedActiveBookingsPage() {
             value={bookings.length}
             subtitle={bookings.length > 0 ? 'Live bookings' : 'All vehicles available'}
             colorScheme="bookings"
-            icon={
-              <div className="text-4xl mb-2">🚴</div>
-            }
+            icon={<div className="text-4xl mb-2">🚴</div>}
             progress={Math.min((bookings.length / 10) * 100, 100)}
           />
-          
           <ThemedStatsCard
             title="Current Revenue"
-            value={`₹${bookings.reduce((sum, booking) => sum + calculateCurrentAmount(booking.startTime), 0).toLocaleString('en-IN')}`}
-            subtitle={bookings.length > 0 ? 'Growing by the minute' : 'No active revenue'}
+            value={`₹${totalCurrentRevenue.toLocaleString('en-IN')}`}
+            subtitle={bookings.length > 0 ? 'Advanced pricing applied' : 'No active revenue'}
             colorScheme="revenue"
-            icon={
-              <div className="text-4xl mb-2">💰</div>
-            }
+            icon={<div className="text-4xl mb-2">💰</div>}
             progress={75}
           />
-          
           <ThemedStatsCard
             title="Bikes Out"
             value={bookings.filter(b => b.vehicleId.type === 'bike').length}
             subtitle="Two-wheelers"
             colorScheme="vehicles"
-            icon={
-              <div className="text-4xl mb-2">🏍️</div>
-            }
+            icon={<div className="text-4xl mb-2">🏍</div>}
             progress={(bookings.filter(b => b.vehicleId.type === 'bike').length / Math.max(bookings.length, 1)) * 100}
           />
-          
           <ThemedStatsCard
             title="Scooters Out"
             value={bookings.filter(b => b.vehicleId.type === 'scooter').length}
             subtitle="Family vehicles"
             colorScheme="customers"
-            icon={
-              <div className="text-4xl mb-2">🛵</div>
-            }
+            icon={<div className="text-4xl mb-2">🛵</div>}
             progress={(bookings.filter(b => b.vehicleId.type === 'scooter').length / Math.max(bookings.length, 1)) * 100}
           />
         </div>
@@ -168,7 +208,7 @@ export default function ThemedActiveBookingsPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">Live Dashboard</h3>
-                <p className="text-gray-400">Real-time rental monitoring</p>
+                <p className="text-gray-400">Real-time rental monitoring with advanced pricing</p>
               </div>
             </div>
             <div className="text-right">
@@ -196,7 +236,6 @@ export default function ThemedActiveBookingsPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 containerClassName="md:col-span-2"
               />
-              
               <ThemedSelect
                 label="Filter by Vehicle Type"
                 value={filterVehicle}
@@ -242,11 +281,11 @@ export default function ThemedActiveBookingsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             {filteredBookings.map((booking) => {
               const duration = calculateDuration(booking.startTime);
-              const currentAmount = calculateCurrentAmount(booking.startTime);
-              
+              const currentAmount = currentAmounts[booking._id] || 0;
+
               return (
-                <ThemedCard 
-                  key={booking._id} 
+                <ThemedCard
+                  key={booking._id}
                   className="hover:scale-105 transition-all duration-300 border-gray-600 hover:border-orange-500/50"
                 >
                   <div className="p-6">
@@ -294,7 +333,7 @@ export default function ThemedActiveBookingsPage() {
                         <div className="text-2xl font-bold text-green-400">
                           ₹{currentAmount.toLocaleString('en-IN')}
                         </div>
-                        <div className="text-green-200 text-sm">Current Amount</div>
+                        <div className="text-green-200 text-sm">Advanced Pricing</div>
                       </div>
                     </div>
 
@@ -305,12 +344,12 @@ export default function ThemedActiveBookingsPage() {
                         <span className="font-medium text-white">{formatTime(booking.startTime)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Rate:</span>
+                        <span className="text-gray-400">Base Rate:</span>
                         <span className="font-medium text-white">₹80/hour</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Billable Hours:</span>
-                        <span className="font-bold text-cyan-400">{duration.totalHours} hours</span>
+                        <span className="text-gray-400">Pricing:</span>
+                        <span className="font-bold text-cyan-400">Advanced System</span>
                       </div>
                     </div>
 
@@ -352,8 +391,8 @@ export default function ThemedActiveBookingsPage() {
 
         {/* Quick Actions */}
         <div className="flex flex-col md:flex-row gap-4">
-          <ThemedButton 
-            variant="primary" 
+          <ThemedButton
+            variant="primary"
             onClick={fetchActiveBookings}
             className="flex items-center justify-center gap-2"
           >
@@ -362,13 +401,11 @@ export default function ThemedActiveBookingsPage() {
             </svg>
             Refresh Bookings
           </ThemedButton>
-          
           <Link href="/booking" className="flex-1 md:flex-initial">
             <ThemedButton variant="success" className="w-full">
               + New Booking
             </ThemedButton>
           </Link>
-          
           <Link href="/admin" className="flex-1 md:flex-initial">
             <ThemedButton variant="secondary" className="w-full">
               📊 Dashboard
