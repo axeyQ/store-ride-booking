@@ -1,15 +1,17 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { 
-  ThemedLayout, 
-  ThemedCard, 
-  ThemedStatsCard, 
-  ThemedButton, 
+import {
+  ThemedLayout,
+  ThemedCard,
+  ThemedStatsCard,
+  ThemedButton,
   ThemedInput,
   ThemedSelect,
-  ThemedBadge 
+  ThemedBadge
 } from '@/components/themed';
+import { BlacklistModal } from '@/components/BlacklistModal';
+import { UnblacklistModal } from '@/components/UnblacklistModal';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -21,13 +23,24 @@ export default function OptimizedThemedCustomersPage() {
   const [sortBy, setSortBy] = useState('lastVisit');
   const [sortOrder, setSortOrder] = useState('desc');
   const [tierFilter, setTierFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all'); // New: all, active, blacklisted
   const [exporting, setExporting] = useState(false);
-
+  
+  // Blacklist modal states
+  const [blacklistModal, setBlacklistModal] = useState({
+    isOpen: false,
+    customer: null
+  });
+  const [unblacklistModal, setUnblacklistModal] = useState({
+    isOpen: false,
+    customer: null
+  });
+  
   const [customerStats, setCustomerStats] = useState({
     total: 0,
     newThisMonth: 0,
     activeCustomers: 0,
-    topCustomer: null,
+    blacklistedCustomers: 0,
     tierDistribution: {
       vip: 0,
       gold: 0,
@@ -40,15 +53,14 @@ export default function OptimizedThemedCustomersPage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
-    }, 500); // 500ms delay
-
+    }, 500);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   // Only trigger API calls when debounced search term changes
   useEffect(() => {
     fetchCustomers();
-  }, [sortBy, sortOrder, debouncedSearchTerm, tierFilter]);
+  }, [sortBy, sortOrder, debouncedSearchTerm, tierFilter, statusFilter]);
 
   // Fetch stats only once on component mount
   useEffect(() => {
@@ -67,6 +79,7 @@ export default function OptimizedThemedCustomersPage() {
       const data = await response.json();
       if (data.success) {
         setCustomers(data.customers);
+        updateCustomerStats(data.customers);
       } else {
         console.error('Error fetching customers:', data.error);
       }
@@ -89,6 +102,22 @@ export default function OptimizedThemedCustomersPage() {
     }
   };
 
+  const updateCustomerStats = (customerList) => {
+    const stats = {
+      total: customerList.length,
+      blacklistedCustomers: customerList.filter(c => c.isBlacklisted && c.blacklistDetails?.isActive).length,
+      activeCustomers: customerList.filter(c => !c.isBlacklisted || !c.blacklistDetails?.isActive).length,
+      newThisMonth: customerList.filter(c => {
+        const createdDate = new Date(c.createdAt);
+        const now = new Date();
+        const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1);
+        return createdDate >= monthAgo;
+      }).length
+    };
+    
+    setCustomerStats(prev => ({ ...prev, ...stats }));
+  };
+
   const handleSort = (column) => {
     if (sortBy === column) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -100,7 +129,36 @@ export default function OptimizedThemedCustomersPage() {
 
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
-    // Note: No need to trigger fetchCustomers here due to debouncing
+  };
+
+  const handleBlacklist = (customer) => {
+    setBlacklistModal({
+      isOpen: true,
+      customer
+    });
+  };
+
+  const handleUnblacklist = (customer) => {
+    setUnblacklistModal({
+      isOpen: true,
+      customer
+    });
+  };
+
+  const onBlacklistSuccess = (updatedCustomer) => {
+    setCustomers(prev => prev.map(c => 
+      c._id === updatedCustomer._id ? updatedCustomer : c
+    ));
+    setBlacklistModal({ isOpen: false, customer: null });
+    updateCustomerStats(customers);
+  };
+
+  const onUnblacklistSuccess = (updatedCustomer) => {
+    setCustomers(prev => prev.map(c => 
+      c._id === updatedCustomer._id ? updatedCustomer : c
+    ));
+    setUnblacklistModal({ isOpen: false, customer: null });
+    updateCustomerStats(customers);
   };
 
   const formatLastVisit = (date) => {
@@ -108,7 +166,6 @@ export default function OptimizedThemedCustomersPage() {
     const visitDate = new Date(date);
     const diffTime = Math.abs(now - visitDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
     if (diffDays === 1) return 'Today';
     if (diffDays === 2) return 'Yesterday';
     if (diffDays <= 7) return `${diffDays} days ago`;
@@ -117,33 +174,33 @@ export default function OptimizedThemedCustomersPage() {
   };
 
   const getCustomerTier = (totalBookings) => {
-    if (totalBookings >= 20) return { 
-      label: 'VIP', 
-      color: 'purple', 
+    if (totalBookings >= 20) return {
+      label: 'VIP',
+      color: 'purple',
       icon: '👑',
       bg: 'bg-gradient-to-r from-purple-900/50 to-purple-800/50',
       border: 'border-purple-500/50',
       badge: 'bg-purple-500/20 text-purple-400 border-purple-500/30'
     };
-    if (totalBookings >= 10) return { 
-      label: 'Gold', 
-      color: 'orange', 
+    if (totalBookings >= 10) return {
+      label: 'Gold',
+      color: 'orange',
       icon: '🥇',
       bg: 'bg-gradient-to-r from-orange-900/50 to-orange-800/50',
       border: 'border-orange-500/50',
       badge: 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     };
-    if (totalBookings >= 5) return { 
-      label: 'Silver', 
-      color: 'gray', 
+    if (totalBookings >= 5) return {
+      label: 'Silver',
+      color: 'gray',
       icon: '🥈',
       bg: 'bg-gradient-to-r from-gray-700/50 to-gray-600/50',
       border: 'border-gray-500/50',
       badge: 'bg-gray-500/20 text-gray-400 border-gray-500/30'
     };
-    return { 
-      label: 'New', 
-      color: 'cyan', 
+    return {
+      label: 'New',
+      color: 'cyan',
       icon: '🆕',
       bg: 'bg-gradient-to-r from-cyan-900/50 to-cyan-800/50',
       border: 'border-cyan-500/50',
@@ -151,10 +208,59 @@ export default function OptimizedThemedCustomersPage() {
     };
   };
 
+  const getBlacklistStatusConfig = (customer) => {
+    if (!customer.isBlacklisted || !customer.blacklistDetails?.isActive) {
+      return null;
+    }
+    
+    const severity = customer.blacklistDetails.severity;
+    switch (severity) {
+      case 'warning':
+        return {
+          label: '⚠️ Warning',
+          color: 'orange',
+          bgClass: 'bg-orange-500/10 border-orange-500/50',
+          textClass: 'text-orange-400',
+          canBook: true
+        };
+      case 'temporary_ban':
+        return {
+          label: '⏳ Temp Ban',
+          color: 'red',
+          bgClass: 'bg-red-500/10 border-red-500/50',
+          textClass: 'text-red-400',
+          canBook: false
+        };
+      case 'permanent_ban':
+        return {
+          label: '🚫 Perm Ban',
+          color: 'red',
+          bgClass: 'bg-red-600/10 border-red-600/50',
+          textClass: 'text-red-500',
+          canBook: false
+        };
+      default:
+        return null;
+    }
+  };
+
+  const isCustomerBlacklisted = (customer) => {
+    return customer.isBlacklisted && customer.blacklistDetails?.isActive;
+  };
+
   const filteredCustomers = customers.filter(customer => {
     const tier = getCustomerTier(customer.totalBookings);
     const matchesTier = tierFilter === 'all' || tier.label.toLowerCase() === tierFilter.toLowerCase();
-    return matchesTier;
+    
+    // Status filter
+    let matchesStatus = true;
+    if (statusFilter === 'active') {
+      matchesStatus = !isCustomerBlacklisted(customer);
+    } else if (statusFilter === 'blacklisted') {
+      matchesStatus = isCustomerBlacklisted(customer);
+    }
+    
+    return matchesTier && matchesStatus;
   });
 
   const exportCustomers = async () => {
@@ -165,8 +271,6 @@ export default function OptimizedThemedCustomersPage() {
         search: debouncedSearchTerm
       });
       window.open(`/api/customers/export?${params}`, '_blank');
-      
-      // Simulate progress for UX
       setTimeout(() => setExporting(false), 2000);
     } catch (error) {
       console.error('Error exporting customers:', error);
@@ -204,11 +308,11 @@ export default function OptimizedThemedCustomersPage() {
             Customer <span className={theme.typography.gradient}>Database</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Complete customer relationship management and analytics
+            Complete customer relationship management and blacklist control
           </p>
         </div>
 
-        {/* Customer Analytics */}
+        {/* Customer Analytics with Blacklist Stats */}
         <div className={theme.layout.grid.stats + " mb-8"}>
           <ThemedStatsCard
             title="Total Customers"
@@ -218,84 +322,66 @@ export default function OptimizedThemedCustomersPage() {
             icon={<div className="text-4xl mb-2">👥</div>}
             progress={100}
           />
-          
-          <ThemedStatsCard
-            title="New This Month"
-            value={customerStats.newThisMonth || Math.floor(customers.length * 0.15)}
-            subtitle="Recent registrations"
-            colorScheme="revenue"
-            icon={<div className="text-4xl mb-2">🆕</div>}
-            progress={65}
-          />
-          
           <ThemedStatsCard
             title="Active Customers"
-            value={customerStats.activeCustomers || Math.floor(customers.length * 0.7)}
-            subtitle="Regular users"
-            colorScheme="bookings"
-            icon={<div className="text-4xl mb-2">⭐</div>}
-            progress={70}
+            value={customerStats.activeCustomers}
+            subtitle="Can make bookings"
+            colorScheme="revenue"
+            icon={<div className="text-4xl mb-2">✅</div>}
+            progress={customers.length > 0 ? (customerStats.activeCustomers / customers.length) * 100 : 0}
           />
-          
+          <ThemedStatsCard
+            title="Blacklisted"
+            value={customerStats.blacklistedCustomers}
+            subtitle="Restricted access"
+            colorScheme="vehicles"
+            icon={<div className="text-4xl mb-2">🚫</div>}
+            progress={customers.length > 0 ? (customerStats.blacklistedCustomers / customers.length) * 100 : 0}
+          />
           <ThemedStatsCard
             title="VIP Members"
             value={customers.filter(c => getCustomerTier(c.totalBookings).label === 'VIP').length}
             subtitle="Premium customers"
-            colorScheme="vehicles"
+            colorScheme="bookings"
             icon={<div className="text-4xl mb-2">👑</div>}
             progress={20}
           />
         </div>
-
-        {/* Customer Tier Distribution */}
-        <ThemedCard className="mb-8">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Customer Tier Distribution</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {['VIP', 'Gold', 'Silver', 'New'].map((tierName) => {
-                const tierCount = customers.filter(c => getCustomerTier(c.totalBookings).label === tierName).length;
-                const tierConfig = getCustomerTier(tierName === 'VIP' ? 25 : tierName === 'Gold' ? 15 : tierName === 'Silver' ? 7 : 2);
-                
-                return (
-                  <div key={tierName} className={`${tierConfig.bg} ${tierConfig.border} rounded-lg p-4 text-center`}>
-                    <div className="text-3xl mb-2">{tierConfig.icon}</div>
-                    <div className="text-2xl font-bold text-white">{tierCount}</div>
-                    <div className="text-gray-300 text-sm">{tierName} Customers</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </ThemedCard>
 
         {/* Search and Filters */}
         <ThemedCard className="mb-8">
           <div className="p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-white">Customer Management</h3>
-              <ThemedButton
-                variant="success"
-                onClick={exportCustomers}
-                disabled={exporting}
-                className="flex items-center gap-2"
-              >
-                {exporting ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Export CSV
-                  </>
-                )}
-              </ThemedButton>
+              <div className="flex items-center gap-3">
+                <Link href="/customers/blacklisted">
+                  <ThemedButton variant="danger" className="flex items-center gap-2">
+                    🚫 View Blacklisted ({customerStats.blacklistedCustomers})
+                  </ThemedButton>
+                </Link>
+                <ThemedButton
+                  variant="success"
+                  onClick={exportCustomers}
+                  disabled={exporting}
+                  className="flex items-center gap-2"
+                >
+                  {exporting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Export CSV
+                    </>
+                  )}
+                </ThemedButton>
+              </div>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <ThemedInput
                 label="Search Customers"
                 placeholder="Name, phone, or license number..."
@@ -303,7 +389,16 @@ export default function OptimizedThemedCustomersPage() {
                 onChange={handleSearch}
                 containerClassName="md:col-span-2"
               />
-              
+              <ThemedSelect
+                label="Filter by Status"
+                value={statusFilter}
+                onValueChange={setStatusFilter}
+                options={[
+                  { value: 'all', label: 'All Customers' },
+                  { value: 'active', label: '✅ Active Only' },
+                  { value: 'blacklisted', label: '🚫 Blacklisted Only' }
+                ]}
+              />
               <ThemedSelect
                 label="Filter by Tier"
                 value={tierFilter}
@@ -317,7 +412,6 @@ export default function OptimizedThemedCustomersPage() {
                 ]}
               />
             </div>
-
             {/* Search Status Indicator */}
             <div className="flex justify-between items-center mt-4">
               <div className="text-gray-400 text-sm">
@@ -344,7 +438,7 @@ export default function OptimizedThemedCustomersPage() {
         </ThemedCard>
 
         {/* Customers Table */}
-        <ThemedCard title="Customer Database" description="Complete customer records and analytics">
+        <ThemedCard title="Customer Database" description="Complete customer records with blacklist management">
           {filteredCustomers.length === 0 ? (
             <div className="text-center p-12">
               <div className="w-24 h-24 bg-gradient-to-r from-gray-600 to-gray-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -354,16 +448,14 @@ export default function OptimizedThemedCustomersPage() {
               </div>
               <h3 className="text-2xl font-bold text-white mb-2">No Customers Found</h3>
               <p className="text-gray-400 mb-6">
-                {customers.length === 0 
+                {customers.length === 0
                   ? 'No customers have been registered yet'
                   : searchTerm ? `No customers match "${searchTerm}"` : 'Try adjusting your filter criteria'
                 }
               </p>
               {customers.length === 0 && (
                 <Link href="/booking">
-                  <ThemedButton variant="primary">
-                    Create First Booking
-                  </ThemedButton>
+                  <ThemedButton variant="primary">Create First Booking</ThemedButton>
                 </Link>
               )}
             </div>
@@ -372,7 +464,7 @@ export default function OptimizedThemedCustomersPage() {
               <table className="w-full">
                 <thead className="border-b border-gray-700">
                   <tr>
-                    <th 
+                    <th
                       className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
                       onClick={() => handleSort('name')}
                     >
@@ -384,9 +476,9 @@ export default function OptimizedThemedCustomersPage() {
                       Contact Info
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">
-                      Tier
+                      Status & Tier
                     </th>
-                    <th 
+                    <th
                       className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
                       onClick={() => handleSort('totalBookings')}
                     >
@@ -397,7 +489,7 @@ export default function OptimizedThemedCustomersPage() {
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">
                       Value
                     </th>
-                    <th 
+                    <th
                       className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
                       onClick={() => handleSort('lastVisit')}
                     >
@@ -413,12 +505,22 @@ export default function OptimizedThemedCustomersPage() {
                 <tbody className="divide-y divide-gray-700">
                   {filteredCustomers.map((customer) => {
                     const tier = getCustomerTier(customer.totalBookings);
+                    const blacklistStatus = getBlacklistStatusConfig(customer);
+                    const isBlacklisted = isCustomerBlacklisted(customer);
                     
                     return (
-                      <tr key={customer._id} className="hover:bg-gray-800/50 transition-colors">
+                      <tr key={customer._id} className={cn(
+                        "hover:bg-gray-800/50 transition-colors",
+                        isBlacklisted && "bg-red-900/10"
+                      )}>
                         <td className="px-4 py-3">
                           <div>
-                            <div className="font-medium text-white text-lg">{customer.name}</div>
+                            <div className="font-medium text-white text-lg flex items-center gap-2">
+                              {customer.name}
+                              {isBlacklisted && (
+                                <span className="text-red-400 text-sm">🚫</span>
+                              )}
+                            </div>
                             <div className="text-gray-400 text-sm font-mono">{customer.driverLicense}</div>
                             <div className="text-gray-500 text-xs">
                               Since: {new Date(customer.createdAt).toLocaleDateString('en-IN')}
@@ -432,13 +534,20 @@ export default function OptimizedThemedCustomersPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-2xl">{tier.icon}</span>
-                            <div>
+                          <div className="space-y-2">
+                            {/* Customer Tier */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">{tier.icon}</span>
                               <ThemedBadge color={tier.color} className="text-xs">
                                 {tier.label}
                               </ThemedBadge>
                             </div>
+                            {/* Blacklist Status */}
+                            {blacklistStatus && (
+                              <ThemedBadge color={blacklistStatus.color} className="text-xs">
+                                {blacklistStatus.label}
+                              </ThemedBadge>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -464,17 +573,42 @@ export default function OptimizedThemedCustomersPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex gap-2">
-                            <Link href={`/customers/${customer._id}`}>
-                              <ThemedButton variant="secondary" className="text-xs px-3 py-1">
-                                View Details
-                              </ThemedButton>
-                            </Link>
-                            <Link href={`/booking?customerId=${customer._id}`}>
-                              <ThemedButton variant="primary" className="text-xs px-3 py-1">
-                                New Booking
-                              </ThemedButton>
-                            </Link>
+                          <div className="flex flex-col gap-2">
+                            {/* Primary Actions */}
+                            <div className="flex gap-2">
+                              <Link href={`/customers/${customer._id}`}>
+                                <ThemedButton variant="secondary" className="text-xs px-3 py-1">
+                                  👁️ View
+                                </ThemedButton>
+                              </Link>
+                              {!isBlacklisted && (
+                                <Link href={`/booking?customerId=${customer._id}`}>
+                                  <ThemedButton variant="primary" className="text-xs px-3 py-1">
+                                    📋 Book
+                                  </ThemedButton>
+                                </Link>
+                              )}
+                            </div>
+                            {/* Blacklist Actions */}
+                            <div className="flex gap-2">
+                              {isBlacklisted ? (
+                                <ThemedButton
+                                  variant="success"
+                                  onClick={() => handleUnblacklist(customer)}
+                                  className="text-xs px-3 py-1 w-full"
+                                >
+                                  ✅ Unblock
+                                </ThemedButton>
+                              ) : (
+                                <ThemedButton
+                                  variant="danger"
+                                  onClick={() => handleBlacklist(customer)}
+                                  className="text-xs px-3 py-1 w-full"
+                                >
+                                  🚫 Blacklist
+                                </ThemedButton>
+                              )}
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -487,7 +621,12 @@ export default function OptimizedThemedCustomersPage() {
         </ThemedCard>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-8">
+          <Link href="/customers/blacklisted">
+            <ThemedButton variant="danger" className="w-full flex items-center justify-center gap-2">
+              🚫 Blacklisted Customers ({customerStats.blacklistedCustomers})
+            </ThemedButton>
+          </Link>
           <Link href="/admin/bookings">
             <ThemedButton variant="primary" className="w-full flex items-center justify-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -496,7 +635,6 @@ export default function OptimizedThemedCustomersPage() {
               📋 View All Bookings
             </ThemedButton>
           </Link>
-          
           <Link href="/active-bookings">
             <ThemedButton variant="success" className="w-full flex items-center justify-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -505,7 +643,6 @@ export default function OptimizedThemedCustomersPage() {
               ⏰ Active Bookings
             </ThemedButton>
           </Link>
-          
           <Link href="/admin">
             <ThemedButton variant="secondary" className="w-full flex items-center justify-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -516,6 +653,22 @@ export default function OptimizedThemedCustomersPage() {
           </Link>
         </div>
       </div>
+
+      {/* Blacklist Modal */}
+      <BlacklistModal
+        isOpen={blacklistModal.isOpen}
+        onClose={() => setBlacklistModal({ isOpen: false, customer: null })}
+        customer={blacklistModal.customer}
+        onBlacklist={onBlacklistSuccess}
+      />
+
+      {/* Unblacklist Modal */}
+      <UnblacklistModal
+        isOpen={unblacklistModal.isOpen}
+        onClose={() => setUnblacklistModal({ isOpen: false, customer: null })}
+        customer={unblacklistModal.customer}
+        onUnblacklist={onUnblacklistSuccess}
+      />
     </ThemedLayout>
   );
 }
