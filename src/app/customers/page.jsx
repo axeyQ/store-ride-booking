@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { 
   ThemedLayout, 
@@ -13,10 +13,11 @@ import {
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-export default function ThemedCustomersPage() {
+export default function OptimizedThemedCustomersPage() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('lastVisit');
   const [sortOrder, setSortOrder] = useState('desc');
   const [tierFilter, setTierFilter] = useState('all');
@@ -35,16 +36,30 @@ export default function ThemedCustomersPage() {
     }
   });
 
+  // Debounce search term to prevent excessive API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500); // 500ms delay
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Only trigger API calls when debounced search term changes
   useEffect(() => {
     fetchCustomers();
-    fetchCustomerStats();
-  }, [sortBy, sortOrder, searchTerm, tierFilter]);
+  }, [sortBy, sortOrder, debouncedSearchTerm, tierFilter]);
 
-  const fetchCustomers = async () => {
+  // Fetch stats only once on component mount
+  useEffect(() => {
+    fetchCustomerStats();
+  }, []);
+
+  const fetchCustomers = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams({
-        search: searchTerm,
+        search: debouncedSearchTerm,
         sortBy: sortBy,
         sortOrder: sortOrder
       });
@@ -60,7 +75,7 @@ export default function ThemedCustomersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearchTerm, sortBy, sortOrder]);
 
   const fetchCustomerStats = async () => {
     try {
@@ -85,6 +100,7 @@ export default function ThemedCustomersPage() {
 
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
+    // Note: No need to trigger fetchCustomers here due to debouncing
   };
 
   const formatLastVisit = (date) => {
@@ -146,7 +162,7 @@ export default function ThemedCustomersPage() {
       setExporting(true);
       const params = new URLSearchParams({
         export: 'true',
-        search: searchTerm
+        search: debouncedSearchTerm
       });
       window.open(`/api/customers/export?${params}`, '_blank');
       
@@ -164,7 +180,7 @@ export default function ThemedCustomersPage() {
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  if (loading) {
+  if (loading && customers.length === 0) {
     return (
       <ThemedLayout>
         <div className="min-h-screen flex items-center justify-center">
@@ -301,13 +317,36 @@ export default function ThemedCustomersPage() {
                 ]}
               />
             </div>
+
+            {/* Search Status Indicator */}
+            <div className="flex justify-between items-center mt-4">
+              <div className="text-gray-400 text-sm">
+                {loading && debouncedSearchTerm !== searchTerm ? (
+                  <span className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-cyan-400"></div>
+                    Searching...
+                  </span>
+                ) : (
+                  `Showing ${filteredCustomers.length} of ${customers.length} customers`
+                )}
+              </div>
+              {searchTerm && (
+                <ThemedButton
+                  variant="secondary"
+                  onClick={() => setSearchTerm('')}
+                  className="text-sm px-3 py-1"
+                >
+                  Clear Search
+                </ThemedButton>
+              )}
+            </div>
           </div>
         </ThemedCard>
 
-        {/* Customers Grid */}
-        {filteredCustomers.length === 0 ? (
-          <ThemedCard className="text-center p-12">
-            <div className="mb-6">
+        {/* Customers Table */}
+        <ThemedCard title="Customer Database" description="Complete customer records and analytics">
+          {filteredCustomers.length === 0 ? (
+            <div className="text-center p-12">
               <div className="w-24 h-24 bg-gradient-to-r from-gray-600 to-gray-500 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
@@ -317,7 +356,7 @@ export default function ThemedCustomersPage() {
               <p className="text-gray-400 mb-6">
                 {customers.length === 0 
                   ? 'No customers have been registered yet'
-                  : 'Try adjusting your search criteria'
+                  : searchTerm ? `No customers match "${searchTerm}"` : 'Try adjusting your filter criteria'
                 }
               </p>
               {customers.length === 0 && (
@@ -328,90 +367,127 @@ export default function ThemedCustomersPage() {
                 </Link>
               )}
             </div>
-          </ThemedCard>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {filteredCustomers.map((customer) => {
-              const tier = getCustomerTier(customer.totalBookings);
-              
-              return (
-                <ThemedCard 
-                  key={customer._id} 
-                  className={cn(
-                    "hover:scale-105 transition-all duration-300",
-                    tier.bg,
-                    tier.border
-                  )}
-                >
-                  <div className="p-6">
-                    {/* Customer Header */}
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold text-white">{customer.name}</h3>
-                        <p className="text-gray-300">{customer.phone}</p>
-                        <p className="text-gray-400 text-sm font-mono">{customer.driverLicense}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b border-gray-700">
+                  <tr>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
+                      onClick={() => handleSort('name')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Customer <SortIcon column="name" />
                       </div>
-                      <div className="text-right">
-                        <div className="text-3xl mb-2">{tier.icon}</div>
-                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${tier.badge}`}>
-                          {tier.label}
-                        </div>
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">
+                      Contact Info
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">
+                      Tier
+                    </th>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
+                      onClick={() => handleSort('totalBookings')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Bookings <SortIcon column="totalBookings" />
                       </div>
-                    </div>
-
-                    {/* Customer Stats */}
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-white">{customer.totalBookings}</div>
-                        <div className="text-gray-400 text-xs">Total Rides</div>
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">
+                      Value
+                    </th>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
+                      onClick={() => handleSort('lastVisit')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Last Visit <SortIcon column="lastVisit" />
                       </div>
-                      <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-                        <div className="text-lg font-bold text-white">
-                          {formatLastVisit(customer.lastVisit)}
-                        </div>
-                        <div className="text-gray-400 text-xs">Last Visit</div>
-                      </div>
-                    </div>
-
-                    {/* Customer Since */}
-                    <div className="mb-4">
-                      <div className="text-gray-400 text-sm">
-                        Customer since: {new Date(customer.createdAt).toLocaleDateString('en-IN')}
-                      </div>
-                    </div>
-
-                    {/* Customer Value */}
-                    <div className="bg-gray-800/50 rounded-lg p-3 mb-4">
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-400 text-sm">Estimated Value:</span>
-                        <span className="font-bold text-green-400">
-                          ₹{(customer.totalBookings * 240).toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-2">
-                      <Link href={`/customers/${customer._id}`} className="flex-1">
-                        <ThemedButton variant="secondary" className="w-full text-sm">
-                          View Details
-                        </ThemedButton>
-                      </Link>
-                      <Link href={`/booking?customerId=${customer._id}`} className="flex-1">
-                        <ThemedButton variant="primary" className="w-full text-sm">
-                          New Booking
-                        </ThemedButton>
-                      </Link>
-                    </div>
-                  </div>
-                </ThemedCard>
-              );
-            })}
-          </div>
-        )}
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {filteredCustomers.map((customer) => {
+                    const tier = getCustomerTier(customer.totalBookings);
+                    
+                    return (
+                      <tr key={customer._id} className="hover:bg-gray-800/50 transition-colors">
+                        <td className="px-4 py-3">
+                          <div>
+                            <div className="font-medium text-white text-lg">{customer.name}</div>
+                            <div className="text-gray-400 text-sm font-mono">{customer.driverLicense}</div>
+                            <div className="text-gray-500 text-xs">
+                              Since: {new Date(customer.createdAt).toLocaleDateString('en-IN')}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <div className="text-white font-medium">{customer.phone}</div>
+                            <div className="text-gray-400 text-sm">Phone Number</div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-2xl">{tier.icon}</span>
+                            <div>
+                              <ThemedBadge color={tier.color} className="text-xs">
+                                {tier.label}
+                              </ThemedBadge>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-white">{customer.totalBookings}</div>
+                            <div className="text-gray-400 text-xs">Total Rides</div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-green-400">
+                              ₹{(customer.totalBookings * 240).toLocaleString('en-IN')}
+                            </div>
+                            <div className="text-gray-400 text-xs">Estimated</div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <div className="text-white font-medium">
+                              {formatLastVisit(customer.lastVisit)}
+                            </div>
+                            <div className="text-gray-400 text-xs">Last Activity</div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <Link href={`/customers/${customer._id}`}>
+                              <ThemedButton variant="secondary" className="text-xs px-3 py-1">
+                                View Details
+                              </ThemedButton>
+                            </Link>
+                            <Link href={`/booking?customerId=${customer._id}`}>
+                              <ThemedButton variant="primary" className="text-xs px-3 py-1">
+                                New Booking
+                              </ThemedButton>
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ThemedCard>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
           <Link href="/admin/bookings">
             <ThemedButton variant="primary" className="w-full flex items-center justify-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -25,7 +25,7 @@ import {
   Cell 
 } from 'recharts';
 
-export default function ThemedAdminDashboard() {
+export default function UpdatedThemedAdminDashboard() {
   const [dashboardData, setDashboardData] = useState({
     todayStats: {
       revenue: 0,
@@ -56,43 +56,89 @@ export default function ThemedAdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      // Fetch multiple data sources
+      
+      // Try to fetch admin API data first
       const [statsRes, bookingsRes, revenueRes] = await Promise.all([
-        fetch('/api/admin/stats'),
-        fetch('/api/admin/recent-bookings'),
-        fetch(`/api/admin/revenue-chart?range=${timeRange}`)
+        fetch('/api/admin/stats').catch(() => null),
+        fetch('/api/admin/recent-bookings?limit=8').catch(() => null),
+        fetch(`/api/admin/revenue-chart?range=${timeRange}`).catch(() => null)
       ]);
 
-      if (statsRes.ok && bookingsRes.ok && revenueRes.ok) {
-        const [stats, bookings, revenue] = await Promise.all([
-          statsRes.json(),
-          bookingsRes.json(),
-          revenueRes.json()
-        ]);
+      let dashboardInfo = {
+        todayStats: {},
+        recentBookings: [],
+        revenueChart: [],
+        vehicleUtilization: [],
+        monthlyStats: {}
+      };
 
-        setDashboardData({
-          todayStats: stats.todayStats || {},
-          recentBookings: bookings.bookings || [],
-          revenueChart: revenue.chartData || [],
-          vehicleUtilization: stats.vehicleUtilization || [],
-          monthlyStats: stats.monthlyStats || {}
-        });
+      // Handle recent bookings
+      if (bookingsRes && bookingsRes.ok) {
+        const bookingsData = await bookingsRes.json();
+        if (bookingsData.success) {
+          dashboardInfo.recentBookings = bookingsData.bookings;
+        }
       } else {
-        // Fallback to basic stats if admin APIs don't exist yet
-        const basicStatsRes = await fetch('/api/stats');
-        if (basicStatsRes.ok) {
-          const basicStats = await basicStatsRes.json();
-          setDashboardData(prev => ({
-            ...prev,
-            todayStats: {
-              revenue: basicStats.stats?.todayRevenue || 0,
-              bookings: 5, // Mock data
-              activeRentals: basicStats.stats?.activeBookings || 0,
-              vehiclesOut: basicStats.stats?.activeBookings || 0
-            }
-          }));
+        // Fallback: fetch from basic bookings API
+        try {
+          const fallbackBookings = await fetch('/api/bookings');
+          const fallbackData = await fallbackBookings.json();
+          if (fallbackData.success) {
+            // Take the 8 most recent bookings and format them
+            dashboardInfo.recentBookings = fallbackData.bookings
+              .slice(0, 8)
+              .map(booking => ({
+                ...booking,
+                customerName: booking.customerId?.name || 'Unknown Customer',
+                vehicleInfo: booking.vehicleId ? 
+                  `${booking.vehicleId.model} (${booking.vehicleId.plateNumber})` : 
+                  'Unknown Vehicle',
+                displayAmount: booking.finalAmount || 
+                  (booking.status === 'active' ? 
+                    Math.ceil((new Date() - new Date(booking.startTime)) / (1000 * 60 * 60)) * 80 : 0)
+              }));
+          }
+        } catch (error) {
+          console.error('Error fetching fallback bookings:', error);
         }
       }
+
+      // Handle other stats
+      if (statsRes && statsRes.ok) {
+        const statsData = await statsRes.json();
+        dashboardInfo.todayStats = statsData.todayStats || {};
+        dashboardInfo.vehicleUtilization = statsData.vehicleUtilization || [];
+        dashboardInfo.monthlyStats = statsData.monthlyStats || {};
+      } else {
+        // Fallback to basic stats
+        try {
+          const basicStatsRes = await fetch('/api/stats');
+          if (basicStatsRes.ok) {
+            const basicStats = await basicStatsRes.json();
+            dashboardInfo.todayStats = {
+              revenue: basicStats.stats?.todayRevenue || 0,
+              bookings: dashboardInfo.recentBookings.filter(b => {
+                const today = new Date();
+                const bookingDate = new Date(b.createdAt);
+                return bookingDate.toDateString() === today.toDateString();
+              }).length || 5,
+              activeRentals: basicStats.stats?.activeBookings || 0,
+              vehiclesOut: basicStats.stats?.activeBookings || 0
+            };
+          }
+        } catch (error) {
+          console.error('Error fetching basic stats:', error);
+        }
+      }
+
+      // Handle revenue chart
+      if (revenueRes && revenueRes.ok) {
+        const revenueData = await revenueRes.json();
+        dashboardInfo.revenueChart = revenueData.chartData || [];
+      }
+
+      setDashboardData(dashboardInfo);
+
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -100,7 +146,7 @@ export default function ThemedAdminDashboard() {
     }
   };
 
-  // Mock data for demonstration (remove when real APIs are implemented)
+  // Mock data for demonstration (fallback when APIs are not available)
   const mockRevenueData = [
     { date: 'Mon', revenue: 2400, bookings: 8 },
     { date: 'Tue', revenue: 1600, bookings: 6 },
@@ -118,8 +164,6 @@ export default function ThemedAdminDashboard() {
     { name: 'Bajaj Pulsar', hours: 28, revenue: 2240 }
   ];
 
-  const pieColors = ['#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
-
   // Dark theme chart configuration
   const darkChartTheme = {
     cartesianGrid: { stroke: '#374151', strokeDasharray: '3 3' },
@@ -133,6 +177,15 @@ export default function ThemedAdminDashboard() {
         color: '#F3F4F6'
       }
     }
+  };
+
+  const formatDateTime = (dateString) => {
+    return new Date(dateString).toLocaleString('en-IN', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   if (loading) {
@@ -300,11 +353,11 @@ export default function ThemedAdminDashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Recent Bookings */}
+          {/* Recent Bookings - Now Using Real Data */}
           <div className="lg:col-span-2">
             <ThemedCard title="Recent Bookings">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-gray-400">Latest rental activity</p>
+                <p className="text-gray-400">Latest rental activity from database</p>
                 <div className="flex gap-3">
                   <Link href="/admin/bookings">
                     <ThemedButton variant="secondary" className="text-sm">
@@ -320,45 +373,65 @@ export default function ThemedAdminDashboard() {
               </div>
               
               <div className="overflow-hidden">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-700">
-                      <th className="text-left py-3 px-4 font-medium text-gray-400">Customer</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-400">Vehicle</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-400">Status</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-400">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-700">
-                    {/* Mock data - replace with real data */}
-                    {[
-                      { customer: 'Raj Kumar', vehicle: 'Hero Splendor (MP09AB1234)', status: 'active', amount: '₹480' },
-                      { customer: 'Priya Sharma', vehicle: 'Honda Activa (MP09CD5678)', status: 'completed', amount: '₹320' },
-                      { customer: 'Amit Verma', vehicle: 'TVS Jupiter (MP09EF9012)', status: 'active', amount: '₹240' },
-                      { customer: 'Sunita Patel', vehicle: 'Bajaj Pulsar (MP09GH3456)', status: 'completed', amount: '₹560' }
-                    ].map((booking, index) => (
-                      <tr key={index} className="hover:bg-gray-800/50 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-white">{booking.customer}</div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="text-gray-300">{booking.vehicle}</div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <ThemedBadge 
-                            status={booking.status}
-                            className="text-xs"
-                          >
-                            {booking.status.toUpperCase()}
-                          </ThemedBadge>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-white">{booking.amount}</div>
-                        </td>
+                {dashboardData.recentBookings.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-gray-400 text-lg mb-2">No recent bookings found</div>
+                    <p className="text-gray-500 text-sm">Create your first booking to see data here</p>
+                    <Link href="/booking" className="mt-4 inline-block">
+                      <ThemedButton variant="primary" className="text-sm">
+                        + Create First Booking
+                      </ThemedButton>
+                    </Link>
+                  </div>
+                ) : (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-700">
+                        <th className="text-left py-3 px-4 font-medium text-gray-400">Customer</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-400">Vehicle</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-400">Status</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-400">Amount</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-400">Date</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-700">
+                      {dashboardData.recentBookings.map((booking, index) => (
+                        <tr key={booking._id || index} className="hover:bg-gray-800/50 transition-colors">
+                          <td className="py-3 px-4">
+                            <div>
+                              <div className="font-medium text-white">{booking.customerName}</div>
+                              <div className="text-gray-400 text-sm font-mono">
+                                ID: {booking.bookingId}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="text-gray-300">{booking.vehicleInfo}</div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <ThemedBadge 
+                              status={booking.status}
+                              className="text-xs"
+                            >
+                              {booking.status.toUpperCase()}
+                              {booking.status === 'active' && <span className="ml-1">🔴</span>}
+                            </ThemedBadge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-white">
+                              ₹{booking.displayAmount.toLocaleString('en-IN')}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="text-gray-300 text-sm">
+                              {formatDateTime(booking.startTime)}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </ThemedCard>
           </div>

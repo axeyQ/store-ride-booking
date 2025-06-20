@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -15,7 +15,7 @@ import { validatePhoneNumber, validateDrivingLicense } from '@/lib/validations';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-export default function BookingClientPage() {
+export default function EnhancedBookingClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentStep, setCurrentStep] = useState(1);
@@ -23,6 +23,14 @@ export default function BookingClientPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [settings, setSettings] = useState({ hourlyRate: 80, businessName: 'MR Travels' });
+
+  // Customer autocomplete state
+  const [customerSuggestions, setCustomerSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+  const nameInputRef = useRef(null);
+  const suggestionsRef = useRef(null);
 
   // Form state
   const [bookingData, setBookingData] = useState({
@@ -52,6 +60,78 @@ export default function BookingClientPage() {
     }
   }, []);
 
+  // Debounce customer search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (bookingData.customer.name.length >= 2) {
+        searchCustomers(bookingData.customer.name);
+      } else {
+        setCustomerSuggestions([]);
+        setShowSuggestions(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [bookingData.customer.name]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target) &&
+          nameInputRef.current && !nameInputRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const searchCustomers = async (query) => {
+    if (query.length < 2) return;
+    
+    try {
+      setSearchingCustomers(true);
+      const response = await fetch(`/api/customers/search?q=${encodeURIComponent(query)}&limit=8`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setCustomerSuggestions(data.customers);
+        setShowSuggestions(data.customers.length > 0);
+      }
+    } catch (error) {
+      console.error('Error searching customers:', error);
+    } finally {
+      setSearchingCustomers(false);
+    }
+  };
+
+  const selectCustomer = (customer) => {
+    setBookingData(prev => ({
+      ...prev,
+      customer: {
+        name: customer.name,
+        phone: customer.phone,
+        driverLicense: customer.driverLicense
+      }
+    }));
+    setSelectedCustomerId(customer._id);
+    setShowSuggestions(false);
+    setCustomerSuggestions([]);
+  };
+
+  const clearCustomerSelection = () => {
+    setSelectedCustomerId(null);
+    setBookingData(prev => ({
+      ...prev,
+      customer: {
+        name: '',
+        phone: '',
+        driverLicense: ''
+      }
+    }));
+  };
+
   const fetchSettings = async () => {
     try {
       const response = await fetch('/api/settings');
@@ -77,6 +157,7 @@ export default function BookingClientPage() {
             driverLicense: data.customer.driverLicense
           }
         }));
+        setSelectedCustomerId(customerId);
       }
     } catch (error) {
       console.error('Error fetching customer:', error);
@@ -113,6 +194,11 @@ export default function BookingClientPage() {
         [field]: value
       }
     }));
+
+    // Clear selected customer if name is manually changed
+    if (field === 'name' && selectedCustomerId) {
+      setSelectedCustomerId(null);
+    }
   };
 
   const handleChecklistChange = (field, value) => {
@@ -200,6 +286,17 @@ export default function BookingClientPage() {
     }
   };
 
+  const formatLastVisit = (date) => {
+    const now = new Date();
+    const visitDate = new Date(date);
+    const diffDays = Math.ceil((now - visitDate) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays <= 1) return 'Today';
+    if (diffDays === 2) return 'Yesterday';
+    if (diffDays <= 7) return `${diffDays} days ago`;
+    return visitDate.toLocaleDateString('en-IN');
+  };
+
   if (loading) {
     return (
       <ThemedLayout>
@@ -261,8 +358,6 @@ export default function BookingClientPage() {
         {currentStep === 1 && (
           <ThemedCard title="Select Vehicle">
             <div className="space-y-8">
-            
-
               {/* Vehicle Selection */}
               <div>
                 <h3 className="text-xl font-bold text-white mb-6">Available Vehicles</h3>
@@ -313,22 +408,103 @@ export default function BookingClientPage() {
                   </div>
                 )}
               </div>
-
-
             </div>
           </ThemedCard>
         )}
 
-        {/* Step 2: Customer Information */}
+        {/* Step 2: Customer Information with Smart Autocomplete */}
         {currentStep === 2 && (
           <ThemedCard title="Customer Information">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <ThemedInput
-                label="Full Name *"
-                value={bookingData.customer.name}
-                onChange={(e) => handleCustomerChange('name', e.target.value)}
-                placeholder="Enter customer's full name"
-              />
+              {/* Enhanced Name Input with Autocomplete */}
+              <div className="relative">
+                <div ref={nameInputRef}>
+                  <ThemedInput
+                    label="Full Name *"
+                    value={bookingData.customer.name}
+                    onChange={(e) => handleCustomerChange('name', e.target.value)}
+                    placeholder="Enter customer's full name"
+                    className={selectedCustomerId ? 'border-green-500' : ''}
+                  />
+                </div>
+
+                {/* Customer Selection Status */}
+                {selectedCustomerId && (
+                  <div className="mt-2 flex items-center justify-between bg-green-500/10 border border-green-500/30 rounded-lg p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-400">✓</span>
+                      <span className="text-green-300 text-sm">Existing customer selected</span>
+                    </div>
+                    <button
+                      onClick={clearCustomerSelection}
+                      className="text-red-400 hover:text-red-300 text-sm underline"
+                    >
+                      Clear & create new
+                    </button>
+                  </div>
+                )}
+
+                {/* Loading indicator */}
+                {searchingCustomers && (
+                  <div className="mt-2 text-gray-400 text-sm flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b border-cyan-400"></div>
+                    Searching customers...
+                  </div>
+                )}
+
+                {/* Customer Suggestions Dropdown */}
+                {showSuggestions && customerSuggestions.length > 0 && (
+                  <div 
+                    ref={suggestionsRef}
+                    className="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-80 overflow-y-auto"
+                  >
+                    <div className="p-2 border-b border-gray-700">
+                      <div className="text-gray-400 text-xs">Found {customerSuggestions.length} existing customers</div>
+                    </div>
+                    
+                    {customerSuggestions.map((customer) => (
+                      <div
+                        key={customer._id}
+                        onClick={() => selectCustomer(customer)}
+                        className="p-4 hover:bg-gray-700 cursor-pointer border-b border-gray-700 last:border-b-0 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-green-400">🟢</span>
+                              <span className="font-medium text-white">{customer.name}</span>
+                              {customer.totalBookings >= 10 && (
+                                <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-1 rounded">
+                                  VIP
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              📞 {customer.phone} • 🆔 {customer.driverLicense}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {customer.totalBookings} bookings • Last visit: {formatLastVisit(customer.lastVisit)}
+                            </div>
+                          </div>
+                          <div className="text-gray-500">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Option to create new customer */}
+                    <div className="p-4 bg-gray-750 border-t border-gray-600">
+                      <div className="flex items-center gap-2 text-cyan-400">
+                        <span>➕</span>
+                        <span className="text-sm">"{bookingData.customer.name}" - Create new customer</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               
               <ThemedInput
                 label="Phone Number *"
@@ -339,6 +515,8 @@ export default function BookingClientPage() {
                 error={bookingData.customer.phone && !validatePhoneNumber(bookingData.customer.phone) 
                   ? 'Please enter a valid 10-digit phone number' : ''}
                 maxLength="10"
+                className={selectedCustomerId ? 'border-green-500' : ''}
+                disabled={selectedCustomerId}
               />
               
               <ThemedInput
@@ -348,10 +526,10 @@ export default function BookingClientPage() {
                 placeholder="e.g., MP1420110012345"
                 error={bookingData.customer.driverLicense && !validateDrivingLicense(bookingData.customer.driverLicense) 
                   ? 'Please enter a valid driving license number' : ''}
+                className={selectedCustomerId ? 'border-green-500' : ''}
+                disabled={selectedCustomerId}
               />
             </div>
-
-
           </ThemedCard>
         )}
 
@@ -413,7 +591,10 @@ export default function BookingClientPage() {
                 <h3 className="text-xl font-bold text-green-200 mb-4">Booking Summary</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <p className="text-green-200"><span className="font-medium">Customer:</span> {bookingData.customer.name}</p>
+                    <p className="text-green-200">
+                      <span className="font-medium">Customer:</span> {bookingData.customer.name}
+                      {selectedCustomerId && <span className="text-green-400 ml-2">✓ Existing</span>}
+                    </p>
                     <p className="text-green-200"><span className="font-medium">Phone:</span> {bookingData.customer.phone}</p>
                     <p className="text-green-200"><span className="font-medium">License:</span> {bookingData.customer.driverLicense}</p>
                   </div>
