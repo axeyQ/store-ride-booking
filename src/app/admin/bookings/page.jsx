@@ -1,18 +1,30 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import {
+  ThemedLayout,
+  ThemedCard,
+  ThemedStatsCard,
+  ThemedButton,
+  ThemedInput,
+  ThemedSelect,
+  ThemedBadge
+} from '@/components/themed';
+import { theme } from '@/lib/theme';
+import { cn } from '@/lib/utils';
 
-export default function AdminAllBookings() {
+export default function ThemedAllBookingsPage() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('all'); // all, today, week, month
+  const [dateFilter, setDateFilter] = useState('all');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
-  
+  const [showSignatures, setShowSignatures] = useState(true);
+  const [selectedSignature, setSelectedSignature] = useState(null);
   const itemsPerPage = 20;
 
   useEffect(() => {
@@ -34,7 +46,7 @@ export default function AdminAllBookings() {
 
       const response = await fetch(`/api/admin/all-bookings?${params}`);
       const data = await response.json();
-      
+
       if (data.success) {
         setBookings(data.bookings);
         setTotalPages(Math.ceil(data.total / itemsPerPage));
@@ -65,24 +77,13 @@ export default function AdminAllBookings() {
     setCurrentPage(1);
   };
 
-  const handleSearch = (e) => {
-    setSearchTerm(e.target.value);
-    setCurrentPage(1);
-  };
-
   const calculateDuration = (startTime, endTime) => {
     const start = new Date(startTime);
     const end = endTime ? new Date(endTime) : new Date();
     const diffMs = end - start;
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    return { hours, minutes, totalHours: Math.ceil(diffMs / (1000 * 60 * 60)) };
-  };
-
-  const calculateCurrentAmount = (booking) => {
-    if (booking.finalAmount) return booking.finalAmount;
-    const duration = calculateDuration(booking.startTime, booking.endTime);
-    return duration.totalHours * 80;
+    return { hours, minutes };
   };
 
   const formatDateTime = (dateString) => {
@@ -96,329 +97,445 @@ export default function AdminAllBookings() {
   };
 
   const getStatusBadge = (status) => {
-    const statusConfig = {
-      active: 'bg-orange-100 text-orange-800',
-      completed: 'bg-green-100 text-green-800', 
-      cancelled: 'bg-red-100 text-red-800'
-    };
-    return statusConfig[status] || 'bg-gray-100 text-gray-800';
-  };
-
-  const exportBookings = async () => {
-    try {
-      const params = new URLSearchParams({
-        export: 'true',
-        search: searchTerm,
-        status: statusFilter,
-        dateFilter: dateFilter
-      });
-      
-      window.open(`/api/admin/export-bookings?${params}`, '_blank');
-    } catch (error) {
-      console.error('Error exporting bookings:', error);
-      alert('Export failed. Please try again.');
+    switch (status) {
+      case 'active':
+        return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+      case 'completed':
+        return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'cancelled':
+        return 'bg-red-500/20 text-red-400 border-red-500/30';
+      default:
+        return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
     }
   };
 
   const SortIcon = ({ column }) => {
-    if (sortBy !== column) return <span className="text-gray-400">↕️</span>;
-    return <span className="text-blue-600">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
+    if (sortBy !== column) return <span className="text-gray-500">↕</span>;
+    return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
+  };
+
+  // Signature Modal Component - Themed Style
+  const SignatureModal = ({ signature, onClose }) => {
+    if (!signature) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-2xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold text-white">Customer Signature</h3>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition-all"
+            >
+              ×
+            </button>
+          </div>
+          <div className="bg-white rounded-lg p-4 border border-gray-600">
+            <img
+              src={signature}
+              alt="Customer Signature"
+              className="w-full h-auto max-h-80 object-contain"
+            />
+          </div>
+          <div className="mt-6 flex justify-end">
+            <ThemedButton variant="secondary" onClick={onClose}>
+              Close
+            </ThemedButton>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-xl">Loading all bookings...</div>
+      <ThemedLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <ThemedCard>
+            <div className="flex items-center space-x-3 p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+              <span className="text-white text-xl">Loading all bookings...</span>
+            </div>
+          </ThemedCard>
         </div>
-      </div>
+      </ThemedLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <Link href="/admin" className="text-blue-600 hover:text-blue-800">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </Link>
-              <h1 className="text-3xl font-bold text-gray-900">All Bookings</h1>
-              <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                {bookings.length} results
-              </span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={exportBookings}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2"
-              >
-                📊 Export CSV
-              </button>
-              <Link
-                href="/booking"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
-              >
-                + New Booking
-              </Link>
-            </div>
-          </div>
+    <ThemedLayout>
+      <div className="container mx-auto px-6 py-8">
+        {/* Hero Section */}
+        <div className="text-center mb-8">
+          <h2 className={theme.typography.hero}>
+            All <span className={theme.typography.gradient}>Bookings</span>
+          </h2>
+          <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
+            Complete booking management with signature verification
+          </p>
         </div>
-      </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Filters and Search */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
-              <input
-                type="text"
-                placeholder="Customer name, phone, booking ID..."
-                value={searchTerm}
-                onChange={handleSearch}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+        {/* Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <ThemedStatsCard
+            title="Total Bookings"
+            value={bookings.length}
+            subtitle="All time records"
+            colorScheme="bookings"
+            icon={<div className="text-4xl mb-2">📋</div>}
+          />
+          
+          <ThemedStatsCard
+            title="Active Rentals"
+            value={bookings.filter(b => b.status === 'active').length}
+            subtitle="Currently out"
+            colorScheme="revenue"
+            icon={<div className="text-4xl mb-2">🚴</div>}
+          />
+          <ThemedStatsCard
+            title="Completed"
+            value={bookings.filter(b => b.status === 'completed').length}
+            subtitle="Successfully returned"
+            colorScheme="customers"
+            icon={<div className="text-4xl mb-2">✅</div>}
+          />
+          <ThemedStatsCard
+            title="With Signatures"
+            value={bookings.filter(b => b.signature).length}
+            subtitle="Verified bookings"
+            colorScheme="vehicles"
+            icon={<div className="text-4xl mb-2">✍️</div>}
+          />
+        </div>
+
+        {/* Filters Section */}
+        <ThemedCard title="Search & Filters" description="Find specific bookings quickly" className="mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
+            <ThemedInput
+              label="Search Bookings"
+              placeholder="Booking ID, customer name, phone..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
-              <select
-                value={dateFilter}
-                onChange={(e) => { setDateFilter(e.target.value); setCurrentPage(1); }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="all">All Time</option>
-                <option value="today">Today</option>
-                <option value="week">This Week</option>
-                <option value="month">This Month</option>
-              </select>
-            </div>
-            
-            <div className="flex items-end">
-              <button
-                onClick={() => {
-                  setSearchTerm('');
-                  setStatusFilter('all');
-                  setDateFilter('all');
-                  setCurrentPage(1);
-                }}
-                className="w-full bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium"
-              >
-                Clear Filters
-              </button>
+            <ThemedSelect
+              label="Status Filter"
+              value={statusFilter}
+              onValueChange={(value) => { setStatusFilter(value); setCurrentPage(1); }}
+              options={[
+                { value: 'all', label: 'All Status' },
+                { value: 'active', label: 'Active' },
+                { value: 'completed', label: 'Completed' },
+                { value: 'cancelled', label: 'Cancelled' }
+              ]}
+            />
+
+            <ThemedSelect
+              label="Date Range"
+              value={dateFilter}
+              onValueChange={(value) => { setDateFilter(value); setCurrentPage(1); }}
+              options={[
+                { value: 'all', label: 'All Time' },
+                { value: 'today', label: 'Today' },
+                { value: 'week', label: 'This Week' },
+                { value: 'month', label: 'This Month' }
+              ]}
+            />
+
+            <div className="space-y-2">
+              <label className="block text-lg font-semibold text-white">Options</label>
+              <label className="flex items-center space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showSignatures}
+                  onChange={(e) => setShowSignatures(e.target.checked)}
+                  className="w-5 h-5 text-cyan-600 border-gray-600 rounded focus:ring-cyan-500 bg-gray-800"
+                />
+                <span className="text-white">Show Signatures</span>
+              </label>
             </div>
           </div>
-        </div>
+
+          <div className="flex gap-4">
+            <ThemedButton
+              variant="secondary"
+              onClick={() => {
+                setSearchTerm('');
+                setStatusFilter('all');
+                setDateFilter('all');
+                setCurrentPage(1);
+              }}
+            >
+              Clear Filters
+            </ThemedButton>
+            <ThemedButton variant="primary" onClick={fetchBookings}>
+              🔄 Refresh
+            </ThemedButton>
+          </div>
+        </ThemedCard>
 
         {/* Bookings Table */}
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th 
-                    className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('bookingId')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Booking ID <SortIcon column="bookingId" />
-                    </div>
-                  </th>
-                  <th 
-                    className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('customerId.name')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Customer <SortIcon column="customerId.name" />
-                    </div>
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Vehicle</th>
-                  <th 
-                    className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('startTime')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Start Time <SortIcon column="startTime" />
-                    </div>
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Duration</th>
-                  <th 
-                    className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('status')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Status <SortIcon column="status" />
-                    </div>
-                  </th>
-                  <th 
-                    className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('finalAmount')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Amount <SortIcon column="finalAmount" />
-                    </div>
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {bookings.map((booking) => {
-                  const duration = calculateDuration(booking.startTime, booking.endTime);
-                  const amount = calculateCurrentAmount(booking);
-                  
-                  return (
-                    <tr key={booking._id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-mono font-medium text-blue-600">
-                        {booking.bookingId}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div>
-                          <div className="font-medium text-gray-900">{booking.customerId?.name || 'Unknown'}</div>
-                          <div className="text-gray-500">{booking.customerId?.phone || 'N/A'}</div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div>
-                          <div className="font-medium text-gray-900">
+        <ThemedCard title="📋 Booking Records" description={`Showing ${bookings.length} bookings`}>
+          {bookings.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">📋</div>
+              <h3 className="text-2xl font-bold text-white mb-4">No Bookings Found</h3>
+              <p className="text-gray-400 mb-8">
+                {searchTerm || statusFilter !== 'all' || dateFilter !== 'all'
+                  ? 'Try adjusting your search or filter criteria'
+                  : 'No bookings have been created yet'}
+              </p>
+              <Link href="/booking">
+                <ThemedButton variant="primary">
+                  ➕ Create First Booking
+                </ThemedButton>
+              </Link>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th
+                      className="text-left py-4 px-4 font-semibold text-gray-400 cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => handleSort('bookingId')}
+                    >
+                      <div className="flex items-center gap-2">
+                        Booking ID <SortIcon column="bookingId" />
+                      </div>
+                    </th>
+                    <th
+                      className="text-left py-4 px-4 font-semibold text-gray-400 cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => handleSort('customerId.name')}
+                    >
+                      <div className="flex items-center gap-2">
+                        Customer <SortIcon column="customerId.name" />
+                      </div>
+                    </th>
+                    <th className="text-left py-4 px-4 font-semibold text-gray-400">
+                      Vehicle
+                    </th>
+                    <th
+                      className="text-left py-4 px-4 font-semibold text-gray-400 cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => handleSort('startTime')}
+                    >
+                      <div className="flex items-center gap-2">
+                        Start Time <SortIcon column="startTime" />
+                      </div>
+                    </th>
+                    <th className="text-left py-4 px-4 font-semibold text-gray-400">
+                      Duration
+                    </th>
+                    <th className="text-left py-4 px-4 font-semibold text-gray-400">
+                      Status
+                    </th>
+                    <th className="text-left py-4 px-4 font-semibold text-gray-400">
+                      Amount
+                    </th>
+                    {showSignatures && (
+                      <th className="text-left py-4 px-4 font-semibold text-gray-400">
+                        Signature
+                      </th>
+                    )}
+                    <th className="text-left py-4 px-4 font-semibold text-gray-400">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {bookings.map((booking) => {
+                    const duration = calculateDuration(booking.startTime, booking.endTime);
+                    const amount = booking.finalAmount || 0;
+
+                    return (
+                      <tr key={booking._id} className="hover:bg-gray-800/30 transition-colors">
+                        <td className="py-4 px-4">
+                          <div className="font-mono font-bold text-cyan-400">
+                            {booking.bookingId}
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="font-semibold text-white">
+                            {booking.customerId?.name || 'Unknown'}
+                          </div>
+                          <div className="text-gray-400 text-sm">
+                            {booking.customerId?.phone || ''}
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="text-white font-medium">
                             {booking.vehicleId?.model || 'Unknown'}
                           </div>
-                          <div className="text-gray-500 font-mono">
-                            {booking.vehicleId?.plateNumber || 'N/A'}
+                          <div className="text-gray-400 text-sm font-mono">
+                            {booking.vehicleId?.plateNumber || ''}
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {formatDateTime(booking.startTime)}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div className="text-gray-900 font-medium">
-                          {duration.hours}h {duration.minutes}m
-                        </div>
-                        {booking.status === 'active' && (
-                          <div className="text-xs text-orange-600">🔴 Live</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(booking.status)}`}>
-                          {booking.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-gray-900">
-                        ₹{amount.toLocaleString('en-IN')}
-                        {booking.paymentMethod && (
-                          <div className="text-xs text-gray-500 capitalize">
-                            {booking.paymentMethod}
+                        </td>
+                        <td className="py-4 px-4 text-white">
+                          {formatDateTime(booking.startTime)}
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="text-white font-semibold">
+                            {duration.hours}h {duration.minutes}m
                           </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div className="flex gap-2">
-                          <Link
-                            href={`/active-bookings/${booking.bookingId}`}
-                            className="text-blue-600 hover:text-blue-800 font-medium"
-                          >
-                            View
-                          </Link>
                           {booking.status === 'active' && (
-                            <Link
-                              href={`/return/${booking.bookingId}`}
-                              className="text-green-600 hover:text-green-800 font-medium"
-                            >
-                              Return
-                            </Link>
+                            <div className="text-orange-400 text-sm flex items-center gap-1">
+                              <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
+                              Live
+                            </div>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <ThemedBadge className={`${getStatusBadge(booking.status)} border`}>
+                            {booking.status.toUpperCase()}
+                          </ThemedBadge>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="text-white font-bold text-lg">
+                            ₹{amount.toLocaleString('en-IN')}
+                          </div>
+                          {booking.paymentMethod && (
+                            <div className="text-gray-400 text-sm capitalize">
+                              {booking.paymentMethod}
+                            </div>
+                          )}
+                        </td>
+                        {showSignatures && (
+                          <td className="py-4 px-4">
+                            {booking.signature ? (
+                              <div className="flex items-center gap-3">
+                                {/* Signature Thumbnail */}
+                                <div
+                                  className="w-20 h-10 border border-gray-600 rounded-lg cursor-pointer hover:border-cyan-500 bg-white/5 flex items-center justify-center group transition-all"
+                                  onClick={() => setSelectedSignature(booking.signature)}
+                                  title="Click to view full signature"
+                                >
+                                  <img
+                                    src={booking.signature}
+                                    alt="Signature"
+                                    className="w-full h-full object-contain p-1"
+                                  />
+                                  {/* Hover overlay */}
+                                  <div className="absolute inset-0 bg-cyan-500/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all rounded-lg">
+                                    <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                  </div>
+                                </div>
+                                {/* View Button */}
+                                <ThemedButton
+                                  variant="secondary"
+                                  className="text-xs px-3 py-1"
+                                  onClick={() => setSelectedSignature(booking.signature)}
+                                >
+                                  View
+                                </ThemedButton>
+                              </div>
+                            ) : (
+                              <div className="text-gray-500 text-sm italic">
+                                No signature
+                              </div>
+                            )}
+                          </td>
+                        )}
+                        <td className="py-4 px-4">
+                          <div className="flex gap-2">
+                            <Link href={`/active-bookings/${booking.bookingId}`}>
+                              <ThemedButton variant="secondary" className="text-xs px-3 py-1">
+                                View
+                              </ThemedButton>
+                            </Link>
+                            {booking.status === 'active' && (
+                              <Link href={`/return/${booking.bookingId}`}>
+                                <ThemedButton variant="success" className="text-xs px-3 py-1">
+                                  Return
+                                </ThemedButton>
+                              </Link>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="bg-gray-50 px-4 py-3 border-t flex items-center justify-between">
-              <div className="text-sm text-gray-700">
+            <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-700">
+              <div className="text-gray-400">
                 Page {currentPage} of {totalPages}
               </div>
               <div className="flex gap-2">
-                <button
+                <ThemedButton
+                  variant="secondary"
                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                  className={currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''}
                 >
                   Previous
-                </button>
-                
+                </ThemedButton>
+
                 {/* Page numbers */}
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                   const page = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
                   return (
-                    <button
+                    <ThemedButton
                       key={page}
+                      variant={page === currentPage ? "primary" : "secondary"}
                       onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-1 border rounded text-sm ${
-                        page === currentPage
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'border-gray-300 hover:bg-gray-100'
-                      }`}
+                      className="px-3"
                     >
                       {page}
-                    </button>
+                    </ThemedButton>
                   );
                 })}
-                
-                <button
+
+                <ThemedButton
+                  variant="secondary"
                   onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                  className={currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''}
                 >
                   Next
-                </button>
+                </ThemedButton>
               </div>
             </div>
           )}
-        </div>
+        </ThemedCard>
 
-        {bookings.length === 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-12 text-center">
-            <div className="text-gray-500 text-xl mb-4">No bookings found</div>
-            <p className="text-gray-400 mb-6">
-              {searchTerm || statusFilter !== 'all' || dateFilter !== 'all'
-                ? 'Try adjusting your search or filter criteria'
-                : 'No bookings have been created yet'
-              }
-            </p>
-            <Link
-              href="/booking"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold"
-            >
-              Create First Booking
-            </Link>
-          </div>
-        )}
+        {/* Quick Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-8">
+          <Link href="/booking">
+            <ThemedButton variant="primary" className="w-full">
+              ➕ New Booking
+            </ThemedButton>
+          </Link>
+          
+          <Link href="/active-bookings">
+            <ThemedButton variant="success" className="w-full">
+              🔄 Active Rentals
+            </ThemedButton>
+          </Link>
+          <Link href="/admin">
+            <ThemedButton variant="secondary" className="w-full">
+              📊 Dashboard
+            </ThemedButton>
+          </Link>
+          <Link href="/customers">
+            <ThemedButton variant="secondary" className="w-full">
+              👥 Customers
+            </ThemedButton>
+          </Link>
+        </div>
       </div>
-    </div>
+
+      {/* Signature Modal */}
+      <SignatureModal
+        signature={selectedSignature}
+        onClose={() => setSelectedSignature(null)}
+      />
+    </ThemedLayout>
   );
 }
