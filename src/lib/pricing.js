@@ -1,5 +1,3 @@
-// Advanced Pricing Calculation System for MR Travels
-
 /**
  * Calculate sophisticated pricing based on business rules:
  * - First 1 hour 15 minutes: Base rate (₹80)
@@ -49,7 +47,20 @@ const DEFAULT_PRICING = {
     const start = new Date(startTime);
     const end = new Date(endTime);
     
-    // Calculate total minutes
+    // SIMPLE FIX: Handle future start times
+    if (end < start) {
+      const minutesUntilStart = Math.ceil((start - end) / (1000 * 60));
+      return {
+        totalAmount: 0,
+        breakdown: [],
+        totalMinutes: 0,
+        status: 'pre-start',
+        summary: `Rental starts in ${minutesUntilStart} minute${minutesUntilStart === 1 ? '' : 's'}`,
+        minutesUntilStart
+      };
+    }
+    
+    // Calculate total minutes (existing logic)
     const totalMinutes = Math.max(0, Math.floor((end - start) / (1000 * 60)));
     
     if (totalMinutes === 0) {
@@ -57,7 +68,8 @@ const DEFAULT_PRICING = {
         totalAmount: 0,
         breakdown: [],
         totalMinutes: 0,
-        summary: 'No time elapsed'
+        status: 'just-started',
+        summary: 'Rental just started'
       };
     }
     
@@ -262,7 +274,15 @@ const DEFAULT_PRICING = {
     }
     
     const result = await calculateAdvancedPricing(startTime, endTime);
-    return result.totalAmount;
+    
+    // Return enhanced result with status information
+    return {
+      amount: result.totalAmount,
+      status: result.status || 'active',
+      summary: result.summary,
+      minutesUntilStart: result.minutesUntilStart || 0,
+      breakdown: result.breakdown || []
+    };
   }
   
   /**

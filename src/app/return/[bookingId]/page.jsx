@@ -35,7 +35,7 @@ export default function ThemedVehicleReturnPage() {
   });
 
   // UPI Configuration
-  const UPI_ID = '6261302374@ybl'; // Your test UPI ID
+  const UPI_ID = 'paytm.s1hau05@pty'; // Your test UPI ID
   const BUSINESS_NAME = 'MR Travels';
 
   // Return form state

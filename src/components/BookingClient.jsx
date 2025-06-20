@@ -22,7 +22,16 @@ export default function EnhancedBookingClientPage() {
   const [availableVehicles, setAvailableVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [settings, setSettings] = useState({ hourlyRate: 80, businessName: 'MR Travels' });
+  const [settings, setSettings] = useState({ 
+    hourlyRate: 80, 
+    businessName: 'MR Travels',
+    startDelayMinutes: 5,
+    roundToNearestMinutes: 5
+  });
+
+  // NEW: Calculated start time state
+  const [calculatedStartTime, setCalculatedStartTime] = useState(null);
+  const [startTimeTimer, setStartTimeTimer] = useState(null);
 
   // Customer autocomplete state
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
@@ -51,6 +60,31 @@ export default function EnhancedBookingClientPage() {
     termsAccepted: false
   });
 
+  // NEW: Function to calculate and display start time
+  const calculateStartTime = () => {
+    const now = new Date();
+    const delayMinutes = settings.startDelayMinutes || 5;
+    const roundToMinutes = settings.roundToNearestMinutes || 5;
+    
+    // Add delay to current time
+    const startTime = new Date(now.getTime() + (delayMinutes * 60 * 1000));
+    
+    // Round to nearest specified minutes
+    if (roundToMinutes > 1) {
+      const minutes = startTime.getMinutes();
+      const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
+      
+      if (roundedMinutes >= 60) {
+        startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));
+        startTime.setMinutes(roundedMinutes % 60, 0, 0);
+      } else {
+        startTime.setMinutes(roundedMinutes, 0, 0);
+      }
+    }
+    
+    setCalculatedStartTime(startTime);
+  };
+
   useEffect(() => {
     fetchAvailableVehicles();
     fetchSettings();
@@ -59,6 +93,28 @@ export default function EnhancedBookingClientPage() {
       fetchCustomerDetails(customerId);
     }
   }, []);
+
+  // NEW: Calculate start time when settings change and update every minute
+  useEffect(() => {
+    if (settings.startDelayMinutes !== undefined) {
+      calculateStartTime();
+      
+      // Update start time every minute
+      const interval = setInterval(calculateStartTime, 60000);
+      setStartTimeTimer(interval);
+      
+      return () => {
+        if (interval) clearInterval(interval);
+      };
+    }
+  }, [settings.startDelayMinutes, settings.roundToNearestMinutes]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (startTimeTimer) clearInterval(startTimeTimer);
+    };
+  }, [startTimeTimer]);
 
   // Debounce customer search
   useEffect(() => {
@@ -321,6 +377,21 @@ export default function EnhancedBookingClientPage() {
             <div>
               <h1 className={theme.typography.title}>New Booking</h1>
               <p className="text-gray-400">Step {currentStep} of 4 - {getStepTitle(currentStep)}</p>
+              {/* NEW: Display calculated start time */}
+              {calculatedStartTime && (
+                <div className="mt-2 flex items-center space-x-2">
+                  <span className="text-green-400">🕐</span>
+                  <span className="text-green-300 font-medium">
+                    Rental starts at: {calculatedStartTime.toLocaleString('en-IN', {
+                      weekday: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      day: 'numeric',
+                      month: 'short'
+                    })}
+                  </span>
+                </div>
+              )}
             </div>
             <ThemedBadge color="cyan">
               {currentStep}/4 Complete
@@ -601,6 +672,19 @@ export default function EnhancedBookingClientPage() {
                   <div className="space-y-2">
                     <p className="text-green-200"><span className="font-medium">Vehicle:</span> {bookingData.selectedVehicle?.model} ({bookingData.selectedVehicle?.plateNumber})</p>
                     <p className="text-green-200"><span className="font-medium">Rate:</span> ₹{settings.hourlyRate}/hour</p>
+                    {/* NEW: Display calculated start time */}
+                    {calculatedStartTime && (
+                      <p className="text-green-200">
+                        <span className="font-medium">Rental Starts:</span> {calculatedStartTime.toLocaleString('en-IN', {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    )}
                     <p className="text-green-200"><span className="font-medium">Payment:</span> On Return</p>
                   </div>
                 </div>

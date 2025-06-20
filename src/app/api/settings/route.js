@@ -1,66 +1,56 @@
-import connectDB from '@/lib/db';
 import { NextResponse } from 'next/server';
 
-// Simple in-memory settings store (in production, use MongoDB or a dedicated settings collection)
 let settings = {
-  // Business Settings
+  // Business settings
   businessName: 'MR Travels',
   businessAddress: 'Bhopal, Madhya Pradesh',
   businessPhone: '',
   businessEmail: '',
   gstNumber: '',
   
-  // Pricing Settings
+  // Pricing settings
   hourlyRate: 80,
   minimumHours: 1,
-  graceMinutes: 15,
-  blockMinutes: 30,
   lateFeePerHour: 20,
   securityDeposit: 500,
+  graceMinutes: 15,
+  blockMinutes: 30,
   nightChargeTime: '22:30',
   nightMultiplier: 2,
   
-  // Operational Settings
-  operatingHours: {
-    start: '06:00',
-    end: '22:00'
-  },
+  // NEW: Start delay settings
+  startDelayMinutes: 5,
+  roundToNearestMinutes: 5,
+  
+  // Operating settings
+  operatingHours: { start: '06:00', end: '22:00' },
   maxAdvanceBookingDays: 7,
   reminderTimeBeforeReturn: 30,
   
-  // Notification Settings
+  // Notification settings
   smsNotifications: true,
   emailNotifications: false,
   whatsappNotifications: false,
   
-  // System Settings
+  // System settings
   autoBackup: true,
   backupFrequency: 'daily',
   dataRetentionMonths: 12,
-  
-  // Document Settings
   requireAadharPhoto: true,
   requireSignature: true,
   requireLicenseVerification: true,
   
   // Metadata
-  lastUpdated: new Date().toISOString(),
-  version: '1.0.0'
+  version: '1.0.0',
+  lastUpdated: new Date().toISOString()
 };
 
 export async function GET() {
   try {
-    await connectDB();
-    
-    // In a production environment, you might want to store settings in MongoDB
-    // For now, we'll use the in-memory store with some dynamic data
-    
     return NextResponse.json({
       success: true,
-      settings: {
-        ...settings,
-        lastUpdated: new Date().toISOString()
-      }
+      settings,
+      message: 'Settings retrieved successfully'
     });
   } catch (error) {
     console.error('Settings GET API error:', error);
@@ -73,7 +63,6 @@ export async function GET() {
 
 export async function PUT(request) {
   try {
-    await connectDB();
     const body = await request.json();
     
     // Validate required fields
@@ -96,6 +85,21 @@ export async function PUT(request) {
     if (body.graceMinutes < 0 || body.graceMinutes > 60) {
       return NextResponse.json(
         { success: false, error: 'Grace period must be between 0 and 60 minutes' },
+        { status: 400 }
+      );
+    }
+    
+    // NEW: Validate start delay settings
+    if (body.startDelayMinutes < 0 || body.startDelayMinutes > 60) {
+      return NextResponse.json(
+        { success: false, error: 'Start delay must be between 0 and 60 minutes' },
+        { status: 400 }
+      );
+    }
+    
+    if (body.roundToNearestMinutes && ![1, 5, 10, 15, 30].includes(body.roundToNearestMinutes)) {
+      return NextResponse.json(
+        { success: false, error: 'Round to nearest must be 1, 5, 10, 15, or 30 minutes' },
         { status: 400 }
       );
     }
@@ -130,13 +134,6 @@ export async function PUT(request) {
       version: settings.version // Preserve version
     };
     
-    // In production, save to MongoDB here
-    // const settingsDoc = await Settings.findOneAndUpdate(
-    //   { version: '1.0.0' },
-    //   settings,
-    //   { upsert: true, new: true }
-    // );
-    
     return NextResponse.json({
       success: true,
       settings,
@@ -154,4 +151,23 @@ export async function PUT(request) {
 // Export current settings for use in other parts of the application
 export function getCurrentSettings() {
   return settings;
+}
+
+// NEW: Helper function to calculate rental start time
+export function calculateRentalStartTime(bookingTime = new Date(), delayMinutes = 5, roundToMinutes = 5) {
+  const startTime = new Date(bookingTime.getTime() + (delayMinutes * 60 * 1000));
+  
+  if (roundToMinutes > 1) {
+    const minutes = startTime.getMinutes();
+    const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
+    startTime.setMinutes(roundedMinutes, 0, 0); // Set seconds and milliseconds to 0
+    
+    // Handle hour overflow
+    if (roundedMinutes >= 60) {
+      startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));
+      startTime.setMinutes(roundedMinutes % 60);
+    }
+  }
+  
+  return startTime;
 }

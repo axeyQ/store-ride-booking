@@ -1,4 +1,3 @@
-// src/app/settings/page.jsx - Redesigned with Theme System
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -31,6 +30,10 @@ export default function ThemedSettingsPage() {
     securityDeposit: 500,
     nightChargeTime: '22:30',
     nightMultiplier: 2,
+    
+    // NEW: Start delay settings
+    startDelayMinutes: 5,
+    roundToNearestMinutes: 5,
     
     // Operational Settings
     operatingHours: {
@@ -103,6 +106,15 @@ export default function ThemedSettingsPage() {
     
     if (settings.nightMultiplier < 1 || settings.nightMultiplier > 5) {
       newErrors.nightMultiplier = 'Night multiplier must be between 1 and 5';
+    }
+    
+    // NEW: Start delay validation
+    if (settings.startDelayMinutes < 0 || settings.startDelayMinutes > 60) {
+      newErrors.startDelayMinutes = 'Start delay must be between 0 and 60 minutes';
+    }
+    
+    if (settings.roundToNearestMinutes && ![1, 5, 10, 15, 30].includes(settings.roundToNearestMinutes)) {
+      newErrors.roundToNearestMinutes = 'Round to nearest must be 1, 5, 10, 15, or 30 minutes';
     }
     
     // Time format validation
@@ -180,6 +192,8 @@ export default function ThemedSettingsPage() {
         securityDeposit: 500,
         nightChargeTime: '22:30',
         nightMultiplier: 2,
+        startDelayMinutes: 5, // NEW
+        roundToNearestMinutes: 5, // NEW
         operatingHours: { start: '06:00', end: '22:00' },
         maxAdvanceBookingDays: 7,
         reminderTimeBeforeReturn: 30,
@@ -224,6 +238,39 @@ export default function ThemedSettingsPage() {
     };
   };
 
+  // NEW: Calculate example start times
+  const getStartTimeExamples = () => {
+    const now = new Date();
+    const examples = [];
+    
+    for (let i = 0; i < 3; i++) {
+      const testTime = new Date(now.getTime() + (i * 2 * 60 * 1000)); // Every 2 minutes
+      const delayMinutes = settings.startDelayMinutes || 5;
+      const roundToMinutes = settings.roundToNearestMinutes || 5;
+      
+      const startTime = new Date(testTime.getTime() + (delayMinutes * 60 * 1000));
+      
+      if (roundToMinutes > 1) {
+        const minutes = startTime.getMinutes();
+        const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
+        
+        if (roundedMinutes >= 60) {
+          startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));
+          startTime.setMinutes(roundedMinutes % 60, 0, 0);
+        } else {
+          startTime.setMinutes(roundedMinutes, 0, 0);
+        }
+      }
+      
+      examples.push({
+        bookingTime: testTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        startTime: startTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+      });
+    }
+    
+    return examples;
+  };
+
   const tabs = [
     { id: 'business', label: '🏢 Business', icon: '🏢' },
     { id: 'pricing', label: '💰 Pricing', icon: '💰' },
@@ -248,6 +295,7 @@ export default function ThemedSettingsPage() {
   }
 
   const pricingExamples = getPricingExamples();
+  const startTimeExamples = getStartTimeExamples(); // NEW
 
   return (
     <ThemedLayout>
@@ -480,6 +528,64 @@ export default function ThemedSettingsPage() {
             {activeTab === 'operations' && (
               <div className="space-y-6">
                 <h3 className="text-2xl font-bold text-white mb-6">Operational Settings</h3>
+                
+                {/* NEW: Rental Start Time Configuration */}
+                <div className="bg-gradient-to-r from-cyan-900/50 to-cyan-800/50 border border-cyan-700/50 rounded-xl p-6 mb-8">
+                  <h4 className="text-xl font-semibold text-cyan-200 mb-4">🕐 Rental Start Time Configuration</h4>
+                  <p className="text-cyan-300 text-sm mb-6">
+                    Configure how much time customers get to reach the vehicle after booking confirmation.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <ThemedSelect
+                      label="Start Delay (Minutes)"
+                      value={settings.startDelayMinutes.toString()}
+                      onValueChange={(value) => handleInputChange('startDelayMinutes', parseInt(value))}
+                      options={[
+                        { value: '0', label: 'No Delay (Immediate Start)' },
+                        { value: '3', label: '3 Minutes' },
+                        { value: '5', label: '5 Minutes (Recommended)' },
+                        { value: '10', label: '10 Minutes' },
+                        { value: '15', label: '15 Minutes' },
+                        { value: '30', label: '30 Minutes' }
+                      ]}
+                      error={errors.startDelayMinutes}
+                    />
+                    <ThemedSelect
+                      label="Round Start Time To"
+                      value={settings.roundToNearestMinutes.toString()}
+                      onValueChange={(value) => handleInputChange('roundToNearestMinutes', parseInt(value))}
+                      options={[
+                        { value: '1', label: 'Exact Time (No Rounding)' },
+                        { value: '5', label: 'Nearest 5 Minutes (Recommended)' },
+                        { value: '10', label: 'Nearest 10 Minutes' },
+                        { value: '15', label: 'Nearest 15 Minutes' },
+                        { value: '30', label: 'Nearest 30 Minutes' }
+                      ]}
+                      error={errors.roundToNearestMinutes}
+                    />
+                  </div>
+                  
+                  {/* Start Time Examples */}
+                  <div className="mt-6 bg-cyan-800/30 rounded-lg p-4">
+                    <h5 className="font-semibold text-cyan-200 mb-3">📋 Live Start Time Examples</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {startTimeExamples.map((example, index) => (
+                        <div key={index} className="bg-cyan-700/20 rounded p-3">
+                          <div className="text-sm text-cyan-200">If booked at:</div>
+                          <div className="font-mono text-cyan-100">{example.bookingTime}</div>
+                          <div className="text-sm text-cyan-200 mt-1">Rental starts at:</div>
+                          <div className="font-mono font-semibold text-green-300">{example.startTime}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 text-xs text-cyan-300">
+                      <strong>Purpose:</strong> This delay gives customers time to physically reach the vehicle after booking confirmation.
+                      The rounded times look more professional and reduce confusion.
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <ThemedInput
                     label="Operating Hours - Start"
