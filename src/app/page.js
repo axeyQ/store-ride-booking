@@ -6,6 +6,362 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { calculateCurrentAmount } from '@/lib/pricing';
 
+// Day Operations Control Component (inline for easy integration)
+function DayOperationsControl({ onStatusChange }) {
+  const [operation, setOperation] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState('');
+  const [showModal, setShowModal] = useState(null);
+  const [staffName, setStaffName] = useState('');
+  const [notes, setNotes] = useState('');
+  const [reason, setReason] = useState('');
+
+  const fetchTodaysOperation = async () => {
+    try {
+      const response = await fetch('/api/daily-operations?range=today');
+      const data = await response.json();
+      if (data.success) {
+        setOperation(data.operation);
+        onStatusChange?.(data.operation);
+      }
+    } catch (error) {
+      console.error('Error fetching daily operation:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTodaysOperation();
+    const interval = setInterval(fetchTodaysOperation, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleStartDay = async () => {
+    if (!staffName.trim()) {
+      alert('Please enter your name');
+      return;
+    }
+
+    setActionLoading('starting');
+    try {
+      const response = await fetch('/api/daily-operations/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffName: staffName.trim(), notes: notes.trim() })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setOperation(data.operation);
+        setShowModal(null);
+        setStaffName('');
+        setNotes('');
+        onStatusChange?.(data.operation);
+        alert('Day started successfully! 🌅');
+      } else {
+        alert('Error: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error starting day:', error);
+      alert('Error starting day. Please try again.');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const handleEndDay = async () => {
+    if (!staffName.trim()) {
+      alert('Please enter your name');
+      return;
+    }
+
+    setActionLoading('ending');
+    try {
+      const response = await fetch('/api/daily-operations/end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffName: staffName.trim(), notes: notes.trim() })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setOperation(data.operation);
+        setShowModal(null);
+        setStaffName('');
+        setNotes('');
+        onStatusChange?.(data.operation);
+        
+        alert(`Day ended successfully! 🌙\n\nDaily Summary:\n• Revenue: ₹${data.summary.totalRevenue.toLocaleString('en-IN')}\n• Bookings: ${data.summary.totalBookings}\n• Operating Hours: ${data.summary.operatingHours}h\n• Revenue/Hour: ₹${data.summary.revenuePerHour}`);
+      } else {
+        alert('Error: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error ending day:', error);
+      alert('Error ending day. Please try again.');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const handleRestartDay = async () => {
+    if (!staffName.trim() || !reason.trim()) {
+      alert('Please enter your name and reason for restart');
+      return;
+    }
+
+    setActionLoading('restarting');
+    try {
+      const response = await fetch('/api/daily-operations/restart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          staffName: staffName.trim(), 
+          reason: reason.trim() 
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setOperation(data.operation);
+        setShowModal(null);
+        setStaffName('');
+        setReason('');
+        onStatusChange?.(data.operation);
+        alert('Day restarted successfully! 🔄');
+      } else {
+        alert('Error: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error restarting day:', error);
+      alert('Error restarting day. Please try again.');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const getStatusConfig = () => {
+    if (!operation) return { color: 'gray', icon: '❓', text: 'Loading...', bgColor: 'bg-gray-900/20', borderColor: 'border-gray-700/30' };
+    
+    switch (operation.status) {
+      case 'not_started':
+        return { color: 'orange', icon: '🌅', text: 'Day Not Started', bgColor: 'bg-orange-900/20', borderColor: 'border-orange-700/30' };
+      case 'in_progress':
+        return { color: 'green', icon: '🏃', text: 'Day In Progress', bgColor: 'bg-green-900/20', borderColor: 'border-green-700/30' };
+      case 'ended':
+        return { color: 'blue', icon: '🌙', text: 'Day Ended', bgColor: 'bg-blue-900/20', borderColor: 'border-blue-700/30' };
+      default:
+        return { color: 'gray', icon: '❓', text: 'Unknown Status', bgColor: 'bg-gray-900/20', borderColor: 'border-gray-700/30' };
+    }
+  };
+
+  const formatTime = (timeString) => {
+    if (!timeString) return 'Not set';
+    return new Date(timeString).toLocaleString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  if (loading) {
+    return (
+      <Card className="bg-gradient-to-r from-gray-800/50 to-gray-900/50 border-gray-700 hover:scale-105 transition-transform">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-center">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
+            <span className="ml-3 text-gray-400">Loading day status...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const statusConfig = getStatusConfig();
+
+  return (
+    <>
+      <Card className={`${statusConfig.bgColor} ${statusConfig.borderColor} hover:scale-105 transition-all duration-300`}>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="text-2xl">{statusConfig.icon}</div>
+              <div>
+                <div className="text-white font-bold text-lg">Day Operations</div>
+                <Badge className={`text-xs text-${statusConfig.color}-400 bg-${statusConfig.color}-500/20 border-${statusConfig.color}-500/30`}>
+                  {statusConfig.text}
+                </Badge>
+              </div>
+            </div>
+            
+            {/* Operating Hours Display */}
+            {operation?.dailySummary?.operatingHours > 0 && (
+              <div className="text-right">
+                <div className="text-white font-bold text-xl">
+                  {operation.dailySummary.operatingHours}h
+                </div>
+                <div className="text-gray-400 text-xs">Operating Hours</div>
+              </div>
+            )}
+          </div>
+
+          {/* Time Details */}
+          <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+            <div>
+              <div className="text-gray-400">Start</div>
+              <div className="text-white font-medium">{formatTime(operation?.startTime)}</div>
+            </div>
+            <div>
+              <div className="text-gray-400">End</div>
+              <div className="text-white font-medium">{formatTime(operation?.endTime)}</div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {operation?.status === 'not_started' && (
+              <Button
+                onClick={() => setShowModal('start')}
+                disabled={actionLoading === 'starting'}
+                className="bg-green-600 hover:bg-green-700 text-white w-full"
+              >
+                {actionLoading === 'starting' ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Starting...
+                  </div>
+                ) : (
+                  <>🌅 Start Day</>
+                )}
+              </Button>
+            )}
+
+            {operation?.status === 'in_progress' && (
+              <Button
+                onClick={() => setShowModal('end')}
+                disabled={actionLoading === 'ending'}
+                className="bg-red-600 hover:bg-red-700 text-white w-full"
+              >
+                {actionLoading === 'ending' ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Ending...
+                  </div>
+                ) : (
+                  <>🌙 End Day</>
+                )}
+              </Button>
+            )}
+
+            {operation?.status === 'ended' && (
+              <Button
+                onClick={() => setShowModal('restart')}
+                disabled={actionLoading === 'restarting'}
+                className="bg-blue-600 hover:bg-blue-700 text-white w-full"
+              >
+                {actionLoading === 'restarting' ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Restarting...
+                  </div>
+                ) : (
+                  <>🔄 Restart Day</>
+                )}
+              </Button>
+            )}
+
+            <Link href="/daily-operations" className={operation?.status === 'not_started' ? 'md:col-span-3' : ''}>
+              <Button variant="outline" className="w-full border-gray-600 text-gray-300 hover:bg-gray-800">
+                📅 View History
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Confirmation Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold text-white mb-4">
+              {showModal === 'start' && '🌅 Start Day'}
+              {showModal === 'end' && '🌙 End Day'}
+              {showModal === 'restart' && '🔄 Restart Day'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">Your Name</label>
+                <input
+                  type="text"
+                  value={staffName}
+                  onChange={(e) => setStaffName(e.target.value)}
+                  placeholder="Enter your name"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:border-cyan-500 focus:outline-none"
+                  required
+                />
+              </div>
+              
+              {showModal === 'restart' ? (
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Reason for Restart</label>
+                  <input
+                    type="text"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Why are you restarting the day?"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:border-cyan-500 focus:outline-none"
+                    required
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Notes (Optional)</label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Any additional notes..."
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowModal(null);
+                  setStaffName('');
+                  setNotes('');
+                  setReason('');
+                }}
+                className="flex-1 border-gray-600 text-gray-300"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (showModal === 'start') handleStartDay();
+                  else if (showModal === 'end') handleEndDay();
+                  else if (showModal === 'restart') handleRestartDay();
+                }}
+                disabled={!staffName.trim() || (showModal === 'restart' && !reason.trim())}
+                className={`flex-1 ${showModal === 'end' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+              >
+                {showModal === 'start' && '🌅 Start Day'}
+                {showModal === 'end' && '🌙 End Day'}
+                {showModal === 'restart' && '🔄 Restart Day'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function ModernHomePage() {
   const [stats, setStats] = useState({
     todayRevenue: 0,
@@ -17,10 +373,34 @@ export default function ModernHomePage() {
   const [error, setError] = useState(null);
   const [advancedRevenue, setAdvancedRevenue] = useState(0);
   const [calculatingRevenue, setCalculatingRevenue] = useState(false);
+  const [dayOperation, setDayOperation] = useState(null);
+  const [businessHoursRevenue, setBusinessHoursRevenue] = useState(0);
 
   useEffect(() => {
     fetchStats();
   }, []);
+
+  // Handle day operation status changes
+  const handleDayOperationChange = (operation) => {
+    setDayOperation(operation);
+    // Recalculate revenue based on business hours if day is active
+    if (operation?.status === 'in_progress') {
+      fetchBusinessHoursRevenue();
+    }
+  };
+
+  // Fetch revenue during business hours only
+  const fetchBusinessHoursRevenue = async () => {
+    try {
+      const response = await fetch('/api/admin/revenue-with-business-hours?businessHoursOnly=true');
+      const data = await response.json();
+      if (data.success) {
+        setBusinessHoursRevenue(data.data.todayRevenue);
+      }
+    } catch (error) {
+      console.error('Error fetching business hours revenue:', error);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -85,6 +465,31 @@ export default function ModernHomePage() {
     }
   };
 
+  // Determine which revenue to show based on day operations
+  const getDisplayRevenue = () => {
+    if (dayOperation?.status === 'in_progress' && businessHoursRevenue > 0) {
+      return businessHoursRevenue;
+    }
+    return advancedRevenue || stats.todayRevenue;
+  };
+
+  const getRevenueLabel = () => {
+    if (dayOperation?.status === 'in_progress') {
+      return 'Business Hours Revenue';
+    }
+    return 'Today\'s Revenue';
+  };
+
+  const getRevenueSubtext = () => {
+    if (dayOperation?.status === 'in_progress') {
+      return 'Since day started';
+    }
+    if (calculatingRevenue) {
+      return 'Calculating advanced pricing...';
+    }
+    return '🧮 Advanced Pricing';
+  };
+
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex flex-col">
@@ -118,7 +523,7 @@ export default function ModernHomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
-      {/* Modern Header */}
+      {/* Modern Header with Business Status */}
       <header className="border-b border-gray-800 bg-black/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
@@ -131,9 +536,28 @@ export default function ModernHomePage() {
                 <p className="text-gray-400 text-sm">Rental Management System</p>
               </div>
             </div>
-            <Badge variant="outline" className="text-cyan-400 border-cyan-400 bg-cyan-400/10">
-              Bike & Scooter Rentals
-            </Badge>
+            <div className="flex items-center gap-3">
+              {/* Business Status Indicator */}
+              {dayOperation && (
+                <div className="flex items-center space-x-2">
+                  <div className={`w-3 h-3 rounded-full ${
+                    dayOperation.status === 'in_progress' ? 'bg-green-400 animate-pulse' : 
+                    dayOperation.status === 'ended' ? 'bg-blue-400' : 'bg-orange-400'
+                  }`}></div>
+                  <span className={`text-sm font-medium ${
+                    dayOperation.status === 'in_progress' ? 'text-green-400' : 
+                    dayOperation.status === 'ended' ? 'text-blue-400' : 'text-orange-400'
+                  }`}>
+                    {dayOperation.status === 'in_progress' && 'Business Open'}
+                    {dayOperation.status === 'ended' && 'Business Closed'}
+                    {dayOperation.status === 'not_started' && 'Business Not Started'}
+                  </span>
+                </div>
+              )}
+              <Badge variant="outline" className="text-cyan-400 border-cyan-400 bg-cyan-400/10">
+                Bike & Scooter Rentals
+              </Badge>
+            </div>
           </div>
         </div>
       </header>
@@ -150,6 +574,11 @@ export default function ModernHomePage() {
           </p>
         </div>
 
+        {/* Day Operations Control */}
+        <div className="mb-8">
+          <DayOperationsControl onStatusChange={handleDayOperationChange} />
+        </div>
+
         {/* Quick Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
           <Card className="bg-gradient-to-r from-green-900/50 to-green-800/50 border-green-700/50 hover:scale-105 transition-transform">
@@ -160,13 +589,11 @@ export default function ModernHomePage() {
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
                   </div>
                 ) : (
-                  `₹${(advancedRevenue || 0).toLocaleString('en-IN')}`
+                  `₹${getDisplayRevenue().toLocaleString('en-IN')}`
                 )}
               </div>
-              <div className="text-green-200 text-sm">Today&apos;s Revenue</div>
-              <div className="text-xs text-green-300 mt-1">
-                {calculatingRevenue ? 'Calculating...' : '🧮 Advanced Pricing'}
-              </div>
+              <div className="text-green-200 text-sm">{getRevenueLabel()}</div>
+              <div className="text-xs text-green-300 mt-1">{getRevenueSubtext()}</div>
               <div className="w-full bg-green-900/30 rounded-full h-2 mt-3">
                 <div className="bg-green-400 h-2 rounded-full w-3/4"></div>
               </div>
@@ -203,6 +630,50 @@ export default function ModernHomePage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Business Hours Performance (only show if day is active/ended) */}
+        {dayOperation && (dayOperation.status === 'in_progress' || dayOperation.status === 'ended') && (
+          <div className="mb-12">
+            <Card className="bg-gradient-to-r from-cyan-900/50 to-cyan-800/50 border-cyan-700/50">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  ⏰ Business Hours Performance
+                </CardTitle>
+                <CardDescription className="text-gray-400">
+                  Revenue and metrics during operating hours
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-400">
+                      ₹{dayOperation.dailySummary?.revenuePerHour || 0}/hr
+                    </div>
+                    <div className="text-gray-400 text-sm">Revenue Rate</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-400">
+                      {dayOperation.dailySummary?.operatingHours || 0}h
+                    </div>
+                    <div className="text-gray-400 text-sm">Operating Hours</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-purple-400">
+                      {dayOperation.dailySummary?.totalBookings || 0}
+                    </div>
+                    <div className="text-gray-400 text-sm">Total Bookings</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-orange-400">
+                      {dayOperation.dailySummary?.vehiclesRented || 0}
+                    </div>
+                    <div className="text-gray-400 text-sm">Vehicles Used</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Main Navigation Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
@@ -358,7 +829,7 @@ export default function ModernHomePage() {
               Today&apos;s Business Summary
             </CardTitle>
             <CardDescription className="text-gray-400">
-              Real-time overview with advanced pricing calculations
+              Real-time overview with advanced pricing calculations and day operations tracking
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -378,13 +849,11 @@ export default function ModernHomePage() {
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
                       </div>
                     ) : (
-                      `₹${(advancedRevenue || 0).toLocaleString('en-IN')}`
+                      `₹${getDisplayRevenue().toLocaleString('en-IN')}`
                     )}
                   </div>
-                  <div className="text-green-200 text-sm">Today&apos;s Revenue</div>
-                  <div className="text-xs text-green-300 mt-1">
-                    {calculatingRevenue ? 'Calculating advanced pricing...' : '🧮 Advanced pricing system'}
-                  </div>
+                  <div className="text-green-200 text-sm">{getRevenueLabel()}</div>
+                  <div className="text-xs text-green-300 mt-1">{getRevenueSubtext()}</div>
                 </div>
 
                 <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-6 text-center">
@@ -402,9 +871,13 @@ export default function ModernHomePage() {
                 </div>
 
                 <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-6 text-center">
-                  <div className="text-3xl font-bold text-orange-400 mb-2">{stats.totalCustomers || 0}</div>
-                  <div className="text-orange-200 text-sm">Total Customers</div>
-                  <div className="text-xs text-orange-300 mt-1">Registered users</div>
+                  <div className="text-3xl font-bold text-orange-400 mb-2">
+                    {dayOperation?.dailySummary?.operatingHours || 0}h
+                  </div>
+                  <div className="text-orange-200 text-sm">Operating Hours</div>
+                  <div className="text-xs text-orange-300 mt-1">
+                    {dayOperation?.status === 'in_progress' ? 'So far today' : 'Today total'}
+                  </div>
                 </div>
               </div>
             )}
