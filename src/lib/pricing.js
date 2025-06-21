@@ -269,16 +269,13 @@ const DEFAULT_PRICING = {
     const startTime = new Date(booking.startTime);
     const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
     
-    if (booking.finalAmount) {
-      return booking.finalAmount; // Already completed
-    }
-    
+    // Always calculate advanced pricing instead of using old finalAmount
     const result = await calculateAdvancedPricing(startTime, endTime);
     
     // Return enhanced result with status information
     return {
       amount: result.totalAmount,
-      status: result.status || 'active',
+      status: result.status || (booking.status === 'completed' ? 'completed' : 'active'),
       summary: result.summary,
       minutesUntilStart: result.minutesUntilStart || 0,
       breakdown: result.breakdown || []

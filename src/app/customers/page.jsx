@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils';
 
 export default function OptimizedThemedCustomersPage() {
   const [customers, setCustomers] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [enrichedCustomers, setEnrichedCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -49,6 +51,84 @@ export default function OptimizedThemedCustomersPage() {
     }
   });
 
+  // Advanced pricing calculation function
+  const calculateAdvancedPricingForBooking = useCallback((booking) => {
+    try {
+      // Advanced pricing settings (should match your API)
+      const settings = {
+        hourlyRate: 80,
+        graceMinutes: 15,
+        blockMinutes: 30,
+        nightChargeTime: '22:30',
+        nightMultiplier: 2
+      };
+
+      const startTime = new Date(booking.startTime);
+      const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
+      const totalMinutes = Math.max(0, Math.floor((endTime - startTime) / (1000 * 60)));
+      
+      if (totalMinutes === 0) {
+        return 80; // Minimum charge
+      }
+
+      const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
+      const halfRate = Math.round(hourlyRate / 2); // ₹40
+
+      let totalAmount = 0;
+      let remainingMinutes = totalMinutes;
+      let currentTime = new Date(startTime);
+
+      // First block: 60 minutes + 15 minutes grace = 75 minutes at ₹80
+      const firstBlockMinutes = 60 + graceMinutes; // 75 minutes
+      const firstBlockUsed = Math.min(remainingMinutes, firstBlockMinutes);
+      
+      // Check if first block crosses night charge time (22:30)
+      const isFirstBlockNight = isNightCharge(currentTime, firstBlockUsed, nightChargeTime);
+      const firstBlockRate = isFirstBlockNight ? hourlyRate * nightMultiplier : hourlyRate;
+
+      totalAmount += firstBlockRate;
+      remainingMinutes -= firstBlockUsed;
+      currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
+
+      // Subsequent blocks: 30-minute blocks at ₹40 each
+      while (remainingMinutes > 0) {
+        const blockUsed = Math.min(remainingMinutes, blockMinutes);
+        const isNight = isNightCharge(currentTime, blockUsed, nightChargeTime);
+        const blockRate = isNight ? halfRate * nightMultiplier : halfRate;
+
+        totalAmount += blockRate;
+        remainingMinutes -= blockUsed;
+        currentTime = new Date(currentTime.getTime() + blockUsed * 60000);
+      }
+
+      return totalAmount;
+
+    } catch (error) {
+      console.error('Error in advanced pricing calculation:', error);
+      // Fallback to simple calculation
+      const startTime = new Date(booking.startTime);
+      const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
+      const diffMs = endTime - startTime;
+      const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+      return Math.max(hours * 80, 80); // Minimum ₹80
+    }
+  }, []);
+
+  // Helper function to check if a time block crosses night charge threshold
+  const isNightCharge = useCallback((startTime, durationMinutes, nightChargeTime) => {
+    try {
+      const [nightHour, nightMinute] = nightChargeTime.split(':').map(Number);
+      const blockEndTime = new Date(startTime.getTime() + durationMinutes * 60000);
+      const nightThreshold = new Date(startTime);
+      nightThreshold.setHours(nightHour, nightMinute, 0, 0);
+      
+      // Check if the block crosses or includes the night threshold
+      return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
+    } catch (error) {
+      return false;
+    }
+  }, []);
+
   // Debounce search term to prevent excessive API calls
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -57,49 +137,131 @@ export default function OptimizedThemedCustomersPage() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Only trigger API calls when debounced search term changes
+  // Fetch customers and bookings on component mount
   useEffect(() => {
-    fetchCustomers();
-  }, [sortBy, sortOrder, debouncedSearchTerm, tierFilter, statusFilter]);
-
-  // Fetch stats only once on component mount
-  useEffect(() => {
-    fetchCustomerStats();
+    fetchCustomersAndBookings();
   }, []);
 
-  const fetchCustomers = useCallback(async () => {
+  // Enrich customers with booking data when customers or bookings change
+  useEffect(() => {
+    if (customers.length > 0 && bookings.length >= 0) {
+      enrichCustomersWithBookingData();
+    }
+  }, [customers, bookings, calculateAdvancedPricingForBooking]);
+
+  // Filter enriched customers when search term or filters change
+  useEffect(() => {
+    if (enrichedCustomers.length > 0) {
+      updateCustomerStats(enrichedCustomers);
+    }
+  }, [enrichedCustomers, debouncedSearchTerm, tierFilter, statusFilter]);
+
+  const fetchCustomersAndBookings = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        search: debouncedSearchTerm,
-        sortBy: sortBy,
-        sortOrder: sortOrder
-      });
-      const response = await fetch(`/api/customers?${params}`);
-      const data = await response.json();
-      if (data.success) {
-        setCustomers(data.customers);
-        updateCustomerStats(data.customers);
+      
+      // Fetch both customers and bookings in parallel
+      const [customersResponse, bookingsResponse] = await Promise.all([
+        fetch('/api/customers'),
+        fetch('/api/bookings')
+      ]);
+
+      const customersData = await customersResponse.json();
+      const bookingsData = await bookingsResponse.json();
+
+      if (customersData.success) {
+        setCustomers(customersData.customers);
       } else {
-        console.error('Error fetching customers:', data.error);
+        console.error('Error fetching customers:', customersData.error);
       }
+
+      if (bookingsData.success) {
+        setBookings(bookingsData.bookings);
+      } else {
+        console.error('Error fetching bookings:', bookingsData.error);
+      }
+
     } catch (error) {
-      console.error('Error fetching customers:', error);
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearchTerm, sortBy, sortOrder]);
+  };
 
-  const fetchCustomerStats = async () => {
-    try {
-      const response = await fetch('/api/customers/stats');
-      const data = await response.json();
-      if (data.success) {
-        setCustomerStats(data.stats);
+  const enrichCustomersWithBookingData = () => {
+    const enriched = customers.map(customer => {
+      // Find all bookings for this customer
+      const customerBookings = bookings.filter(booking => 
+        booking.customerId && 
+        (booking.customerId._id === customer._id || booking.customerId === customer._id)
+      );
+
+      // Calculate total revenue using advanced pricing
+      const totalRevenue = customerBookings.reduce((sum, booking) => {
+        return sum + calculateAdvancedPricingForBooking(booking);
+      }, 0);
+
+      // Calculate statistics
+      const totalBookings = customerBookings.length;
+      const completedBookings = customerBookings.filter(b => b.status === 'completed').length;
+      const activeBookings = customerBookings.filter(b => b.status === 'active').length;
+      
+      // Find most recent booking for last visit
+      const mostRecentBooking = customerBookings
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+      
+      const lastVisit = mostRecentBooking ? mostRecentBooking.createdAt : customer.createdAt;
+
+      return {
+        ...customer,
+        // Enriched data
+        totalBookings,
+        completedBookings,
+        activeBookings,
+        totalRevenue,
+        lastVisit,
+        // Additional calculated fields
+        avgBookingValue: totalBookings > 0 ? Math.round(totalRevenue / totalBookings) : 0,
+        hasActiveBooking: activeBookings > 0,
+        customerLifetimeValue: totalRevenue,
+        bookingHistory: customerBookings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      };
+    });
+
+    // Sort enriched customers
+    const sorted = enriched.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+          break;
+        case 'totalBookings':
+          aValue = a.totalBookings;
+          bValue = b.totalBookings;
+          break;
+        case 'lastVisit':
+          aValue = new Date(a.lastVisit);
+          bValue = new Date(b.lastVisit);
+          break;
+        case 'totalRevenue':
+          aValue = a.totalRevenue;
+          bValue = b.totalRevenue;
+          break;
+        default:
+          aValue = new Date(a.lastVisit);
+          bValue = new Date(b.lastVisit);
       }
-    } catch (error) {
-      console.error('Error fetching customer stats:', error);
-    }
+
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    setEnrichedCustomers(sorted);
   };
 
   const updateCustomerStats = (customerList) => {
@@ -112,10 +274,16 @@ export default function OptimizedThemedCustomersPage() {
         const now = new Date();
         const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1);
         return createdDate >= monthAgo;
-      }).length
+      }).length,
+      tierDistribution: {
+        vip: customerList.filter(c => getCustomerTier(c.totalBookings).label === 'VIP').length,
+        gold: customerList.filter(c => getCustomerTier(c.totalBookings).label === 'Gold').length,
+        silver: customerList.filter(c => getCustomerTier(c.totalBookings).label === 'Silver').length,
+        new: customerList.filter(c => getCustomerTier(c.totalBookings).label === 'New').length
+      }
     };
     
-    setCustomerStats(prev => ({ ...prev, ...stats }));
+    setCustomerStats(stats);
   };
 
   const handleSort = (column) => {
@@ -150,7 +318,6 @@ export default function OptimizedThemedCustomersPage() {
       c._id === updatedCustomer._id ? updatedCustomer : c
     ));
     setBlacklistModal({ isOpen: false, customer: null });
-    updateCustomerStats(customers);
   };
 
   const onUnblacklistSuccess = (updatedCustomer) => {
@@ -158,7 +325,6 @@ export default function OptimizedThemedCustomersPage() {
       c._id === updatedCustomer._id ? updatedCustomer : c
     ));
     setUnblacklistModal({ isOpen: false, customer: null });
-    updateCustomerStats(customers);
   };
 
   const formatLastVisit = (date) => {
@@ -248,7 +414,16 @@ export default function OptimizedThemedCustomersPage() {
     return customer.isBlacklisted && customer.blacklistDetails?.isActive;
   };
 
-  const filteredCustomers = customers.filter(customer => {
+  const filteredCustomers = enrichedCustomers.filter(customer => {
+    // Search filter
+    const searchMatch = !debouncedSearchTerm || 
+      customer.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+      customer.phone.includes(debouncedSearchTerm) ||
+      customer.driverLicense.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
+
+    if (!searchMatch) return false;
+
+    // Tier filter
     const tier = getCustomerTier(customer.totalBookings);
     const matchesTier = tierFilter === 'all' || tier.label.toLowerCase() === tierFilter.toLowerCase();
     
@@ -284,14 +459,14 @@ export default function OptimizedThemedCustomersPage() {
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  if (loading && customers.length === 0) {
+  if (loading) {
     return (
       <ThemedLayout>
         <div className="min-h-screen flex items-center justify-center">
           <ThemedCard>
             <div className="flex items-center space-x-3 p-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
-              <span className="text-white text-xl">Loading customers...</span>
+              <span className="text-white text-xl">Loading customer data...</span>
             </div>
           </ThemedCard>
         </div>
@@ -308,15 +483,15 @@ export default function OptimizedThemedCustomersPage() {
             Customer <span className={theme.typography.gradient}>Database</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Complete customer relationship management and blacklist control
+            Complete customer relationship management with real booking analytics
           </p>
         </div>
 
-        {/* Customer Analytics with Blacklist Stats */}
+        {/* Customer Analytics with Real Data */}
         <div className={theme.layout.grid.stats + " mb-8"}>
           <ThemedStatsCard
             title="Total Customers"
-            value={customers.length}
+            value={enrichedCustomers.length}
             subtitle="Registered users"
             colorScheme="customers"
             icon={<div className="text-4xl mb-2">👥</div>}
@@ -328,7 +503,7 @@ export default function OptimizedThemedCustomersPage() {
             subtitle="Can make bookings"
             colorScheme="revenue"
             icon={<div className="text-4xl mb-2">✅</div>}
-            progress={customers.length > 0 ? (customerStats.activeCustomers / customers.length) * 100 : 0}
+            progress={enrichedCustomers.length > 0 ? (customerStats.activeCustomers / enrichedCustomers.length) * 100 : 0}
           />
           <ThemedStatsCard
             title="Blacklisted"
@@ -336,11 +511,11 @@ export default function OptimizedThemedCustomersPage() {
             subtitle="Restricted access"
             colorScheme="vehicles"
             icon={<div className="text-4xl mb-2">🚫</div>}
-            progress={customers.length > 0 ? (customerStats.blacklistedCustomers / customers.length) * 100 : 0}
+            progress={enrichedCustomers.length > 0 ? (customerStats.blacklistedCustomers / enrichedCustomers.length) * 100 : 0}
           />
           <ThemedStatsCard
             title="VIP Members"
-            value={customers.filter(c => getCustomerTier(c.totalBookings).label === 'VIP').length}
+            value={customerStats.tierDistribution.vip}
             subtitle="Premium customers"
             colorScheme="bookings"
             icon={<div className="text-4xl mb-2">👑</div>}
@@ -421,7 +596,7 @@ export default function OptimizedThemedCustomersPage() {
                     Searching...
                   </span>
                 ) : (
-                  `Showing ${filteredCustomers.length} of ${customers.length} customers`
+                  `Showing ${filteredCustomers.length} of ${enrichedCustomers.length} customers`
                 )}
               </div>
               {searchTerm && (
@@ -438,7 +613,7 @@ export default function OptimizedThemedCustomersPage() {
         </ThemedCard>
 
         {/* Customers Table */}
-        <ThemedCard title="Customer Database" description="Complete customer records with blacklist management">
+        <ThemedCard title="Customer Database" description="Complete customer records with real booking analytics">
           {filteredCustomers.length === 0 ? (
             <div className="text-center p-12">
               <div className="w-24 h-24 bg-gradient-to-r from-gray-600 to-gray-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -448,12 +623,12 @@ export default function OptimizedThemedCustomersPage() {
               </div>
               <h3 className="text-2xl font-bold text-white mb-2">No Customers Found</h3>
               <p className="text-gray-400 mb-6">
-                {customers.length === 0
+                {enrichedCustomers.length === 0
                   ? 'No customers have been registered yet'
                   : searchTerm ? `No customers match "${searchTerm}"` : 'Try adjusting your filter criteria'
                 }
               </p>
-              {customers.length === 0 && (
+              {enrichedCustomers.length === 0 && (
                 <Link href="/booking">
                   <ThemedButton variant="primary">Create First Booking</ThemedButton>
                 </Link>
@@ -486,8 +661,13 @@ export default function OptimizedThemedCustomersPage() {
                         Bookings <SortIcon column="totalBookings" />
                       </div>
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">
-                      Value
+                    <th
+                      className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
+                      onClick={() => handleSort('totalRevenue')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Revenue <SortIcon column="totalRevenue" />
+                      </div>
                     </th>
                     <th
                       className="px-4 py-3 text-left text-sm font-medium text-gray-400 cursor-pointer hover:text-gray-300 transition-colors"
@@ -519,6 +699,9 @@ export default function OptimizedThemedCustomersPage() {
                               {customer.name}
                               {isBlacklisted && (
                                 <span className="text-red-400 text-sm">🚫</span>
+                              )}
+                              {customer.hasActiveBooking && (
+                                <span className="text-orange-400 text-sm">🔄</span>
                               )}
                             </div>
                             <div className="text-gray-400 text-sm font-mono">{customer.driverLicense}</div>
@@ -553,15 +736,28 @@ export default function OptimizedThemedCustomersPage() {
                         <td className="px-4 py-3">
                           <div className="text-center">
                             <div className="text-2xl font-bold text-white">{customer.totalBookings}</div>
-                            <div className="text-gray-400 text-xs">Total Rides</div>
+                            <div className="text-gray-400 text-xs">
+                              {customer.activeBookings > 0 && (
+                                <span className="text-orange-400">{customer.activeBookings} active</span>
+                              )}
+                              {customer.completedBookings > 0 && (
+                                <span className="text-green-400">{customer.completedBookings} completed</span>
+                              )}
+                              {customer.totalBookings === 0 && "No bookings"}
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-center">
                             <div className="text-lg font-bold text-green-400">
-                              ₹{(customer.totalBookings * 240).toLocaleString('en-IN')}
+                              ₹{customer.totalRevenue.toLocaleString('en-IN')}
                             </div>
-                            <div className="text-gray-400 text-xs">Estimated</div>
+                            <div className="text-gray-400 text-xs">
+                              {customer.totalBookings > 0 ? 
+                                `₹${customer.avgBookingValue}/avg` : 
+                                'No revenue'
+                              }
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -627,27 +823,18 @@ export default function OptimizedThemedCustomersPage() {
               🚫 Blacklisted Customers ({customerStats.blacklistedCustomers})
             </ThemedButton>
           </Link>
-          <Link href="/admin/bookings">
+          <Link href="/all-bookings">
             <ThemedButton variant="primary" className="w-full flex items-center justify-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v11a2 2 0 002 2h9.5M15 8v7m0 0l3-3m-3 3l-3-3" />
-              </svg>
               📋 View All Bookings
             </ThemedButton>
           </Link>
           <Link href="/active-bookings">
             <ThemedButton variant="success" className="w-full flex items-center justify-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
               ⏰ Active Bookings
             </ThemedButton>
           </Link>
           <Link href="/admin">
             <ThemedButton variant="secondary" className="w-full flex items-center justify-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
               📊 Admin Dashboard
             </ThemedButton>
           </Link>

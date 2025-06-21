@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   ThemedLayout,
   ThemedCard,
@@ -24,6 +24,7 @@ import {
   Cell
 } from 'recharts';
 
+import { calculateCurrentAmount } from '@/lib/pricing';
 // Enhanced Animated Counter Component
 function EnhancedAnimatedCounter({ value, duration = 1000, prefix = '', suffix = '', previousValue }) {
   const [displayValue, setDisplayValue] = useState(previousValue || 0);
@@ -434,44 +435,151 @@ export default function EnhancedAdminDashboard() {
   const [timeRange, setTimeRange] = useState('week');
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [isLive, setIsLive] = useState(true);
+  const [calculatingRevenue, setCalculatingRevenue] = useState(false);
 
-  // Enhanced data fetching with Week 2 customer intelligence
-  const fetchEnhancedDashboardData = async () => {
+
+
+  // Helper function to check if a time block crosses night charge threshold
+  const isNightCharge = useCallback((startTime, durationMinutes, nightChargeTime) => {
+    try {
+      const [nightHour, nightMinute] = nightChargeTime.split(':').map(Number);
+      const blockEndTime = new Date(startTime.getTime() + durationMinutes * 60000);
+      const nightThreshold = new Date(startTime);
+      nightThreshold.setHours(nightHour, nightMinute, 0, 0);
+      
+      // Check if the block crosses or includes the night threshold
+      return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
+    } catch (error) {
+      return false;
+    }
+  }, []);
+
+  // Calculate advanced revenue for today and yesterday
+  const calculateAdvancedRevenue = useCallback(async () => {
+    try {
+      setCalculatingRevenue(true);
+      
+      // Get all bookings
+      const response = await fetch('/api/bookings');
+      const data = await response.json();
+      
+      if (!data.success) return;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      // Filter bookings by date
+      const todayBookings = data.bookings.filter(booking => {
+        const bookingDate = new Date(booking.createdAt);
+        return bookingDate >= today && bookingDate < tomorrow;
+      });
+
+      const yesterdayBookings = data.bookings.filter(booking => {
+        const bookingDate = new Date(booking.createdAt);
+        return bookingDate >= yesterday && bookingDate < today;
+      });
+
+      // Calculate advanced pricing for each booking
+      let todayAdvancedRevenue = 0;
+      let yesterdayAdvancedRevenue = 0;
+
+      for (const booking of todayBookings) {
+        const result= await calculateCurrentAmount(booking);
+        todayAdvancedRevenue += typeof result === 'number' ? result : result.amount;
+      }
+
+      for (const booking of yesterdayBookings) {
+        const result=await calculateCurrentAmount(booking);
+        yesterdayAdvancedRevenue += typeof result === 'number' ? result : result.amount;
+      }
+
+      return {
+        todayAdvancedRevenue,
+        yesterdayAdvancedRevenue,
+        todayBookingsCount: todayBookings.length,
+        yesterdayBookingsCount: yesterdayBookings.length
+      };
+
+    } catch (error) {
+      console.error('Error calculating advanced revenue:', error);
+      return null;
+    } finally {
+      setCalculatingRevenue(false);
+    }
+  }, []);
+
+  // Fixed: Enhanced data fetching with Week 2 customer intelligence - FIXED circular dependency
+  const fetchEnhancedDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       
       // Enhanced API calls including Week 2 customer intelligence
-      const [realTimeRes, hourlyRes, fleetRes, customerInsightsRes, milestonesRes] = await Promise.all([
+      const [realTimeRes, hourlyRes, fleetRes, customerInsightsRes, milestonesRes, advancedRevenueData] = await Promise.all([
         fetch('/api/analytics/real-time-stats').catch(() => null),
         fetch('/api/analytics/hourly-revenue').catch(() => null),
         fetch('/api/analytics/fleet-heatmap').catch(() => null),
         // Week 2: Customer Intelligence APIs
         fetch('/api/analytics/customer-insights').catch(() => null),
-        fetch('/api/analytics/customer-milestones').catch(() => null)
+        fetch('/api/analytics/customer-milestones').catch(() => null),
+        // Calculate advanced revenue
+        calculateAdvancedRevenue()
       ]);
 
-      let newData = { ...dashboardData };
+      // Start with empty base data instead of spreading existing state
+      let newData = {
+        todayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
+        yesterdayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
+        recentBookings: [],
+        revenueChart: [],
+        vehicleUtilization: [],
+        fleetHeatmap: [],
+        hourlyRevenue: [],
+        recentActivity: [],
+        monthlyStats: { totalRevenue: 0, totalBookings: 0, avgPerBooking: 0, topVehicle: '' },
+        // Week 2: Customer Intelligence Data
+        topLoyalCustomers: [],
+        topReliableCustomers: [],
+        recentMilestones: [],
+        milestoneAlerts: [],
+        customerSummary: { totalCustomersWithBookings: 0, averageReliability: 0, averageBookingsPerCustomer: 0 }
+      };
+
+      // Use advanced revenue if calculated successfully
+      if (advancedRevenueData) {
+        newData.todayStats.revenue = advancedRevenueData.todayAdvancedRevenue;
+        newData.todayStats.bookings = advancedRevenueData.todayBookingsCount;
+        newData.yesterdayStats.revenue = advancedRevenueData.yesterdayAdvancedRevenue;
+        newData.yesterdayStats.bookings = advancedRevenueData.yesterdayBookingsCount;
+      }
 
       // If new APIs are available, use them
       if (realTimeRes?.ok) {
         const realTimeData = await realTimeRes.json();
         if (realTimeData.success) {
-          newData = {
-            ...newData,
-            todayStats: {
+          // Only override if we don't have advanced revenue data
+          if (!advancedRevenueData) {
+            newData.todayStats = {
               revenue: realTimeData.data.todayRevenue,
               bookings: realTimeData.data.todayBookings,
               activeRentals: realTimeData.data.activeBookings,
               vehiclesOut: realTimeData.data.rentedVehicles
-            },
-            yesterdayStats: {
+            };
+            newData.yesterdayStats = {
               revenue: realTimeData.data.yesterdayRevenue,
               bookings: realTimeData.data.yesterdayBookings,
               activeRentals: 0,
               vehiclesOut: 0
-            },
-            recentActivity: realTimeData.data.recentActivity || []
-          };
+            };
+          } else {
+            // Keep advanced revenue but update other stats
+            newData.todayStats.activeRentals = realTimeData.data.activeBookings;
+            newData.todayStats.vehiclesOut = realTimeData.data.rentedVehicles;
+          }
+          newData.recentActivity = realTimeData.data.recentActivity || [];
         }
       } else {
         // Fallback to existing APIs
@@ -484,7 +592,15 @@ export default function EnhancedAdminDashboard() {
         if (statsRes?.ok) {
           const stats = await statsRes.json();
           if (stats.success) {
-            newData.todayStats = stats.todayStats || stats.stats || {};
+            // Only use basic stats if we don't have advanced revenue
+            if (!advancedRevenueData) {
+              newData.todayStats = stats.todayStats || stats.stats || {};
+            } else {
+              // Keep advanced revenue but update other stats
+              const basicStats = stats.todayStats || stats.stats || {};
+              newData.todayStats.activeRentals = basicStats.activeBookings || 0;
+              newData.todayStats.vehiclesOut = basicStats.activeBookings || 0;
+            }
             newData.vehicleUtilization = stats.vehicleUtilization || [];
             newData.monthlyStats = stats.monthlyStats || {};
           }
@@ -570,7 +686,7 @@ export default function EnhancedAdminDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange, calculateAdvancedRevenue]); // Fixed: removed dashboardData dependency
 
   useEffect(() => {
     fetchEnhancedDashboardData();
@@ -579,7 +695,7 @@ export default function EnhancedAdminDashboard() {
     const interval = setInterval(fetchEnhancedDashboardData, 30000);
     
     return () => clearInterval(interval);
-  }, [timeRange]);
+  }, [fetchEnhancedDashboardData]); // Fixed: now properly depends on the memoized function
 
   // Mock data fallback for demonstration
   const mockRevenueData = [
@@ -643,7 +759,7 @@ export default function EnhancedAdminDashboard() {
             Admin <span className={theme.typography.gradient}>Dashboard</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Real-time business analytics and customer intelligence
+            Real-time business analytics with advanced pricing calculations
           </p>
           
           {/* Enhanced Live Indicator */}
@@ -664,8 +780,9 @@ export default function EnhancedAdminDashboard() {
               variant="secondary" 
               onClick={fetchEnhancedDashboardData}
               className="text-xs px-3 py-1"
+              disabled={loading || calculatingRevenue}
             >
-              🔄 Refresh
+              {loading || calculatingRevenue ? '⏳' : '🔄'} Refresh
             </ThemedButton>
           </div>
         </div>
@@ -674,11 +791,11 @@ export default function EnhancedAdminDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <LiveStatsCard
             title="Today's Revenue"
-            value={dashboardData.todayStats.revenue || 0}
+            value={calculatingRevenue ? 0 : (dashboardData.todayStats.revenue || 0)}
             previousValue={dashboardData.yesterdayStats.revenue}
-            subtitle="Total earnings today"
+            subtitle={calculatingRevenue ? "Calculating advanced pricing..." : "🧮 Advanced pricing"}
             icon="💰"
-            showComparison={true}
+            showComparison={!calculatingRevenue}
           />
           
           <LiveStatsCard
@@ -896,23 +1013,20 @@ export default function EnhancedAdminDashboard() {
 
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <ThemedButton variant="primary" className="w-full py-3" onClick={() => window.location.href = '/new-booking'}>
+          <ThemedButton variant="primary" className="w-full py-3" onClick={() => window.location.href = '/booking'}>
             ➕ New Booking
           </ThemedButton>
 
           <ThemedButton variant="secondary" className="w-full py-3" onClick={() => window.location.href = '/admin/bookings'}>
-          📋 All Bookings
+            📋 All Bookings
           </ThemedButton>
+          
           <ThemedButton variant="secondary" className="w-full py-3" onClick={() => window.location.href = '/active-bookings'}>
             🔄 Active Rentals
           </ThemedButton>
           
           <ThemedButton variant="secondary" className="w-full py-3" onClick={() => window.location.href = '/vehicles'}>
             🚗 Manage Fleet
-          </ThemedButton>
-          
-          <ThemedButton variant="secondary" className="w-full py-3" onClick={() => window.location.href = '/customers'}>
-            👥 Customers
           </ThemedButton>
         </div>
       </div>

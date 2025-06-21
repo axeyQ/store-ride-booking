@@ -1,10 +1,10 @@
-// src/app/page.jsx (Modern Dark Corporate Theme)
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { calculateCurrentAmount } from '@/lib/pricing';
 
 export default function ModernHomePage() {
   const [stats, setStats] = useState({
@@ -15,6 +15,8 @@ export default function ModernHomePage() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [advancedRevenue, setAdvancedRevenue] = useState(0);
+  const [calculatingRevenue, setCalculatingRevenue] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -22,6 +24,7 @@ export default function ModernHomePage() {
 
   const fetchStats = async () => {
     try {
+      // Fetch basic stats first
       const response = await fetch('/api/stats');
       const data = await response.json();
       if (data.success && data.stats) {
@@ -31,12 +34,54 @@ export default function ModernHomePage() {
           availableVehicles: data.stats.availableVehicles || 0,
           totalCustomers: data.stats.totalCustomers || 0
         });
+
+        // Then calculate advanced pricing for today's revenue
+        await calculateAdvancedTodayRevenue();
       }
     } catch (error) {
       console.error('Error fetching stats:', error);
       setError('Failed to load stats');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const calculateAdvancedTodayRevenue = async () => {
+    try {
+      setCalculatingRevenue(true);
+      
+      // Get today's bookings
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Fetch all bookings from today
+      const response = await fetch('/api/bookings');
+      const data = await response.json();
+      
+      if (data.success) {
+        const todayBookings = data.bookings.filter(booking => {
+          const bookingDate = new Date(booking.createdAt);
+          return bookingDate >= today && bookingDate < tomorrow;
+        });
+
+        // Calculate advanced pricing for each booking using centralized pricing.js
+        let totalAdvancedRevenue = 0;
+        
+        for (const booking of todayBookings) {
+          const result = await calculateCurrentAmount(booking);
+          totalAdvancedRevenue += typeof result === 'number' ? result : result.amount;
+        }
+
+        setAdvancedRevenue(totalAdvancedRevenue);
+      }
+    } catch (error) {
+      console.error('Error calculating advanced revenue:', error);
+      // Fallback to basic revenue if advanced calculation fails
+      setAdvancedRevenue(stats.todayRevenue);
+    } finally {
+      setCalculatingRevenue(false);
     }
   };
 
@@ -110,9 +155,18 @@ export default function ModernHomePage() {
           <Card className="bg-gradient-to-r from-green-900/50 to-green-800/50 border-green-700/50 hover:scale-105 transition-transform">
             <CardContent className="p-6 text-center">
               <div className="text-3xl font-bold text-green-400 mb-2">
-                ₹{(stats.todayRevenue || 0).toLocaleString('en-IN')}
+                {calculatingRevenue ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
+                  </div>
+                ) : (
+                  `₹${(advancedRevenue || 0).toLocaleString('en-IN')}`
+                )}
               </div>
               <div className="text-green-200 text-sm">Today&apos;s Revenue</div>
+              <div className="text-xs text-green-300 mt-1">
+                {calculatingRevenue ? 'Calculating...' : '🧮 Advanced Pricing'}
+              </div>
               <div className="w-full bg-green-900/30 rounded-full h-2 mt-3">
                 <div className="bg-green-400 h-2 rounded-full w-3/4"></div>
               </div>
@@ -304,7 +358,7 @@ export default function ModernHomePage() {
               Today&apos;s Business Summary
             </CardTitle>
             <CardDescription className="text-gray-400">
-              Real-time overview of your rental business performance
+              Real-time overview with advanced pricing calculations
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -319,11 +373,17 @@ export default function ModernHomePage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-6 text-center">
                   <div className="text-3xl font-bold text-green-400 mb-2">
-                    ₹{(stats.todayRevenue || 0).toLocaleString('en-IN')}
+                    {calculatingRevenue ? (
+                      <div className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
+                      </div>
+                    ) : (
+                      `₹${(advancedRevenue || 0).toLocaleString('en-IN')}`
+                    )}
                   </div>
                   <div className="text-green-200 text-sm">Today&apos;s Revenue</div>
                   <div className="text-xs text-green-300 mt-1">
-                    {stats.todayRevenue > 0 ? '+12% from yesterday' : 'No revenue yet'}
+                    {calculatingRevenue ? 'Calculating advanced pricing...' : '🧮 Advanced pricing system'}
                   </div>
                 </div>
 

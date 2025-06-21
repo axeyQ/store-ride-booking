@@ -43,9 +43,11 @@ export default function ThemedBookingDetailsPage() {
   useEffect(() => {
     if (booking) {
       fetchAdvancedPricing();
-      // Update pricing every minute
-      const pricingInterval = setInterval(fetchAdvancedPricing, 60000);
-      return () => clearInterval(pricingInterval);
+      // Only update pricing every minute for active bookings
+      if (booking.status === 'active') {
+        const pricingInterval = setInterval(fetchAdvancedPricing, 60000);
+        return () => clearInterval(pricingInterval);
+      }
     }
   }, [booking, currentTime]);
 
@@ -67,32 +69,39 @@ export default function ThemedBookingDetailsPage() {
     }
   };
 
-  // Fetch advanced pricing from API
+  // Fetch advanced pricing from API or calculate for completed bookings
   const fetchAdvancedPricing = async () => {
     if (!booking) return;
     
     try {
-      const response = await fetch(`/api/bookings/current-amount/${booking._id}`);
-      const data = await response.json();
-      
-      if (data.success) {
-        setAdvancedPricing({
-          totalAmount: data.currentAmount,
-          breakdown: data.breakdown || [],
-          totalMinutes: data.totalMinutes || 0,
-          summary: data.summary || ''
-        });
+      // For active bookings, use the live API
+      if (booking.status === 'active') {
+        const response = await fetch(`/api/bookings/current-amount/${booking._id}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          setAdvancedPricing({
+            totalAmount: data.currentAmount,
+            breakdown: data.breakdown || [],
+            totalMinutes: data.totalMinutes || 0,
+            summary: data.summary || ''
+          });
+        } else {
+          console.error('Error fetching advanced pricing for active booking:', data.error);
+          // Fallback to simple calculation for active bookings
+          const duration = calculateDuration(booking.startTime);
+          const baseAmount = duration.totalHours * 80;
+          setAdvancedPricing({
+            totalAmount: baseAmount,
+            breakdown: [],
+            totalMinutes: duration.totalMinutes,
+            summary: `${duration.hours}h ${duration.minutes}m (simple calculation)`
+          });
+        }
       } else {
-        console.error('Error fetching advanced pricing:', data.error);
-        // Fallback to simple calculation
-        const duration = calculateDuration(booking.startTime);
-        const baseAmount = duration.totalHours * 80;
-        setAdvancedPricing({
-          totalAmount: baseAmount,
-          breakdown: [],
-          totalMinutes: duration.totalMinutes,
-          summary: `${duration.hours}h ${duration.minutes}m (simple calculation)`
-        });
+        // For completed bookings, calculate advanced pricing directly
+        const advancedAmount = calculateAdvancedPricingForCompleted(booking);
+        setAdvancedPricing(advancedAmount);
       }
     } catch (error) {
       console.error('Error fetching advanced pricing:', error);
@@ -103,14 +112,129 @@ export default function ThemedBookingDetailsPage() {
         totalAmount: baseAmount,
         breakdown: [],
         totalMinutes: duration.totalMinutes,
-        summary: `${duration.hours}h ${duration.minutes}m (simple calculation)`
+        summary: `${duration.hours}h ${duration.minutes}m (error - fallback)`
       });
     }
   };
 
-  const calculateDuration = (startTime) => {
+  const calculateAdvancedPricingForCompleted = (booking) => {
+    try {
+      // Advanced pricing settings (should match your API)
+      const settings = {
+        hourlyRate: 80,
+        graceMinutes: 15,
+        blockMinutes: 30,
+        nightChargeTime: '22:30',
+        nightMultiplier: 2
+      };
+
+      const startTime = new Date(booking.startTime);
+      const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
+      const totalMinutes = Math.max(0, Math.floor((endTime - startTime) / (1000 * 60)));
+      
+      if (totalMinutes === 0) {
+        return {
+          totalAmount: 80, // Minimum charge
+          breakdown: [],
+          totalMinutes: 0,
+          summary: 'No duration - minimum charge'
+        };
+      }
+
+      const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
+      const halfRate = Math.round(hourlyRate / 2); // ₹40
+
+      let totalAmount = 0;
+      let breakdown = [];
+      let remainingMinutes = totalMinutes;
+      let currentTime = new Date(startTime);
+
+      // First block: 60 minutes + 15 minutes grace = 75 minutes at ₹80
+      const firstBlockMinutes = 60 + graceMinutes; // 75 minutes
+      const firstBlockUsed = Math.min(remainingMinutes, firstBlockMinutes);
+      
+      // Check if first block crosses night charge time (22:30)
+      const isFirstBlockNight = isNightCharge(currentTime, firstBlockUsed, nightChargeTime);
+      const firstBlockRate = isFirstBlockNight ? hourlyRate * nightMultiplier : hourlyRate;
+
+      breakdown.push({
+        period: `First ${Math.floor(firstBlockMinutes/60)}h ${firstBlockMinutes%60}m`,
+        minutes: firstBlockUsed,
+        rate: firstBlockRate,
+        isNightCharge: isFirstBlockNight
+      });
+
+      totalAmount += firstBlockRate;
+      remainingMinutes -= firstBlockUsed;
+      currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
+
+      // Subsequent blocks: 30-minute blocks at ₹40 each
+      let blockNumber = 2;
+      while (remainingMinutes > 0) {
+        const blockUsed = Math.min(remainingMinutes, blockMinutes);
+        const isNight = isNightCharge(currentTime, blockUsed, nightChargeTime);
+        const blockRate = isNight ? halfRate * nightMultiplier : halfRate;
+
+        breakdown.push({
+          period: `Block ${blockNumber} (${blockMinutes}min)`,
+          minutes: blockUsed,
+          rate: blockRate,
+          isNightCharge: isNight
+        });
+
+        totalAmount += blockRate;
+        remainingMinutes -= blockUsed;
+        currentTime = new Date(currentTime.getTime() + blockUsed * 60000);
+        blockNumber++;
+      }
+
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      const nightBlocks = breakdown.filter(b => b.isNightCharge).length;
+
+      let summary = `${hours}h ${minutes}m total`;
+      if (nightBlocks > 0) {
+        summary += ` (${nightBlocks} night-rate blocks)`;
+      }
+
+      return {
+        totalAmount,
+        breakdown,
+        totalMinutes,
+        summary
+      };
+
+    } catch (error) {
+      console.error('Error in advanced pricing calculation:', error);
+      const duration = calculateDuration(booking.startTime, booking.endTime ? new Date(booking.endTime) : new Date());
+      return {
+        totalAmount: duration.totalHours * 80,
+        breakdown: [],
+        totalMinutes: duration.totalMinutes,
+        summary: 'Calculation error - fallback'
+      };
+    }
+  };
+
+  // Helper function to check if a time block crosses night charge threshold
+  const isNightCharge = (startTime, durationMinutes, nightChargeTime) => {
+    try {
+      const [nightHour, nightMinute] = nightChargeTime.split(':').map(Number);
+      const blockEndTime = new Date(startTime.getTime() + durationMinutes * 60000);
+      const nightThreshold = new Date(startTime);
+      nightThreshold.setHours(nightHour, nightMinute, 0, 0);
+      
+      // Check if the block crosses or includes the night threshold
+      return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const calculateDuration = (startTime, endTime = currentTime) => {
     const start = new Date(startTime);
-    const diffMs = currentTime - start;
+    const end = new Date(endTime);
+    const diffMs = end - start;
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
@@ -166,7 +290,13 @@ export default function ThemedBookingDetailsPage() {
     );
   }
 
-  const duration = calculateDuration(booking.startTime);
+  // Calculate duration based on booking status
+  const duration = booking.status === 'active' 
+    ? calculateDuration(booking.startTime) 
+    : calculateDuration(booking.startTime, booking.endTime ? new Date(booking.endTime) : new Date());
+
+  const isActive = booking.status === 'active';
+  const statusBadge = isActive ? '🔴 LIVE' : `✅ ${booking.status.toUpperCase()}`;
 
   return (
     <ThemedLayout>
@@ -177,7 +307,7 @@ export default function ThemedBookingDetailsPage() {
             Booking <span className={theme.typography.gradient}>Details</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Live monitoring and management of rental #{booking.bookingId}
+            {isActive ? 'Live monitoring and management' : 'Completed booking details'} of rental #{booking.bookingId}
           </p>
         </div>
 
@@ -191,12 +321,20 @@ export default function ThemedBookingDetailsPage() {
                 </svg>
               </Link>
               <div>
-                <h1 className="text-2xl font-bold text-white">Live Booking #{booking.bookingId}</h1>
+                <h1 className="text-2xl font-bold text-white">
+                  {isActive ? 'Live' : 'Completed'} Booking #{booking.bookingId}
+                </h1>
                 <p className="text-gray-400">Customer: {booking.customerId.name}</p>
               </div>
             </div>
-            <ThemedBadge status="active" className="text-lg px-4 py-2">
-              🔴 LIVE
+            <ThemedBadge 
+              status={booking.status} 
+              className={cn(
+                "text-lg px-4 py-2",
+                isActive ? "bg-red-500/20 text-red-400 border-red-500/30" : "bg-green-500/20 text-green-400 border-green-500/30"
+              )}
+            >
+              {statusBadge}
             </ThemedBadge>
           </div>
         </ThemedCard>
@@ -204,7 +342,9 @@ export default function ThemedBookingDetailsPage() {
         {/* Real-time Stats Dashboard */}
         <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg p-8 mb-8">
           <div className="text-center mb-6">
-            <h3 className="text-3xl font-bold mb-2">Live Rental Status</h3>
+            <h3 className="text-3xl font-bold mb-2">
+              {isActive ? 'Live Rental Status' : 'Completed Rental Summary'}
+            </h3>
             <p className="text-blue-100">{booking.vehicleId.model} - {booking.vehicleId.plateNumber}</p>
           </div>
           <div className={theme.layout.grid.stats}>
@@ -212,7 +352,7 @@ export default function ThemedBookingDetailsPage() {
               <div className="text-4xl font-bold mb-2">
                 {duration.hours}h {duration.minutes}m
               </div>
-              <div className="text-blue-100">Current Duration</div>
+              <div className="text-blue-100">{isActive ? 'Current Duration' : 'Total Duration'}</div>
               <div className="text-xs text-blue-200 mt-1">
                 {duration.totalMinutes.toLocaleString()} minutes total
               </div>
@@ -223,7 +363,7 @@ export default function ThemedBookingDetailsPage() {
               </div>
               <div className="text-blue-100">Advanced Pricing</div>
               <div className="text-xs text-blue-200 mt-1">
-                System calculated
+                {isActive ? 'Live calculated' : 'Final amount'}
               </div>
             </div>
             <div className="text-center">
@@ -233,14 +373,14 @@ export default function ThemedBookingDetailsPage() {
             </div>
             <div className="text-center">
               <div className="text-4xl font-bold mb-2">
-                {currentTime.toLocaleTimeString('en-IN', {
+                {isActive ? currentTime.toLocaleTimeString('en-IN', {
                   hour: '2-digit',
                   minute: '2-digit',
                   hour12: true
-                })}
+                }) : formatDateTime(booking.endTime || booking.createdAt).split(',')[1]}
               </div>
-              <div className="text-blue-100">Current Time</div>
-              <div className="text-xs text-blue-200 mt-1">Live clock</div>
+              <div className="text-blue-100">{isActive ? 'Current Time' : 'End Time'}</div>
+              <div className="text-xs text-blue-200 mt-1">{isActive ? 'Live clock' : 'Completed'}</div>
             </div>
           </div>
         </div>
@@ -291,8 +431,11 @@ export default function ThemedBookingDetailsPage() {
                   </div>
                   <div>
                     <span className="text-gray-400 text-sm">Status</span>
-                    <ThemedBadge status="rented" className="mt-1">
-                      🔄 RENTED
+                    <ThemedBadge 
+                      status={isActive ? "rented" : "available"} 
+                      className="mt-1"
+                    >
+                      {isActive ? '🔄 RENTED' : '✅ AVAILABLE'}
                     </ThemedBadge>
                   </div>
                 </div>
@@ -314,7 +457,7 @@ export default function ThemedBookingDetailsPage() {
               <div className="text-2xl font-bold text-blue-400 mb-2">
                 {duration.hours}h {duration.minutes}m
               </div>
-              <div className="text-blue-200 text-sm">Live Duration</div>
+              <div className="text-blue-200 text-sm">{isActive ? 'Live Duration' : 'Total Duration'}</div>
             </div>
             <div className="bg-gradient-to-r from-purple-900/50 to-purple-800/50 border border-purple-700/50 rounded-lg p-6 text-center">
               <div className="text-2xl font-bold text-purple-400 mb-2">
@@ -446,10 +589,11 @@ export default function ThemedBookingDetailsPage() {
                   ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
                 </div>
                 <div className="text-blue-200 text-sm">Advanced Total</div>
-                <div className="text-xs text-blue-300 mt-1">System calculated</div>
+                <div className="text-xs text-blue-300 mt-1">
+                  {isActive ? 'Live calculated' : 'Final calculated'}
+                </div>
               </div>
             </div>
-
           </div>
         </ThemedCard>
 
@@ -460,11 +604,13 @@ export default function ThemedBookingDetailsPage() {
               ← Back to Active Bookings
             </ThemedButton>
           </Link>
-          <Link href={`/return/${booking.bookingId}`} className="flex-1">
-            <ThemedButton variant="success" className="w-full">
-              🏁 Complete Return & Collect Payment →
-            </ThemedButton>
-          </Link>
+          {isActive && (
+            <Link href={`/return/${booking.bookingId}`} className="flex-1">
+              <ThemedButton variant="success" className="w-full">
+                🏁 Complete Return & Collect Payment →
+              </ThemedButton>
+            </Link>
+          )}
         </div>
       </div>
     </ThemedLayout>

@@ -25,11 +25,20 @@ export default function ThemedAllBookingsPage() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [showSignatures, setShowSignatures] = useState(true);
   const [selectedSignature, setSelectedSignature] = useState(null);
+  const [advancedPricing, setAdvancedPricing] = useState({});
+  const [pricingLoading, setPricingLoading] = useState({});
   const itemsPerPage = 20;
 
   useEffect(() => {
     fetchBookings();
   }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm]);
+
+  // Fetch advanced pricing for all bookings
+  useEffect(() => {
+    if (bookings.length > 0) {
+      fetchAdvancedPricingForBookings();
+    }
+  }, [bookings]);
 
   const fetchBookings = async () => {
     try {
@@ -65,6 +74,220 @@ export default function ThemedAllBookingsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchAdvancedPricingForBookings = async () => {
+    // Process bookings in batches to avoid overwhelming the API
+    const batchSize = 5;
+    const batches = [];
+    
+    for (let i = 0; i < bookings.length; i += batchSize) {
+      batches.push(bookings.slice(i, i + batchSize));
+    }
+
+    for (const batch of batches) {
+      await Promise.all(
+        batch.map(async (booking) => {
+          await fetchAdvancedPricingForBooking(booking._id);
+        })
+      );
+      // Small delay between batches to prevent API overload
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  };
+
+  const fetchAdvancedPricingForBooking = async (bookingId) => {
+    try {
+      setPricingLoading(prev => ({ ...prev, [bookingId]: true }));
+      
+      const booking = bookings.find(b => b._id === bookingId);
+      if (!booking) return;
+
+      // For active bookings, use the current-amount API
+      if (booking.status === 'active') {
+        const response = await fetch(`/api/bookings/current-amount/${bookingId}`);
+        const data = await response.json();
+
+        if (data.success) {
+          setAdvancedPricing(prev => ({
+            ...prev,
+            [bookingId]: {
+              totalAmount: data.currentAmount,
+              breakdown: data.breakdown || [],
+              totalMinutes: data.totalMinutes || 0,
+              summary: data.summary || ''
+            }
+          }));
+        } else {
+          // Fallback for active bookings
+          const fallbackAmount = calculateSimpleAmount(booking);
+          setAdvancedPricing(prev => ({
+            ...prev,
+            [bookingId]: {
+              totalAmount: fallbackAmount,
+              breakdown: [],
+              totalMinutes: 0,
+              summary: 'API error - simple calc'
+            }
+          }));
+        }
+      } else {
+        // For completed bookings, calculate advanced pricing directly
+        const advancedAmount = calculateAdvancedPricingForCompleted(booking);
+        setAdvancedPricing(prev => ({
+          ...prev,
+          [bookingId]: advancedAmount
+        }));
+      }
+    } catch (error) {
+      console.error(`Error fetching advanced pricing for booking ${bookingId}:`, error);
+      // Fallback calculation
+      const booking = bookings.find(b => b._id === bookingId);
+      if (booking) {
+        const fallbackAmount = calculateSimpleAmount(booking);
+        setAdvancedPricing(prev => ({
+          ...prev,
+          [bookingId]: {
+            totalAmount: fallbackAmount,
+            breakdown: [],
+            totalMinutes: 0,
+            summary: 'Error - using fallback'
+          }
+        }));
+      }
+    } finally {
+      setPricingLoading(prev => ({ ...prev, [bookingId]: false }));
+    }
+  };
+
+  const calculateAdvancedPricingForCompleted = (booking) => {
+    try {
+      // Advanced pricing settings (should match your API)
+      const settings = {
+        hourlyRate: 80,
+        graceMinutes: 15,
+        blockMinutes: 30,
+        nightChargeTime: '22:30',
+        nightMultiplier: 2
+      };
+
+      const startTime = new Date(booking.startTime);
+      const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
+      const totalMinutes = Math.max(0, Math.floor((endTime - startTime) / (1000 * 60)));
+      
+      if (totalMinutes === 0) {
+        return {
+          totalAmount: 80, // Minimum charge
+          breakdown: [],
+          totalMinutes: 0,
+          summary: 'No duration - minimum charge'
+        };
+      }
+
+      const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
+      const halfRate = Math.round(hourlyRate / 2); // ₹40
+
+      let totalAmount = 0;
+      let breakdown = [];
+      let remainingMinutes = totalMinutes;
+      let currentTime = new Date(startTime);
+
+      // First block: 60 minutes + 15 minutes grace = 75 minutes at ₹80
+      const firstBlockMinutes = 60 + graceMinutes; // 75 minutes
+      const firstBlockUsed = Math.min(remainingMinutes, firstBlockMinutes);
+      
+      // Check if first block crosses night charge time (22:30)
+      const isFirstBlockNight = isNightCharge(currentTime, firstBlockUsed, nightChargeTime);
+      const firstBlockRate = isFirstBlockNight ? hourlyRate * nightMultiplier : hourlyRate;
+
+      breakdown.push({
+        period: `First ${Math.floor(firstBlockMinutes/60)}h ${firstBlockMinutes%60}m`,
+        minutes: firstBlockUsed,
+        rate: firstBlockRate,
+        isNightCharge: isFirstBlockNight
+      });
+
+      totalAmount += firstBlockRate;
+      remainingMinutes -= firstBlockUsed;
+      currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
+
+      // Subsequent blocks: 30-minute blocks at ₹40 each
+      let blockNumber = 2;
+      while (remainingMinutes > 0) {
+        const blockUsed = Math.min(remainingMinutes, blockMinutes);
+        const isNight = isNightCharge(currentTime, blockUsed, nightChargeTime);
+        const blockRate = isNight ? halfRate * nightMultiplier : halfRate;
+
+        breakdown.push({
+          period: `Block ${blockNumber} (${blockMinutes}min)`,
+          minutes: blockUsed,
+          rate: blockRate,
+          isNightCharge: isNight
+        });
+
+        totalAmount += blockRate;
+        remainingMinutes -= blockUsed;
+        currentTime = new Date(currentTime.getTime() + blockUsed * 60000);
+        blockNumber++;
+      }
+
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      const nightBlocks = breakdown.filter(b => b.isNightCharge).length;
+
+      let summary = `${hours}h ${minutes}m total`;
+      if (nightBlocks > 0) {
+        summary += ` (${nightBlocks} night-rate blocks)`;
+      }
+
+      return {
+        totalAmount,
+        breakdown,
+        totalMinutes,
+        summary
+      };
+
+    } catch (error) {
+      console.error('Error in advanced pricing calculation:', error);
+      return {
+        totalAmount: calculateSimpleAmount(booking),
+        breakdown: [],
+        totalMinutes: 0,
+        summary: 'Calculation error - fallback'
+      };
+    }
+  };
+
+  // Helper function to check if a time block crosses night charge threshold
+  const isNightCharge = (startTime, durationMinutes, nightChargeTime) => {
+    try {
+      const [nightHour, nightMinute] = nightChargeTime.split(':').map(Number);
+      const blockEndTime = new Date(startTime.getTime() + durationMinutes * 60000);
+      const nightThreshold = new Date(startTime);
+      nightThreshold.setHours(nightHour, nightMinute, 0, 0);
+      
+      // Check if the block crosses or includes the night threshold
+      return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const calculateSimpleAmount = (booking) => {
+    const startTime = new Date(booking.startTime);
+    const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
+    const diffMs = endTime - startTime;
+    const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+    return Math.max(hours * 80, 80); // Minimum ₹80
+  };
+
+  const getAdvancedAmount = (bookingId) => {
+    const pricing = advancedPricing[bookingId];
+    return pricing ? pricing.totalAmount : 0;
+  };
+
+  const isPricingLoading = (bookingId) => {
+    return pricingLoading[bookingId] || false;
   };
 
   const handleSort = (column) => {
@@ -113,6 +336,23 @@ export default function ThemedAllBookingsPage() {
     if (sortBy !== column) return <span className="text-gray-500">↕</span>;
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
+
+  // Calculate stats using advanced pricing
+  const calculateStats = () => {
+    const totalAdvancedAmount = bookings.reduce((sum, booking) => {
+      return sum + getAdvancedAmount(booking._id);
+    }, 0);
+
+    return {
+      totalBookings: bookings.length,
+      activeRentals: bookings.filter(b => b.status === 'active').length,
+      completed: bookings.filter(b => b.status === 'completed').length,
+      withSignatures: bookings.filter(b => b.signature).length,
+      totalRevenue: totalAdvancedAmount
+    };
+  };
+
+  const stats = calculateStats();
 
   // Signature Modal Component - Themed Style
   const SignatureModal = ({ signature, onClose }) => {
@@ -171,15 +411,15 @@ export default function ThemedAllBookingsPage() {
             All <span className={theme.typography.gradient}>Bookings</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Complete booking management with signature verification
+            Complete booking management with advanced pricing system
           </p>
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
           <ThemedStatsCard
             title="Total Bookings"
-            value={bookings.length}
+            value={stats.totalBookings}
             subtitle="All time records"
             colorScheme="bookings"
             icon={<div className="text-4xl mb-2">📋</div>}
@@ -187,24 +427,34 @@ export default function ThemedAllBookingsPage() {
           
           <ThemedStatsCard
             title="Active Rentals"
-            value={bookings.filter(b => b.status === 'active').length}
+            value={stats.activeRentals}
             subtitle="Currently out"
             colorScheme="revenue"
             icon={<div className="text-4xl mb-2">🚴</div>}
           />
+          
           <ThemedStatsCard
             title="Completed"
-            value={bookings.filter(b => b.status === 'completed').length}
+            value={stats.completed}
             subtitle="Successfully returned"
             colorScheme="customers"
             icon={<div className="text-4xl mb-2">✅</div>}
           />
+          
           <ThemedStatsCard
             title="With Signatures"
-            value={bookings.filter(b => b.signature).length}
+            value={stats.withSignatures}
             subtitle="Verified bookings"
             colorScheme="vehicles"
             icon={<div className="text-4xl mb-2">✍️</div>}
+          />
+
+          <ThemedStatsCard
+            title="Total Revenue"
+            value={`₹${stats.totalRevenue.toLocaleString('en-IN')}`}
+            subtitle="Advanced pricing"
+            colorScheme="revenue"
+            icon={<div className="text-4xl mb-2">💰</div>}
           />
         </div>
 
@@ -275,7 +525,7 @@ export default function ThemedAllBookingsPage() {
         </ThemedCard>
 
         {/* Bookings Table */}
-        <ThemedCard title="📋 Booking Records" description={`Showing ${bookings.length} bookings`}>
+        <ThemedCard title="📋 Booking Records" description={`Showing ${bookings.length} bookings with advanced pricing`}>
           {bookings.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-6xl mb-4">📋</div>
@@ -330,7 +580,7 @@ export default function ThemedAllBookingsPage() {
                       Status
                     </th>
                     <th className="text-left py-4 px-4 font-semibold text-gray-400">
-                      Amount
+                      Advanced Amount
                     </th>
                     {showSignatures && (
                       <th className="text-left py-4 px-4 font-semibold text-gray-400">
@@ -345,7 +595,8 @@ export default function ThemedAllBookingsPage() {
                 <tbody className="divide-y divide-gray-700">
                   {bookings.map((booking) => {
                     const duration = calculateDuration(booking.startTime, booking.endTime);
-                    const amount = booking.finalAmount || 0;
+                    const advancedAmount = getAdvancedAmount(booking._id);
+                    const isLoadingPrice = isPricingLoading(booking._id);
 
                     return (
                       <tr key={booking._id} className="hover:bg-gray-800/30 transition-colors">
@@ -390,12 +641,24 @@ export default function ThemedAllBookingsPage() {
                           </ThemedBadge>
                         </td>
                         <td className="py-4 px-4">
-                          <div className="text-white font-bold text-lg">
-                            ₹{amount.toLocaleString('en-IN')}
-                          </div>
-                          {booking.paymentMethod && (
-                            <div className="text-gray-400 text-sm capitalize">
-                              {booking.paymentMethod}
+                          {isLoadingPrice ? (
+                            <div className="flex items-center gap-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-cyan-400"></div>
+                              <span className="text-gray-400 text-sm">Calculating...</span>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="text-white font-bold text-lg">
+                                ₹{advancedAmount.toLocaleString('en-IN')}
+                              </div>
+                              <div className="text-cyan-400 text-xs">
+                                {booking.status === 'active' ? '🔄 Live Advanced' : '🧮 Advanced Calc'}
+                              </div>
+                              {booking.paymentMethod && (
+                                <div className="text-gray-400 text-sm capitalize">
+                                  {booking.paymentMethod}
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -405,7 +668,7 @@ export default function ThemedAllBookingsPage() {
                               <div className="flex items-center gap-3">
                                 {/* Signature Thumbnail */}
                                 <div
-                                  className="w-20 h-10 border border-gray-600 rounded-lg cursor-pointer hover:border-cyan-500 bg-white/5 flex items-center justify-center group transition-all"
+                                  className="w-20 h-10 border border-gray-600 rounded-lg cursor-pointer hover:border-cyan-500 bg-white/5 flex items-center justify-center group transition-all relative"
                                   onClick={() => setSelectedSignature(booking.signature)}
                                   title="Click to view full signature"
                                 >
