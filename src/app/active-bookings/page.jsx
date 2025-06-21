@@ -10,6 +10,7 @@ import {
   ThemedSelect,
   ThemedBadge
 } from '@/components/themed';
+import { VehicleChangeModal } from '@/components/VehicleChangeModal'; // ✅ NEW: Import vehicle change modal
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +21,12 @@ export default function ThemedActiveBookingsPage() {
   const [filterVehicle, setFilterVehicle] = useState('all');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [currentAmounts, setCurrentAmounts] = useState({});
+
+  // ✅ NEW: Vehicle change state
+  const [vehicleChangeModal, setVehicleChangeModal] = useState({
+    isOpen: false,
+    booking: null
+  });
 
   useEffect(() => {
     fetchActiveBookings();
@@ -72,7 +79,7 @@ export default function ThemedActiveBookingsPage() {
         const booking = bookings.find(b => b._id === bookingId);
         if (booking) {
           const duration = calculateDuration(booking.startTime);
-          return duration.totalHours * 80;
+          return Math.max(duration.totalHours * 80, 80); // Minimum 1 hour charge
         }
         return 0;
       }
@@ -82,7 +89,7 @@ export default function ThemedActiveBookingsPage() {
       const booking = bookings.find(b => b._id === bookingId);
       if (booking) {
         const duration = calculateDuration(booking.startTime);
-        return duration.totalHours * 80;
+        return Math.max(duration.totalHours * 80, 80); // Minimum 1 hour charge
       }
       return 0;
     }
@@ -97,25 +104,120 @@ export default function ThemedActiveBookingsPage() {
     setCurrentAmounts(amounts);
   };
 
+  // ✅ FIXED: Improved duration calculation to handle negative durations
   const calculateDuration = (startTime) => {
-    const start = new Date(startTime);
-    const diffMs = currentTime - start;
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    return { 
-      hours, 
-      minutes, 
-      totalHours: Math.ceil(diffMs / (1000 * 60 * 60)) 
-    };
+    try {
+      const start = new Date(startTime);
+      const current = new Date(currentTime);
+      
+      // Validate dates
+      if (isNaN(start.getTime()) || isNaN(current.getTime())) {
+        console.error('Invalid date detected:', { startTime, currentTime });
+        return { hours: 0, minutes: 0, totalHours: 1 };
+      }
+      
+      const diffMs = current.getTime() - start.getTime();
+      
+      // If negative (booking in future), return minimal values
+      if (diffMs < 0) {
+        console.warn('Booking is in future:', {
+          start: start.toLocaleString('en-IN'),
+          current: current.toLocaleString('en-IN')
+        });
+        return { hours: 0, minutes: 0, totalHours: 1 };
+      }
+      
+      const totalMinutes = Math.floor(diffMs / (1000 * 60));
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      const totalHours = Math.max(1, Math.ceil(totalMinutes / 60)); // Minimum 1 hour
+      
+      return {
+        hours,
+        minutes,
+        totalHours,
+        totalMinutes
+      };
+    } catch (error) {
+      console.error('Duration calculation error:', error);
+      return { hours: 0, minutes: 0, totalHours: 1 };
+    }
+  };
+
+  // ✅ NEW: Check if vehicle change is allowed (within 15 minutes)
+  const canChangeVehicle = (booking) => {
+    try {
+      const now = new Date();
+      const startTime = new Date(booking.startTime);
+      const minutesSinceStart = Math.floor((now - startTime) / (1000 * 60));
+      return minutesSinceStart <= 15 && minutesSinceStart >= 0;
+    } catch (error) {
+      console.error('Error checking vehicle change eligibility:', error);
+      return false;
+    }
+  };
+
+  // ✅ NEW: Get remaining time for vehicle change
+  const getChangeTimeRemaining = (booking) => {
+    try {
+      const now = new Date();
+      const startTime = new Date(booking.startTime);
+      const minutesSinceStart = Math.floor((now - startTime) / (1000 * 60));
+      return Math.max(0, 15 - minutesSinceStart);
+    } catch (error) {
+      console.error('Error calculating remaining change time:', error);
+      return 0;
+    }
+  };
+
+  // ✅ NEW: Vehicle change handlers
+  const handleOpenVehicleChange = (booking) => {
+    setVehicleChangeModal({
+      isOpen: true,
+      booking: booking
+    });
+  };
+
+  const handleCloseVehicleChange = () => {
+    setVehicleChangeModal({
+      isOpen: false,
+      booking: null
+    });
+  };
+
+  const handleVehicleChanged = (updatedBooking) => {
+    // Update the bookings list with the new vehicle information
+    setBookings(prevBookings => 
+      prevBookings.map(booking => 
+        booking._id === updatedBooking._id ? updatedBooking : booking
+      )
+    );
+    
+    // Show success message
+    alert(`Vehicle changed successfully to ${updatedBooking.vehicleId.model} (${updatedBooking.vehicleId.plateNumber})`);
+    
+    // Refresh amounts after vehicle change
+    updateCurrentAmounts();
   };
 
   const formatTime = (dateString) => {
-    return new Date(dateString).toLocaleString('en-IN', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return 'Invalid Date';
+      }
+      
+      return date.toLocaleString('en-IN', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Kolkata'
+      });
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return 'Invalid Date';
+    }
   };
 
   const filteredBookings = bookings.filter(booking => {
@@ -282,6 +384,9 @@ export default function ThemedActiveBookingsPage() {
             {filteredBookings.map((booking) => {
               const duration = calculateDuration(booking.startTime);
               const currentAmount = currentAmounts[booking._id] || 0;
+              // ✅ NEW: Vehicle change status
+              const canChange = canChangeVehicle(booking);
+              const timeRemaining = getChangeTimeRemaining(booking);
 
               return (
                 <ThemedCard
@@ -298,9 +403,17 @@ export default function ThemedActiveBookingsPage() {
                         <p className="text-gray-400">{booking.customerId.phone}</p>
                         <p className="text-sm text-gray-500 font-mono">ID: {booking.bookingId}</p>
                       </div>
-                      <ThemedBadge status="active">
-                        🔴 LIVE
-                      </ThemedBadge>
+                      <div className="flex flex-col items-end gap-2">
+                        <ThemedBadge status="active">
+                          🔴 LIVE
+                        </ThemedBadge>
+                        {/* ✅ NEW: Vehicle Change Status Indicator */}
+                        {canChange && timeRemaining > 0 && (
+                          <span className="text-xs text-green-400 bg-green-900/30 px-2 py-1 rounded border border-green-700/50">
+                            ✨ Change available ({timeRemaining}min left)
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Vehicle Info */}
@@ -369,18 +482,37 @@ export default function ThemedActiveBookingsPage() {
                       </div>
                     </div>
 
-                    {/* Action Buttons */}
+                    {/* ✅ UPDATED: Action Buttons with Vehicle Change */}
                     <div className="flex gap-3">
                       <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
                         <ThemedButton variant="secondary" className="w-full">
                           View Details
                         </ThemedButton>
                       </Link>
-                      <Link href={`/return/${booking.bookingId}`} className="flex-1">
-                        <ThemedButton variant="success" className="w-full">
-                          Return Vehicle
-                        </ThemedButton>
-                      </Link>
+                      
+                      {/* Conditional buttons based on change availability */}
+                      {canChange && timeRemaining > 0 ? (
+                        <div className="flex-1 flex gap-2">
+                          <ThemedButton 
+                            variant="warning" 
+                            onClick={() => handleOpenVehicleChange(booking)}
+                            className="flex-1 text-sm bg-orange-600 hover:bg-orange-700 text-white"
+                          >
+                            🔄 Change
+                          </ThemedButton>
+                          <Link href={`/return/${booking.bookingId}`} className="flex-1">
+                            <ThemedButton variant="success" className="w-full text-sm">
+                              Return
+                            </ThemedButton>
+                          </Link>
+                        </div>
+                      ) : (
+                        <Link href={`/return/${booking.bookingId}`} className="flex-1">
+                          <ThemedButton variant="success" className="w-full">
+                            Return Vehicle
+                          </ThemedButton>
+                        </Link>
+                      )}
                     </div>
                   </div>
                 </ThemedCard>
@@ -413,6 +545,14 @@ export default function ThemedActiveBookingsPage() {
           </Link>
         </div>
       </div>
+
+      {/* ✅ NEW: Vehicle Change Modal */}
+      <VehicleChangeModal
+        isOpen={vehicleChangeModal.isOpen}
+        onClose={handleCloseVehicleChange}
+        booking={vehicleChangeModal.booking}
+        onVehicleChanged={handleVehicleChanged}
+      />
     </ThemedLayout>
   );
 }

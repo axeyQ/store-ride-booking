@@ -1,4 +1,3 @@
-// src/app/return/confirmation/[bookingId]/page.js
 'use client';
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
@@ -23,6 +22,11 @@ export default function ReturnConfirmationPage() {
       const data = await response.json();
       
       if (data.success) {
+        // ✅ Debug logging to see what we're getting
+        console.log('Booking data received:', data.booking);
+        console.log('Vehicle condition:', data.booking.vehicleCondition);
+        console.log('Vehicle condition type:', typeof data.booking.vehicleCondition);
+        
         setBooking(data.booking);
       } else {
         setError(data.error || 'Booking not found');
@@ -32,6 +36,43 @@ export default function ReturnConfirmationPage() {
       setError('Failed to load booking details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ Fixed vehicle condition display function
+  const getVehicleConditionDisplay = (condition) => {
+    // Normalize the condition value and provide safe fallback
+    const normalizedCondition = condition || 'good'; // Default to 'good' if undefined/null
+    
+    console.log('Processing vehicle condition:', condition, '-> normalized:', normalizedCondition);
+    
+    switch (normalizedCondition.toLowerCase()) {
+      case 'good':
+        return {
+          text: 'Good',
+          className: 'bg-green-100 text-green-800',
+          icon: '✅'
+        };
+      case 'minor_issues':
+        return {
+          text: 'Minor Issues',
+          className: 'bg-yellow-100 text-yellow-800',
+          icon: '⚠️'
+        };
+      case 'damage':
+        return {
+          text: 'Damage Found',
+          className: 'bg-red-100 text-red-800',
+          icon: '❌'
+        };
+      default:
+        // ✅ Safe fallback for any unexpected values
+        console.warn('Unexpected vehicle condition value:', condition, '- defaulting to Good');
+        return {
+          text: 'Good',
+          className: 'bg-green-100 text-green-800',
+          icon: '✅'
+        };
     }
   };
 
@@ -83,6 +124,9 @@ export default function ReturnConfirmationPage() {
   }
 
   const duration = calculateDuration(booking.startTime, booking.endTime);
+  
+  // ✅ Get the vehicle condition display data
+  const conditionDisplay = getVehicleConditionDisplay(booking.vehicleCondition);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -185,14 +229,9 @@ export default function ReturnConfirmationPage() {
                 </div>
                 <div>
                   <span className="font-medium text-gray-700">Condition:</span>
-                  <span className={`ml-2 px-2 py-1 rounded text-sm font-medium ${
-                    booking.vehicleCondition === 'good' ? 'bg-green-100 text-green-800' :
-                    booking.vehicleCondition === 'minor_issues' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {booking.vehicleCondition === 'good' ? 'Good' :
-                     booking.vehicleCondition === 'minor_issues' ? 'Minor Issues' :
-                     'Damage Found'}
+                  {/* ✅ FIXED: Using the safe display function */}
+                  <span className={`ml-2 px-2 py-1 rounded text-sm font-medium ${conditionDisplay.className}`}>
+                    {conditionDisplay.icon} {conditionDisplay.text}
                   </span>
                 </div>
               </div>
@@ -306,6 +345,8 @@ export default function ReturnConfirmationPage() {
               </div>
             </div>
           )}
+
+
 
           {/* Footer */}
           <div className="border-t pt-6 mt-6 text-center text-sm text-gray-500">
