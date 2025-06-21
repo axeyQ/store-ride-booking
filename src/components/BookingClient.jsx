@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import TermsModal from '@/components/TermsModal';
 import { 
   ThemedLayout, 
   ThemedCard, 
@@ -28,6 +29,7 @@ export default function EnhancedBookingClientPage() {
     startDelayMinutes: 5,
     roundToNearestMinutes: 5
   });
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   // NEW: Calculated start time state
   const [calculatedStartTime, setCalculatedStartTime] = useState(null);
@@ -795,82 +797,140 @@ export default function EnhancedBookingClientPage() {
 
         {/* Step 4: Terms & Digital Signature */}
         {currentStep === 4 && (
-          <ThemedCard title="Terms & Digital Signature">
-            <div className="space-y-8">
-              {/* Final Booking Summary */}
-              <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-6`}>
-                <h3 className="text-xl font-bold text-green-200 mb-4">Booking Summary</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <p className="text-green-200">
-                      <span className="font-medium">Customer:</span> {bookingData.customer.name}
-                      {selectedCustomerId && <span className="text-green-400 ml-2">✓ Existing</span>}
-                    </p>
-                    <p className="text-green-200"><span className="font-medium">Phone:</span> {bookingData.customer.phone}</p>
-                    <p className="text-green-200"><span className="font-medium">License:</span> {bookingData.customer.driverLicense}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-green-200"><span className="font-medium">Vehicle:</span> {bookingData.selectedVehicle?.model} ({bookingData.selectedVehicle?.plateNumber})</p>
-                    <p className="text-green-200"><span className="font-medium">Rate:</span> ₹{settings.hourlyRate}/hour</p>
-                    {/* NEW: Display calculated start time */}
-                    {calculatedStartTime && (
-                      <p className="text-green-200">
-                        <span className="font-medium">Rental Starts:</span> {calculatedStartTime.toLocaleString('en-IN', {
-                          weekday: 'short',
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    )}
-                    <p className="text-green-200"><span className="font-medium">Payment:</span> On Return</p>
-                  </div>
-                </div>
-              </div>
+  <ThemedCard title="Terms & Digital Signature">
+    <div className="space-y-8">
+      
+      {/* Final Booking Summary */}
+      <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-6`}>
+        <h3 className="text-xl font-bold text-green-200 mb-4">Booking Summary</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <p className="text-green-200">
+              <span className="font-medium">Customer:</span> {bookingData.customer.name}
+              {selectedCustomerId && <span className="text-green-400 ml-2">✓ Existing</span>}
+            </p>
+            <p className="text-green-200">
+              <span className="font-medium">Phone:</span> {bookingData.customer.phone}
+            </p>
+            <p className="text-green-200">
+              <span className="font-medium">License:</span> {bookingData.customer.driverLicense}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-green-200">
+              <span className="font-medium">Vehicle:</span> {bookingData.selectedVehicle?.model} 
+              ({bookingData.selectedVehicle?.plateNumber})
+            </p>
+            <p className="text-green-200">
+              <span className="font-medium">Rate:</span> ₹{settings.hourlyRate}/hour
+            </p>
+            {calculatedStartTime && (
+              <p className="text-green-200">
+                <span className="font-medium">Rental Starts:</span> {calculatedStartTime.toLocaleString('en-IN', {
+                  weekday: 'short',
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </p>
+            )}
+            <p className="text-green-200">
+              <span className="font-medium">Payment:</span> On Return
+            </p>
+          </div>
+        </div>
+      </div>
 
-              {/* Terms & Conditions */}
-              <div className="space-y-4">
-                <label className="flex items-start space-x-4 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={bookingData.termsAccepted}
-                    onChange={(e) => setBookingData(prev => ({ ...prev, termsAccepted: e.target.checked }))}
-                    className="w-6 h-6 text-cyan-600 border-2 border-gray-300 rounded focus:ring-cyan-500 mt-1"
-                  />
-                  <div className="text-lg font-medium text-white">
-                    I have read and agree to the rental terms and conditions. I understand that:
-                    <ul className="mt-2 text-sm text-gray-300 list-disc list-inside space-y-1">
-                      <li>Bring your <strong>Aadhar Card</strong> and <strong>Driving License</strong> at the pickup time</li>
-                      <li>Rate is <strong>₹{settings.hourlyRate}</strong> per hour</li>
-                      <li>For first hour the amount will be <strong>₹{settings.hourlyRate}</strong> even after you come within a minute after pickup time.</li>
-                      <li>For first 75 minutes (base hour + 15 minutes grace period), amount will be <strong>₹{settings.hourlyRate}</strong>, but after that in each 30 minute block the amount <strong>₹{(settings.hourlyRate)/2} will be added.</strong></li>
-                      <li>Either you need to provide your <strong>Aadhar Card</strong> or a security deposit of <strong>₹ 500</strong>, it will be returned once you return the vehicle in provided condition.</li>
-                      <li>Please wear the helmet(provided by the firm) and follow traffic rules. If you are caught by police, you are <strong>solely responsible</strong> and have to <strong>pay the required fines</strong>.</li>
-                      <li>If any damage is found on the vehicle then you have to pay the repair cost.</li>
-                      <li>If you do not return before 10:00 P.M then <strong>₹{settings.hourlyRate}</strong> extra will be charged for that hour that is <strong>₹{settings.hourlyRate + settings.hourlyRate}</strong></li>
-                      <li>If you are not able to return the vehicle before 10:30 P.M then store will be closed and you'll have return it back in the morning with <strong>₹500</strong> fine.</li>
-                      <li>If <strong>3 people</strong> are found on a single vehicle then <strong>₹500</strong> fine will be charged.</li>
-                      <li>You'll get the fuel till the fuel station and if by some reason fuel is done for then you can call us and we'll provide the fuel so that you can reach the fuel station.</li>
-                    </ul>
-                  </div>
-                </label>
-              </div>
+      {/* ✅ UPDATED: Enhanced Terms & Conditions Section */}
+      <div className="space-y-6">
+        
+        {/* Terms Preview */}
+        <div className="bg-blue-900/50 border border-blue-700/50 rounded-lg p-6">
+          <h4 className="text-xl font-semibold text-blue-200 mb-4">📋 Rental Agreement</h4>
+          
+          {/* Quick Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div>
+              <h5 className="font-semibold text-blue-300 mb-2">Key Terms</h5>
+              <ul className="text-sm text-blue-200 space-y-1">
+                <li>• ₹80/hour + ₹40 per 30min block</li>
+                <li>• Night charges: 1.5x after 10 PM</li>
+                <li>• Mandatory helmet provided</li>
+                <li>• Return by 10:30 PM</li>
+              </ul>
+            </div>
+            <div>
+              <h5 className="font-semibold text-blue-300 mb-2">Security Requirements</h5>
+              <ul className="text-sm text-blue-200 space-y-1">
+                <li>• Aadhar Card OR ₹500 deposit</li>
+                <li>• Valid driving license</li>
+                <li>• Vehicle inspection required</li>
+                <li>• Customer liability for damages</li>
+              </ul>
+            </div>
+          </div>
 
-              {/* Digital Signature */}
-              <div>
-                <h4 className="text-lg font-semibold text-white mb-4">Customer Signature *</h4>
-                <ThemedCard className="p-4">
-                  <SignatureCanvas
-                    onSignatureChange={handleSignatureChange}
-                    signature={bookingData.signature}
-                  />
-                </ThemedCard>
+          {/* View Full Terms Button */}
+          <div className="text-center">
+            <button
+              onClick={() => setShowTermsModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
+            >
+              📖 View Complete Terms & Conditions
+            </button>
+          </div>
+        </div>
+
+        {/* Acceptance Checkbox */}
+        <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-6">
+          <label className="flex items-start space-x-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={bookingData.termsAccepted}
+              onChange={(e) => setBookingData(prev => ({ ...prev, termsAccepted: e.target.checked }))}
+              className="w-6 h-6 text-red-600 border-2 border-red-300 rounded focus:ring-red-500 mt-1"
+            />
+            <div>
+              <span className="text-lg font-bold text-white">
+                I have read and agree to all rental terms and conditions
+              </span>
+              <p className="text-red-200 text-sm mt-1">
+                By checking this box, I confirm that I have reviewed the complete terms and conditions 
+                and agree to be legally bound by this rental agreement under Indian law.
+              </p>
+              <div className="mt-2 text-xs text-red-300">
+                <p>✓ Governed by Indian Contract Act, 1872 & IT Act, 2000</p>
+                <p>✓ Jurisdiction: Bhopal District Courts, Madhya Pradesh</p>
               </div>
             </div>
-          </ThemedCard>
-        )}
+          </label>
+        </div>
+
+        {/* Digital Signature */}
+        <div>
+          <h4 className="text-lg font-semibold text-white mb-4">✍️ Customer Digital Signature</h4>
+          <SignatureCanvas
+            onSignatureChange={(signatureData) => 
+              setBookingData(prev => ({ ...prev, signature: signatureData }))
+            }
+            signature={bookingData.signature}
+          />
+        </div>
+      </div>
+    </div>
+  </ThemedCard>
+)}
+
+<TermsModal
+  isOpen={showTermsModal}
+  onClose={() => setShowTermsModal(false)}
+  onAccept={() => {
+    setBookingData(prev => ({ ...prev, termsAccepted: true }));
+    setShowTermsModal(false);
+  }}
+/>
 
         {/* Navigation Buttons */}
         <div className="flex justify-between mt-8 gap-4">

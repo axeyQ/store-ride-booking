@@ -1,4 +1,3 @@
-// src/components/SignatureCanvas.js
 'use client';
 import { useEffect, useRef, useState } from 'react';
 
@@ -12,20 +11,20 @@ export default function SignatureCanvas({ onSignatureChange, signature }) {
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    
+
     // Set canvas size to match container
     const resizeCanvas = () => {
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * 2; // For high DPI displays
       canvas.height = rect.height * 2;
       ctx.scale(2, 2);
-      
+
       // Set drawing styles
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 3;
-      
+
       // Clear canvas with white background
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -33,7 +32,6 @@ export default function SignatureCanvas({ onSignatureChange, signature }) {
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
-    
     return () => window.removeEventListener('resize', resizeCanvas);
   }, []);
 
@@ -42,7 +40,7 @@ export default function SignatureCanvas({ onSignatureChange, signature }) {
     const rect = canvas.getBoundingClientRect();
     const clientX = e.clientX || (e.touches && e.touches[0].clientX);
     const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-    
+
     return {
       x: clientX - rect.left,
       y: clientY - rect.top
@@ -55,22 +53,18 @@ export default function SignatureCanvas({ onSignatureChange, signature }) {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const pos = getEventPos(e);
-    
     ctx.beginPath();
     ctx.moveTo(pos.x, pos.y);
   };
 
   const draw = (e) => {
     if (!isDrawing) return;
-    
     e.preventDefault();
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const pos = getEventPos(e);
-    
     ctx.lineTo(pos.x, pos.y);
     ctx.stroke();
-    
     setHasSignature(true);
   };
 
@@ -78,7 +72,7 @@ export default function SignatureCanvas({ onSignatureChange, signature }) {
     if (!isDrawing) return;
     e.preventDefault();
     setIsDrawing(false);
-    
+
     // Convert canvas to base64 and notify parent
     const canvas = canvasRef.current;
     const signatureData = canvas.toDataURL('image/png');
@@ -88,19 +82,18 @@ export default function SignatureCanvas({ onSignatureChange, signature }) {
   const clearSignature = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
     setHasSignature(false);
     onSignatureChange('');
   };
 
   return (
     <div className="signature-container">
+      {/* ✅ UPDATED: Changed from h-48 to h-64 (33% bigger) */}
       <canvas
         ref={canvasRef}
-        className="signature-canvas w-full h-48 border-2 border-gray-300 rounded-lg cursor-crosshair bg-white"
+        className="signature-canvas w-full h-64 border-2 border-gray-300 rounded-lg cursor-crosshair bg-white"
         onMouseDown={startDrawing}
         onMouseMove={draw}
         onMouseUp={stopDrawing}
@@ -122,11 +115,19 @@ export default function SignatureCanvas({ onSignatureChange, signature }) {
         
         <div className="text-lg text-gray-600">
           {hasSignature ? (
-            <span className="text-green-600 font-medium">✓ Signature captured</span>
+            <span className="text-green-600 font-semibold">✓ Signature Captured</span>
           ) : (
-            <span>Please sign in the box above</span>
+            <span>Please sign above</span>
           )}
         </div>
+      </div>
+
+      {/* ✅ NEW: Enhanced signature instructions */}
+      <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <p className="text-sm text-blue-800">
+          <strong>📝 Important:</strong> Your signature above constitutes legal acceptance of all rental terms and conditions. 
+          This digital signature has the same legal validity as a handwritten signature under the Information Technology Act, 2000.
+        </p>
       </div>
     </div>
   );
