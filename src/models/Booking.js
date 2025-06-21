@@ -59,7 +59,6 @@ const vehicleChangeHistorySchema = new mongoose.Schema({
 const bookingSchema = new mongoose.Schema({
   bookingId: {
     type: String,
-    required: true,
     unique: true
   },
   vehicleId: {
@@ -151,7 +150,16 @@ const bookingSchema = new mongoose.Schema({
   
   additionalNotes: {
     type: String
-  }
+  },
+  securityDepositCollected: {
+  type: Boolean,
+  default: false
+},
+  securityDepositAmount: {
+  type: Number,
+  default: 0
+},
+
 }, {
   timestamps: true
 });

@@ -262,6 +262,8 @@ export async function POST(request) {
       aadharCardCollected: body.aadharCardCollected || false,
       vehicleInspected: body.vehicleInspected || false,
       additionalNotes: body.additionalNotes || '',
+      securityDepositCollected: body.securityDepositCollected || false,  // NEW
+      securityDepositAmount: body.securityDepositAmount || 0,  // NEW
       startTime: rentalStartTime,
       createdAt: new Date()
     };

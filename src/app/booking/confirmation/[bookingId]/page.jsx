@@ -274,31 +274,174 @@ export default function BookingConfirmationPage() {
             </div>
           </div>
 
-          {/* Checklist */}
+          {/* UPDATED Pre-Rental Checklist */}
           <div className="mb-8">
             <h3 className="text-xl font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">
               ✅ Pre-Rental Checklist
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className={`p-3 rounded-lg border-2 ${booking.helmetProvided ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                <div className="flex items-center">
-                  <span className="text-2xl mr-2">{booking.helmetProvided ? '✅' : '❌'}</span>
-                  <span className="font-medium">Helmet Provided</span>
+            
+            <div className="space-y-6">
+              
+              {/* Helmet Provided - OPTIONAL */}
+              <div className={`p-4 rounded-lg border-2 ${
+                booking.helmetProvided 
+                  ? 'border-green-500 bg-green-50' 
+                  : 'border-gray-300 bg-gray-50'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="text-2xl mr-3">
+                      {booking.helmetProvided ? '✅' : '⚪'}
+                    </span>
+                    <div>
+                      <span className="font-medium text-gray-900">Helmet Provided</span>
+                      <p className="text-sm text-gray-600">Optional - Customer choice</p>
+                    </div>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    booking.helmetProvided 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {booking.helmetProvided ? 'Provided' : 'Not Selected'}
+                  </span>
                 </div>
               </div>
-              <div className={`p-3 rounded-lg border-2 ${booking.aadharCardCollected ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                <div className="flex items-center">
-                  <span className="text-2xl mr-2">{booking.aadharCardCollected ? '✅' : '❌'}</span>
-                  <span className="font-medium">Aadhar Collected</span>
+
+              {/* Identity Verification - REQUIRED */}
+              <div className="border-2 border-orange-300 bg-orange-50 rounded-lg p-4">
+                <h4 className="font-semibold text-orange-800 mb-3 flex items-center">
+                  🆔 Identity Verification (Required)
+                </h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  
+                  {/* Aadhar Card */}
+                  <div className={`p-3 rounded-lg border-2 ${
+                    booking.aadharCardCollected 
+                      ? 'border-green-500 bg-green-50' 
+                      : 'border-gray-300 bg-gray-50'
+                  }`}>
+                    <div className="flex items-center">
+                      <span className="text-xl mr-2">
+                        {booking.aadharCardCollected ? '✅' : '❌'}
+                      </span>
+                      <div>
+                        <span className="font-medium text-gray-900">Aadhar Card</span>
+                        <p className="text-sm text-gray-600">
+                          {booking.aadharCardCollected ? 'Collected & Secured' : 'Not Collected'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Security Deposit */}
+                  <div className={`p-3 rounded-lg border-2 ${
+                    booking.securityDepositCollected 
+                      ? 'border-green-500 bg-green-50' 
+                      : 'border-gray-300 bg-gray-50'
+                  }`}>
+                    <div className="flex items-center">
+                      <span className="text-xl mr-2">
+                        {booking.securityDepositCollected ? '✅' : '❌'}
+                      </span>
+                      <div>
+                        <span className="font-medium text-gray-900">Security Deposit</span>
+                        <p className="text-sm text-gray-600">
+                          {booking.securityDepositCollected 
+                            ? `₹${booking.securityDepositAmount || 500} Collected` 
+                            : 'Not Collected'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Verification Status */}
+                <div className="mt-3 p-2 rounded bg-white border">
+                  {booking.aadharCardCollected || booking.securityDepositCollected ? (
+                    <p className="text-green-700 text-sm font-medium flex items-center">
+                      ✓ Identity verification completed 
+                      {booking.aadharCardCollected && " (Aadhar Card)"}
+                      {booking.securityDepositCollected && " (Security Deposit)"}
+                    </p>
+                  ) : (
+                    <p className="text-red-700 text-sm font-medium">
+                      ⚠️ No identity verification method recorded
+                    </p>
+                  )}
                 </div>
               </div>
-              <div className={`p-3 rounded-lg border-2 ${booking.vehicleInspected ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                <div className="flex items-center">
-                  <span className="text-2xl mr-2">{booking.vehicleInspected ? '✅' : '❌'}</span>
-                  <span className="font-medium">Vehicle Inspected</span>
+
+              {/* Vehicle Inspected - REQUIRED */}
+              <div className={`p-4 rounded-lg border-2 ${
+                booking.vehicleInspected 
+                  ? 'border-green-500 bg-green-50' 
+                  : 'border-red-500 bg-red-50'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="text-2xl mr-3">
+                      {booking.vehicleInspected ? '✅' : '❌'}
+                    </span>
+                    <div>
+                      <span className="font-medium text-gray-900">Vehicle Inspected</span>
+                      <p className="text-sm text-gray-600">Required - Safety verification</p>
+                    </div>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    booking.vehicleInspected 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {booking.vehicleInspected ? 'Completed' : 'Not Done'}
+                  </span>
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* NEW Customer Signature Section */}
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">
+              ✍️ Customer Signature
+            </h3>
+            
+            {booking.signature ? (
+              <div className="bg-white border-2 border-gray-300 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-gray-700 font-medium">Digital Signature Captured</span>
+                  <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                    ✓ Verified
+                  </span>
+                </div>
+                
+                {/* Signature Display */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <img 
+                    src={booking.signature} 
+                    alt="Customer Signature" 
+                    className="max-w-full h-32 object-contain mx-auto"
+                    style={{ filter: 'contrast(1.2)' }}
+                  />
+                </div>
+                
+                <div className="mt-3 text-sm text-gray-600 text-center">
+                  Signature captured on {formatDateTime(booking.createdAt)}
+                  <br />
+                  Customer: {getCustomerName()}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 text-center">
+                <div className="text-red-400 text-4xl mb-2">📝</div>
+                <h4 className="text-red-800 font-medium mb-2">No Signature Recorded</h4>
+                <p className="text-red-600 text-sm">
+                  Digital signature was not captured during booking process
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Additional Notes */}
@@ -313,16 +456,63 @@ export default function BookingConfirmationPage() {
             </div>
           )}
 
-          {/* Terms & Conditions */}
+          {/* UPDATED Terms & Conditions */}
           <div className="border-t-2 border-gray-200 pt-6 mt-8">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">📋 Important Terms & Conditions</h3>
-            <div className="text-sm text-gray-600 space-y-2">
-              <p>• Hourly rate: ₹80/hour with 15-minute grace period</p>
-              <p>• Security deposit: ₹500 (refundable on safe return)</p>
-              <p>• Late return after 10:00 PM incurs additional charges</p>
-              <p>• Customer is responsible for traffic violations and fines</p>
-              <p>• Vehicle must be returned with same fuel level</p>
-              <p>• Any damage to vehicle will be charged separately</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              📋 Important Terms & Conditions
+            </h3>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-4">
+              <h4 className="font-semibold text-blue-800 mb-3">🕐 Rental Terms</h4>
+              <div className="text-sm text-blue-700 space-y-2">
+                <p>• Hourly rate: <strong>₹80/hour</strong> with 15-minute grace period</p>
+                <p>• First hour billing applies even for shorter durations</p>
+                <p>• Advanced block pricing: ₹40 per 30-minute block after initial hour + grace</p>
+                <p>• Night charges (after 10:00 PM): <strong>1.5x rate multiplier</strong></p>
+              </div>
+            </div>
+
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-6 mb-4">
+              <h4 className="font-semibold text-orange-800 mb-3">🆔 Identity & Security</h4>
+              <div className="text-sm text-orange-700 space-y-2">
+                <p>• <strong>Either</strong> valid Aadhar card OR ₹500 security deposit required</p>
+                <p>• Security deposit is <strong>fully refundable</strong> upon safe vehicle return</p>
+                <p>• Aadhar card will be returned when vehicle is returned in good condition</p>
+                <p>• Valid driving license mandatory for all rentals</p>
+              </div>
+            </div>
+
+            <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-4">
+              <h4 className="font-semibold text-green-800 mb-3">🪖 Safety & Equipment</h4>
+              <div className="text-sm text-green-700 space-y-2">
+                <p>• Helmet usage is <strong>strongly recommended</strong> for safety</p>
+                <p>• Helmets available on request (customer choice)</p>
+                <p>• Customer responsible for traffic rule compliance</p>
+                <p>• All traffic fines and penalties are customer's responsibility</p>
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-4">
+              <h4 className="font-semibold text-red-800 mb-3">⚠️ Important Restrictions</h4>
+              <div className="text-sm text-red-700 space-y-2">
+                <p>• Vehicle must be returned by <strong>10:30 PM</strong> (store closing time)</p>
+                <p>• Late return after 10:00 PM: <strong>Additional ₹80 charge</strong></p>
+                <p>• Return after 10:30 PM: <strong>₹500 overnight fine + next day return</strong></p>
+                <p>• Maximum <strong>2 passengers</strong> allowed (3+ people = ₹500 fine)</p>
+                <p>• Vehicle must be returned with <strong>same fuel level</strong></p>
+                <p>• Any damage will be charged at repair cost</p>
+                <p>• Theft or loss: Customer liable for full vehicle value</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
+              <h4 className="font-semibold text-gray-800 mb-3">⛽ Fuel & Support</h4>
+              <div className="text-sm text-gray-700 space-y-2">
+                <p>• Vehicle provided with fuel to reach nearest petrol station</p>
+                <p>• Emergency fuel support available - contact store if needed</p>
+                <p>• Customer responsible for refueling during rental period</p>
+                <p>• Support available during business hours: <strong>6:00 AM - 10:00 PM</strong></p>
+              </div>
             </div>
           </div>
 

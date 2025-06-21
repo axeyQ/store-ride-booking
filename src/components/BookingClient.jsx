@@ -41,7 +41,6 @@ export default function EnhancedBookingClientPage() {
   const nameInputRef = useRef(null);
   const suggestionsRef = useRef(null);
 
-  // Form state
   const [bookingData, setBookingData] = useState({
     vehicleId: '',
     selectedVehicle: null,
@@ -53,11 +52,13 @@ export default function EnhancedBookingClientPage() {
     checklist: {
       helmetProvided: false,
       aadharCardCollected: false,
-      vehicleInspected: false
+      vehicleInspected: false,
+      securityDepositCollected: false  // NEW: Add this field
     },
-    additionalNotes: '',
+    securityDepositAmount: 0,  // NEW: Track deposit amount
     signature: '',
-    termsAccepted: false
+    termsAccepted: false,
+    additionalNotes: ''
   });
 
   // NEW: Function to calculate and display start time
@@ -291,9 +292,10 @@ export default function EnhancedBookingClientPage() {
                validatePhoneNumber(bookingData.customer.phone) &&
                validateDrivingLicense(bookingData.customer.driverLicense);
       case 3:
-        return bookingData.checklist.helmetProvided &&
-               bookingData.checklist.aadharCardCollected &&
-               bookingData.checklist.vehicleInspected;
+        const aadharOrDeposit = bookingData.checklist.aadharCardCollected || 
+        bookingData.checklist.securityDepositCollected;
+
+        return bookingData.checklist.vehicleInspected && aadharOrDeposit;
       case 4:
         return bookingData.signature && bookingData.termsAccepted;
       default:
@@ -303,6 +305,7 @@ export default function EnhancedBookingClientPage() {
 
   const handleCompleteBooking = async () => {
     if (!canProceedFromStep(4)) return;
+    
     setSubmitting(true);
     try {
       const response = await fetch('/api/bookings', {
@@ -315,9 +318,12 @@ export default function EnhancedBookingClientPage() {
           helmetProvided: bookingData.checklist.helmetProvided,
           aadharCardCollected: bookingData.checklist.aadharCardCollected,
           vehicleInspected: bookingData.checklist.vehicleInspected,
+          securityDepositCollected: bookingData.checklist.securityDepositCollected,  // NEW
+          securityDepositAmount: bookingData.securityDepositAmount,  // NEW
           additionalNotes: bookingData.additionalNotes
         })
       });
+  
       const data = await response.json();
       if (data.success) {
         router.push(`/booking/confirmation/${data.booking.bookingId}`);
@@ -331,6 +337,7 @@ export default function EnhancedBookingClientPage() {
       setSubmitting(false);
     }
   };
+  
 
   const getStepTitle = (step) => {
     switch (step) {
@@ -606,52 +613,185 @@ export default function EnhancedBookingClientPage() {
 
         {/* Step 3: Pre-Rental Checklist */}
         {currentStep === 3 && (
-          <ThemedCard title="Pre-Rental Checklist">
-            <div className="space-y-6">
-              {[
-                { key: 'helmetProvided', label: 'Helmet Provided', icon: '🪖' },
-                { key: 'aadharCardCollected', label: 'Aadhar Card Collected', icon: '📄' },
-                { key: 'vehicleInspected', label: 'Vehicle Inspected', icon: '🔍' }
-              ].map((item) => (
-                <ThemedCard 
-                  key={item.key}
-                  className={cn(
-                    "cursor-pointer transition-all",
-                    bookingData.checklist[item.key] 
-                      ? 'border-green-500 bg-green-500/10' 
-                      : 'border-gray-600 hover:border-gray-500'
-                  )}
-                  onClick={() => handleChecklistChange(item.key, !bookingData.checklist[item.key])}
-                >
-                  <div className="flex items-center justify-between p-6">
-                    <div className="flex items-center space-x-4">
-                      <span className="text-3xl">{item.icon}</span>
-                      <div>
-                        <h3 className="text-xl font-semibold text-white">{item.label}</h3>
-                        <p className="text-gray-400">Required for rental</p>
-                      </div>
-                    </div>
-                    <div className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center",
-                      bookingData.checklist[item.key] 
-                        ? 'bg-green-500 text-white' 
-                        : 'bg-gray-600 text-gray-300'
-                    )}>
-                      {bookingData.checklist[item.key] ? '✓' : '○'}
-                    </div>
-                  </div>
-                </ThemedCard>
-              ))}
+  <ThemedCard title="Pre-Rental Checklist">
+    <div className="space-y-6">
+      
+      {/* Helmet Provided - OPTIONAL */}
+      <ThemedCard
+        className={cn(
+          "cursor-pointer transition-all",
+          bookingData.checklist.helmetProvided
+            ? 'border-green-500 bg-green-500/10'
+            : 'border-gray-600 hover:border-gray-500'
+        )}
+        onClick={() => handleChecklistChange('helmetProvided', 
+          !bookingData.checklist.helmetProvided)}
+      >
+        <div className="flex items-center justify-between p-6">
+          <div className="flex items-center space-x-4">
+            <span className="text-3xl">🪖</span>
+            <div>
+              <h3 className="text-xl font-semibold text-white">
+                Helmet Provided
+              </h3>
+              <p className="text-gray-400">Optional - Customer choice</p>
+            </div>
+          </div>
+          <div className={cn(
+            "w-8 h-8 rounded-full flex items-center justify-center",
+            bookingData.checklist.helmetProvided
+              ? 'bg-green-500 text-white'
+              : 'bg-gray-600 text-gray-300'
+          )}>
+            {bookingData.checklist.helmetProvided ? '✓' : '○'}
+          </div>
+        </div>
+      </ThemedCard>
 
-              <ThemedInput
-                label="Additional Notes (Optional)"
-                value={bookingData.additionalNotes}
-                onChange={(e) => setBookingData(prev => ({ ...prev, additionalNotes: e.target.value }))}
-                placeholder="Any additional notes or observations..."
-              />
+      {/* Identity Verification - REQUIRED (Either Aadhar OR Deposit) */}
+      <div className="bg-gradient-to-r from-orange-900/50 to-orange-800/50 border border-orange-700/50 rounded-xl p-6">
+        <h4 className="text-xl font-semibold text-orange-200 mb-4">
+          🆔 Identity Verification (Required - Choose One)
+        </h4>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Aadhar Card Option */}
+          <ThemedCard
+            className={cn(
+              "cursor-pointer transition-all",
+              bookingData.checklist.aadharCardCollected
+                ? 'border-green-500 bg-green-500/10'
+                : 'border-gray-600 hover:border-gray-500'
+            )}
+            onClick={() => {
+              handleChecklistChange('aadharCardCollected', !bookingData.checklist.aadharCardCollected);
+              if (!bookingData.checklist.aadharCardCollected) {
+                // If selecting Aadhar, unselect security deposit
+                handleChecklistChange('securityDepositCollected', false);
+                setBookingData(prev => ({ ...prev, securityDepositAmount: 0 }));
+              }
+            }}
+          >
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center space-x-3">
+                <span className="text-2xl">📄</span>
+                <div>
+                  <h4 className="font-semibold text-white">Aadhar Card</h4>
+                  <p className="text-sm text-gray-400">Collect original document</p>
+                </div>
+              </div>
+              <div className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center",
+                bookingData.checklist.aadharCardCollected
+                  ? 'bg-green-500 text-white'
+                  : 'bg-gray-600 text-gray-300'
+              )}>
+                {bookingData.checklist.aadharCardCollected ? '✓' : '○'}
+              </div>
             </div>
           </ThemedCard>
+
+          {/* Security Deposit Option */}
+          <ThemedCard
+            className={cn(
+              "cursor-pointer transition-all",
+              bookingData.checklist.securityDepositCollected
+                ? 'border-green-500 bg-green-500/10'
+                : 'border-gray-600 hover:border-gray-500'
+            )}
+            onClick={() => {
+              const newValue = !bookingData.checklist.securityDepositCollected;
+              handleChecklistChange('securityDepositCollected', newValue);
+              if (newValue) {
+                // If selecting deposit, unselect Aadhar and set amount
+                handleChecklistChange('aadharCardCollected', false);
+                setBookingData(prev => ({ ...prev, securityDepositAmount: 500 }));
+              } else {
+                setBookingData(prev => ({ ...prev, securityDepositAmount: 0 }));
+              }
+            }}
+          >
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center space-x-3">
+                <span className="text-2xl">💰</span>
+                <div>
+                  <h4 className="font-semibold text-white">Security Deposit</h4>
+                  <p className="text-sm text-gray-400">₹500 refundable</p>
+                </div>
+              </div>
+              <div className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center",
+                bookingData.checklist.securityDepositCollected
+                  ? 'bg-green-500 text-white'
+                  : 'bg-gray-600 text-gray-300'
+              )}>
+                {bookingData.checklist.securityDepositCollected ? '✓' : '○'}
+              </div>
+            </div>
+          </ThemedCard>
+        </div>
+
+        {/* Show selected option info */}
+        {bookingData.checklist.aadharCardCollected && (
+          <div className="mt-4 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
+            <p className="text-green-300 text-sm">
+              ✓ Aadhar card will be collected and returned upon vehicle return
+            </p>
+          </div>
         )}
+        
+        {bookingData.checklist.securityDepositCollected && (
+          <div className="mt-4 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
+            <p className="text-green-300 text-sm">
+              ✓ Security deposit of ₹500 will be collected and refunded upon safe vehicle return
+            </p>
+          </div>
+        )}
+        
+        {!bookingData.checklist.aadharCardCollected && !bookingData.checklist.securityDepositCollected && (
+          <div className="mt-4 p-3 bg-red-900/20 border border-red-700/30 rounded-lg">
+            <p className="text-red-300 text-sm">
+              ⚠️ Please select either Aadhar card collection or security deposit to proceed
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Vehicle Inspected - REQUIRED */}
+      <ThemedCard
+        className={cn(
+          "cursor-pointer transition-all",
+          bookingData.checklist.vehicleInspected
+            ? 'border-green-500 bg-green-500/10'
+            : 'border-red-600 hover:border-red-500'
+        )}
+        onClick={() => handleChecklistChange('vehicleInspected', 
+          !bookingData.checklist.vehicleInspected)}
+      >
+        <div className="flex items-center justify-between p-6">
+          <div className="flex items-center space-x-4">
+            <span className="text-3xl">🔍</span>
+            <div>
+              <h3 className="text-xl font-semibold text-white">
+                Vehicle Inspected
+              </h3>
+              <p className="text-red-400 font-medium">Required - Safety check completed</p>
+            </div>
+          </div>
+          <div className={cn(
+            "w-8 h-8 rounded-full flex items-center justify-center",
+            bookingData.checklist.vehicleInspected
+              ? 'bg-green-500 text-white'
+              : 'bg-red-600 text-white'
+          )}>
+            {bookingData.checklist.vehicleInspected ? '✓' : '!'}
+          </div>
+        </div>
+      </ThemedCard>
+
+    </div>
+  </ThemedCard>
+)}
 
         {/* Step 4: Terms & Digital Signature */}
         {currentStep === 4 && (
