@@ -103,12 +103,12 @@ export default function ThemedAllBookingsPage() {
       const booking = bookings.find(b => b._id === bookingId);
       if (!booking) return;
   
-      // ✅ NEW: Skip pricing calculation for cancelled bookings
+      // ✅ Skip pricing calculation for cancelled bookings
       if (booking.status === 'cancelled') {
         setAdvancedPricing(prev => ({
           ...prev,
           [bookingId]: {
-            totalAmount: 0, // ✅ Cancelled bookings show ₹0
+            totalAmount: 0, // Cancelled bookings show ₹0
             breakdown: [],
             totalMinutes: 0,
             summary: 'Cancelled - No charge'
@@ -158,7 +158,7 @@ export default function ThemedAllBookingsPage() {
       // Fallback calculation
       const booking = bookings.find(b => b._id === bookingId);
       if (booking) {
-        // ✅ NEW: Handle cancelled bookings in error case too
+        // ✅ Handle cancelled bookings in error case too
         if (booking.status === 'cancelled') {
           setAdvancedPricing(prev => ({
             ...prev,
@@ -327,13 +327,30 @@ export default function ThemedAllBookingsPage() {
     setCurrentPage(1);
   };
 
-  const calculateDuration = (startTime, endTime) => {
+  // ✅ FIXED: Updated calculateDuration to handle cancelled bookings
+  const calculateDuration = (startTime, endTime, status) => {
+    // ✅ NEW: Return special object for cancelled bookings
+    if (status === 'cancelled') {
+      return {
+        hours: 0,
+        minutes: 0,
+        isCancelled: true,
+        displayText: 'CANCELLED'
+      };
+    }
+
     const start = new Date(startTime);
     const end = endTime ? new Date(endTime) : new Date();
     const diffMs = end - start;
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    return { hours, minutes };
+    
+    return { 
+      hours, 
+      minutes, 
+      isCancelled: false,
+      displayText: `${hours}h ${minutes}m`
+    };
   };
 
   const formatDateTime = (dateString) => {
@@ -377,7 +394,7 @@ export default function ThemedAllBookingsPage() {
       totalBookings: bookings.length, // ✅ Total includes all bookings
       activeRentals: bookings.filter(b => b.status === 'active').length,
       completed: bookings.filter(b => b.status === 'completed').length,
-      cancelled: bookings.filter(b => b.status === 'cancelled').length, // ✅ NEW: Add cancelled count
+      cancelled: bookings.filter(b => b.status === 'cancelled').length, // ✅ Add cancelled count
       withSignatures: bookings.filter(b => b.signature).length,
       totalRevenue: totalAdvancedAmount // ✅ Revenue excludes cancelled bookings
     };
@@ -448,42 +465,38 @@ export default function ThemedAllBookingsPage() {
 
         {/* Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-  <ThemedStatsCard
-    title="Total Bookings"
-    value={stats.totalBookings}
-    subtitle="All time records"
-    colorScheme="bookings"
-    icon={<div className="text-4xl mb-2">📋</div>}
-  />
-  
-  <ThemedStatsCard
-    title="Active Rentals"
-    value={stats.activeRentals}
-    subtitle="Currently out"
-    colorScheme="revenue"
-    icon={<div className="text-4xl mb-2">🚴</div>}
-  />
-  
-  <ThemedStatsCard
-    title="Completed"
-    value={stats.completed}
-    subtitle="Successfully returned"
-    colorScheme="customers"
-    icon={<div className="text-4xl mb-2">✅</div>}
-  />
+          <ThemedStatsCard
+            title="Total Bookings"
+            value={stats.totalBookings}
+            subtitle="All time records"
+            colorScheme="bookings"
+            icon={<div className="text-4xl mb-2">📋</div>}
+          />
+          
+          <ThemedStatsCard
+            title="Active Rentals"
+            value={stats.activeRentals}
+            subtitle="Currently out"
+            colorScheme="revenue"
+            icon={<div className="text-4xl mb-2">🚴</div>}
+          />
+          
+          <ThemedStatsCard
+            title="Completed"
+            value={stats.completed}
+            subtitle="Successfully returned"
+            colorScheme="customers"
+            icon={<div className="text-4xl mb-2">✅</div>}
+          />
 
-  
-  
-
-
-  <ThemedStatsCard
-    title="Total Revenue"
-    value={`₹${stats.totalRevenue.toLocaleString('en-IN')}`}
-    subtitle="Excludes cancelled"
-    colorScheme="revenue"
-    icon={<div className="text-4xl mb-2">💰</div>}
-  />
-</div>
+          <ThemedStatsCard
+            title="Total Revenue"
+            value={`₹${stats.totalRevenue.toLocaleString('en-IN')}`}
+            subtitle="Excludes cancelled"
+            colorScheme="revenue"
+            icon={<div className="text-4xl mb-2">💰</div>}
+          />
+        </div>
 
         {/* Filters Section */}
         <ThemedCard title="Search & Filters" description="Find specific bookings quickly" className="mb-8">
@@ -621,7 +634,8 @@ export default function ThemedAllBookingsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-700">
                   {bookings.map((booking) => {
-                    const duration = calculateDuration(booking.startTime, booking.endTime);
+                    // ✅ FIXED: Pass status to calculateDuration
+                    const duration = calculateDuration(booking.startTime, booking.endTime, booking.status);
                     const advancedAmount = getAdvancedAmount(booking._id);
                     const isLoadingPrice = isPricingLoading(booking._id);
 
@@ -652,13 +666,22 @@ export default function ThemedAllBookingsPage() {
                           {formatDateTime(booking.startTime)}
                         </td>
                         <td className="py-4 px-4">
-                          <div className="text-white font-semibold">
-                            {duration.hours}h {duration.minutes}m
-                          </div>
-                          {booking.status === 'active' && (
-                            <div className="text-orange-400 text-sm flex items-center gap-1">
-                              <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
-                              Live
+                          {/* ✅ FIXED: Special handling for cancelled bookings */}
+                          {duration.isCancelled ? (
+                            <div className="text-red-400 font-semibold">
+                              CANCELLED
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="text-white font-semibold">
+                                {duration.displayText}
+                              </div>
+                              {booking.status === 'active' && (
+                                <div className="text-orange-400 text-sm flex items-center gap-1">
+                                  <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
+                                  Live
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -668,37 +691,37 @@ export default function ThemedAllBookingsPage() {
                           </ThemedBadge>
                         </td>
                         <td className="py-4 px-4">
-  {booking.status === 'cancelled' ? (
-    // ✅ NEW: Special display for cancelled bookings
-    <div>
-      <div className="text-red-400 font-bold text-lg">
-        CANCELLED
-      </div>
-      <div className="text-red-300 text-xs">
-        No charge
-      </div>
-    </div>
-  ) : isLoadingPrice ? (
-    <div className="flex items-center gap-2">
-      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-cyan-400"></div>
-      <span className="text-gray-400 text-sm">Calculating...</span>
-    </div>
-  ) : (
-    <div>
-      <div className="text-white font-bold text-lg">
-        ₹{advancedAmount.toLocaleString('en-IN')}
-      </div>
-      <div className="text-cyan-400 text-xs">
-        {booking.status === 'active' ? '🔄 Live Advanced' : '🧮 Advanced Calc'}
-      </div>
-      {booking.paymentMethod && (
-        <div className="text-gray-400 text-sm capitalize">
-          {booking.paymentMethod}
-        </div>
-      )}
-    </div>
-  )}
-</td>
+                          {booking.status === 'cancelled' ? (
+                            // ✅ Special display for cancelled bookings
+                            <div>
+                              <div className="text-red-400 font-bold text-lg">
+                                CANCELLED
+                              </div>
+                              <div className="text-red-300 text-xs">
+                                No charge
+                              </div>
+                            </div>
+                          ) : isLoadingPrice ? (
+                            <div className="flex items-center gap-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-cyan-400"></div>
+                              <span className="text-gray-400 text-sm">Calculating...</span>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="text-white font-bold text-lg">
+                                ₹{advancedAmount.toLocaleString('en-IN')}
+                              </div>
+                              <div className="text-cyan-400 text-xs">
+                                {booking.status === 'active' ? '🔄 Live Advanced' : '🧮 Advanced Calc'}
+                              </div>
+                              {booking.paymentMethod && (
+                                <div className="text-gray-400 text-sm capitalize">
+                                  {booking.paymentMethod}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
                         {showSignatures && (
                           <td className="py-4 px-4">
                             {booking.signature ? (

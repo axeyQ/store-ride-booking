@@ -464,51 +464,55 @@ export default function EnhancedAdminDashboard() {
       // Get all bookings
       const response = await fetch('/api/bookings');
       const data = await response.json();
-      
       if (!data.success) return;
-
+  
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-
-      // Filter bookings by date and exclude cancelled bookings
+  
+      // ✅ FIXED: Filter bookings by date and exclude cancelled bookings
       const todayBookings = data.bookings.filter(booking => {
         const bookingDate = new Date(booking.createdAt);
         return bookingDate >= today && bookingDate < tomorrow && booking.status !== 'cancelled';
       });
-
+  
       const yesterdayBookings = data.bookings.filter(booking => {
         const bookingDate = new Date(booking.createdAt);
         return bookingDate >= yesterday && bookingDate < today && booking.status !== 'cancelled';
       });
-
+  
       // Calculate advanced pricing for each booking
       let todayAdvancedRevenue = 0;
       let yesterdayAdvancedRevenue = 0;
-
+  
       for (const booking of todayBookings) {
-        const result= await calculateCurrentAmount(booking);
+        const result = await calculateCurrentAmount(booking);
         todayAdvancedRevenue += typeof result === 'number' ? result : result.amount;
       }
-
+  
       for (const booking of yesterdayBookings) {
-        const result=await calculateCurrentAmount(booking);
+        const result = await calculateCurrentAmount(booking);
         yesterdayAdvancedRevenue += typeof result === 'number' ? result : result.amount;
       }
-
-      return {
-        todayAdvancedRevenue,
-        yesterdayAdvancedRevenue,
-        todayBookingsCount: todayBookings.length,
-        yesterdayBookingsCount: yesterdayBookings.length
-      };
-
+  
+      // Update dashboard data with advanced revenue
+      setDashboardData(prev => ({
+        ...prev,
+        todayStats: {
+          ...prev.todayStats,
+          revenue: todayAdvancedRevenue
+        },
+        yesterdayStats: {
+          ...prev.yesterdayStats,
+          revenue: yesterdayAdvancedRevenue
+        }
+      }));
+  
     } catch (error) {
       console.error('Error calculating advanced revenue:', error);
-      return null;
     } finally {
       setCalculatingRevenue(false);
     }

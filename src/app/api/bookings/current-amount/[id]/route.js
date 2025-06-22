@@ -1,3 +1,4 @@
+// src/app/api/bookings/current-amount/[id]/route.js
 import connectDB from '@/lib/db';
 import Booking from '@/models/Booking';
 import { NextResponse } from 'next/server';
@@ -13,89 +14,103 @@ async function calculateAdvancedPricing(startTime, endTime) {
       nightChargeTime: '22:30',
       nightMultiplier: 2
     };
-    
+
     const start = new Date(startTime);
     const end = new Date(endTime);
     const totalMinutes = Math.max(0, Math.floor((end - start) / (1000 * 60)));
-    
+
     if (totalMinutes === 0) return { totalAmount: 0, breakdown: [], totalMinutes: 0 };
-    
+
     const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
     const halfRate = Math.round(hourlyRate / 2);
-    
+
     let totalAmount = 0;
     let breakdown = [];
     let remainingMinutes = totalMinutes;
     let currentTime = new Date(start);
-    
+
     // First block: Base hour + grace period
     const firstBlockMinutes = 60 + graceMinutes;
     const firstBlockUsed = Math.min(remainingMinutes, firstBlockMinutes);
-    
+
     // Check if first block crosses night charge time
     const isFirstBlockNight = isNightCharge(currentTime, firstBlockUsed, nightChargeTime);
     const firstBlockRate = isFirstBlockNight ? hourlyRate * nightMultiplier : hourlyRate;
-    
+
     breakdown.push({
       period: `First ${Math.floor(firstBlockMinutes/60)}h ${firstBlockMinutes%60}m`,
       minutes: firstBlockUsed,
       rate: firstBlockRate,
       isNightCharge: isFirstBlockNight
     });
-    
+
     totalAmount += firstBlockRate;
     remainingMinutes -= firstBlockUsed;
     currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
-    
+
     // Subsequent blocks
     let blockNumber = 2;
     while (remainingMinutes > 0) {
       const blockUsed = Math.min(remainingMinutes, blockMinutes);
       const isNight = isNightCharge(currentTime, blockUsed, nightChargeTime);
       const blockRate = isNight ? halfRate * nightMultiplier : halfRate;
-      
+
       breakdown.push({
-        period: `Block ${blockNumber}`,
+        period: `Block ${blockNumber} (${blockMinutes}min)`,
         minutes: blockUsed,
         rate: blockRate,
         isNightCharge: isNight
       });
-      
+
       totalAmount += blockRate;
       remainingMinutes -= blockUsed;
       currentTime = new Date(currentTime.getTime() + blockUsed * 60000);
       blockNumber++;
     }
-    
-    return { totalAmount, breakdown, totalMinutes };
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const nightBlocks = breakdown.filter(b => b.isNightCharge).length;
+
+    let summary = `${hours}h ${minutes}m total`;
+    if (nightBlocks > 0) {
+      summary += ` (${nightBlocks} night-rate blocks)`;
+    }
+
+    return {
+      totalAmount,
+      breakdown,
+      totalMinutes,
+      summary
+    };
+
   } catch (error) {
-    console.error('Error calculating advanced pricing:', error);
-    // Fallback to simple calculation
-    const diffMs = new Date(endTime) - new Date(startTime);
-    const hours = Math.ceil(diffMs / (1000 * 60 * 60));
-    return { totalAmount: hours * 80, breakdown: [], totalMinutes: Math.floor(diffMs / (1000 * 60)) };
+    console.error('Advanced pricing calculation error:', error);
+    return { totalAmount: 0, breakdown: [], totalMinutes: 0, summary: 'Calculation error' };
   }
 }
 
+// Helper function to check if a time block crosses night charge threshold
 function isNightCharge(startTime, durationMinutes, nightChargeTime) {
   try {
     const [nightHour, nightMinute] = nightChargeTime.split(':').map(Number);
     const blockEndTime = new Date(startTime.getTime() + durationMinutes * 60000);
-    
     const nightThreshold = new Date(startTime);
     nightThreshold.setHours(nightHour, nightMinute, 0, 0);
     
+    // Check if the block crosses or includes the night threshold
     return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
   } catch (error) {
     return false;
   }
 }
 
+// ✅ FIXED: GET method with cancelled booking handling
 export async function GET(request, { params }) {
   try {
     await connectDB();
     const { id } = params;
-    
+
     const booking = await Booking.findById(id);
     if (!booking) {
       return NextResponse.json(
@@ -103,15 +118,31 @@ export async function GET(request, { params }) {
         { status: 404 }
       );
     }
-    
-    if (booking.status !== 'active') {
-      return NextResponse.json(
-        { success: false, error: 'Booking is not active' },
-        { status: 400 }
-      );
+
+    // ✅ NEW: Check if booking is cancelled
+    if (booking.status === 'cancelled') {
+      return NextResponse.json({
+        success: true,
+        currentAmount: 0,
+        breakdown: [],
+        totalMinutes: 0,
+        totalHours: 0,
+        summary: 'Cancelled - No charge applied',
+        status: 'cancelled',
+        message: 'This booking has been cancelled. No amount calculation is applicable.'
+      });
     }
-    
-    // Calculate current amount using advanced pricing
+
+    // ✅ NEW: Check if booking is not active
+    if (booking.status !== 'active') {
+      return NextResponse.json({
+        success: false,
+        error: `Cannot calculate current amount for ${booking.status} booking. Only active bookings are supported.`,
+        status: booking.status
+      }, { status: 400 });
+    }
+
+    // Calculate advanced pricing for active bookings only
     const pricingResult = await calculateAdvancedPricing(booking.startTime, new Date());
     
     return NextResponse.json({
@@ -119,8 +150,12 @@ export async function GET(request, { params }) {
       currentAmount: pricingResult.totalAmount,
       breakdown: pricingResult.breakdown,
       totalMinutes: pricingResult.totalMinutes,
-      totalHours: Math.ceil(pricingResult.totalMinutes / 60)
+      totalHours: Math.ceil(pricingResult.totalMinutes / 60),
+      summary: pricingResult.summary,
+      status: booking.status,
+      message: 'Live amount calculation for active booking'
     });
+
   } catch (error) {
     console.error('Current amount API error:', error);
     return NextResponse.json(

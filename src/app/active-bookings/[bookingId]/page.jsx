@@ -73,12 +73,22 @@ export default function ThemedBookingDetailsPage() {
   const fetchAdvancedPricing = async () => {
     if (!booking) return;
     
+    // ✅ NEW: Skip pricing calculation for cancelled bookings
+    if (booking.status === 'cancelled') {
+      setAdvancedPricing({
+        totalAmount: 0,
+        breakdown: [],
+        totalMinutes: 0,
+        summary: 'Cancelled - No charge'
+      });
+      return;
+    }
+  
     try {
       // For active bookings, use the live API
       if (booking.status === 'active') {
         const response = await fetch(`/api/bookings/current-amount/${booking._id}`);
         const data = await response.json();
-        
         if (data.success) {
           setAdvancedPricing({
             totalAmount: data.currentAmount,
@@ -89,7 +99,7 @@ export default function ThemedBookingDetailsPage() {
         } else {
           console.error('Error fetching advanced pricing for active booking:', data.error);
           // Fallback to simple calculation for active bookings
-          const duration = calculateDuration(booking.startTime);
+          const duration = calculateDuration(booking.startTime, currentTime, booking.status);
           const baseAmount = duration.totalHours * 80;
           setAdvancedPricing({
             totalAmount: baseAmount,
@@ -105,15 +115,17 @@ export default function ThemedBookingDetailsPage() {
       }
     } catch (error) {
       console.error('Error fetching advanced pricing:', error);
-      // Fallback to simple calculation
-      const duration = calculateDuration(booking.startTime);
-      const baseAmount = duration.totalHours * 80;
-      setAdvancedPricing({
-        totalAmount: baseAmount,
-        breakdown: [],
-        totalMinutes: duration.totalMinutes,
-        summary: `${duration.hours}h ${duration.minutes}m (error - fallback)`
-      });
+      // Fallback to simple calculation for non-cancelled bookings
+      if (booking.status !== 'cancelled') {
+        const duration = calculateDuration(booking.startTime, currentTime, booking.status);
+        const baseAmount = duration.totalHours * 80;
+        setAdvancedPricing({
+          totalAmount: baseAmount,
+          breakdown: [],
+          totalMinutes: duration.totalMinutes,
+          summary: `${duration.hours}h ${duration.minutes}m (error - fallback)`
+        });
+      }
     }
   };
 
@@ -231,19 +243,35 @@ export default function ThemedBookingDetailsPage() {
     }
   };
 
-  const calculateDuration = (startTime, endTime = currentTime) => {
+  const calculateDuration = (startTime, endTime = currentTime, status) => {
+    // ✅ NEW: Return special object for cancelled bookings
+    if (status === 'cancelled') {
+      return {
+        hours: 0,
+        minutes: 0,
+        seconds: 0,
+        totalHours: 0,
+        totalMinutes: 0,
+        isCancelled: true,
+        displayText: 'CANCELLED'
+      };
+    }
+  
     const start = new Date(startTime);
     const end = new Date(endTime);
     const diffMs = end - start;
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+    
     return {
       hours,
       minutes,
       seconds,
       totalHours: Math.ceil(diffMs / (1000 * 60 * 60)),
-      totalMinutes: Math.floor(diffMs / (1000 * 60))
+      totalMinutes: Math.floor(diffMs / (1000 * 60)),
+      isCancelled: false,
+      displayText: `${hours}h ${minutes}m`
     };
   };
 
@@ -291,11 +319,14 @@ export default function ThemedBookingDetailsPage() {
   }
 
   // Calculate duration based on booking status
-  const duration = booking.status === 'active' 
-    ? calculateDuration(booking.startTime) 
-    : calculateDuration(booking.startTime, booking.endTime ? new Date(booking.endTime) : new Date());
+  const duration = booking.status === 'cancelled' 
+  ? calculateDuration(booking.startTime, booking.endTime, 'cancelled')
+  : booking.status === 'active'
+    ? calculateDuration(booking.startTime, currentTime, booking.status)
+    : calculateDuration(booking.startTime, booking.endTime ? new Date(booking.endTime) : new Date(), booking.status);
 
-  const isActive = booking.status === 'active';
+const isActive = booking.status === 'active';
+const isCancelled = booking.status === 'cancelled';
   const statusBadge = isActive ? '🔴 LIVE' : `✅ ${booking.status.toUpperCase()}`;
 
   return (
