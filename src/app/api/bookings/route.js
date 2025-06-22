@@ -63,8 +63,8 @@ export async function GET(request) {
     
     // Build query based on status filter
     let query = {};
-    if (status) {
-      query.status = status;
+    if (status === 'active') {
+      query.status = 'active';
       console.log('Filtering bookings by status:', status);
     }
     
@@ -73,9 +73,13 @@ export async function GET(request) {
       .populate('vehicleId', 'type model plateNumber')
       .populate('customerId', 'name phone driverLicense')
       .sort({ createdAt: -1 });
+
+      const filteredBookings = bookings.filter(booking => 
+        booking.status !== 'cancelled'
+      );
     
     console.log(`Found ${bookings.length} bookings with query:`, query);
-    return NextResponse.json({ success: true, bookings });
+    return NextResponse.json({ success: true, bookings: filteredBookings });
   } catch (error) {
     console.error('Bookings API error:', error);
     return NextResponse.json(

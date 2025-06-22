@@ -430,35 +430,34 @@ export default function ModernHomePage() {
     try {
       setCalculatingRevenue(true);
       
-      // Get today's bookings
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-
-      // Fetch all bookings from today
+  
       const response = await fetch('/api/bookings');
       const data = await response.json();
       
       if (data.success) {
+        // ✅ FIXED: Exclude cancelled bookings
         const todayBookings = data.bookings.filter(booking => {
           const bookingDate = new Date(booking.createdAt);
-          return bookingDate >= today && bookingDate < tomorrow;
+          return bookingDate >= today && 
+                 bookingDate < tomorrow && 
+                 booking.status !== 'cancelled'; // 🔥 KEY FIX
         });
-
-        // Calculate advanced pricing for each booking using centralized pricing.js
+  
         let totalAdvancedRevenue = 0;
         
         for (const booking of todayBookings) {
           const result = await calculateCurrentAmount(booking);
           totalAdvancedRevenue += typeof result === 'number' ? result : result.amount;
         }
-
+  
         setAdvancedRevenue(totalAdvancedRevenue);
       }
     } catch (error) {
       console.error('Error calculating advanced revenue:', error);
-      // Fallback to basic revenue if advanced calculation fails
       setAdvancedRevenue(stats.todayRevenue);
     } finally {
       setCalculatingRevenue(false);

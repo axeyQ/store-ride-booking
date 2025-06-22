@@ -823,7 +823,7 @@ export default function OptimizedThemedCustomersPage() {
               🚫 Blacklisted Customers ({customerStats.blacklistedCustomers})
             </ThemedButton>
           </Link>
-          <Link href="/all-bookings">
+          <Link href="/admin/bookings">
             <ThemedButton variant="primary" className="w-full flex items-center justify-center gap-2">
               📋 View All Bookings
             </ThemedButton>

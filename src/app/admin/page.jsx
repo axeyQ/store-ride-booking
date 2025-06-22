@@ -25,6 +25,7 @@ import {
 } from 'recharts';
 
 import { calculateCurrentAmount } from '@/lib/pricing';
+
 // Enhanced Animated Counter Component
 function EnhancedAnimatedCounter({ value, duration = 1000, prefix = '', suffix = '', previousValue }) {
   const [displayValue, setDisplayValue] = useState(previousValue || 0);
@@ -120,7 +121,8 @@ function LiveStatsCard({
         <div className="text-3xl font-bold text-white">
           <EnhancedAnimatedCounter 
             value={value} 
-            prefix={title.includes('Revenue') ? '₹' : ''}
+            prefix={title.includes('Revenue') ? '₹' : title.includes('Rate') ? '' : ''}
+            suffix={title.includes('Rate') ? '%' : ''}
             previousValue={previousValue}
             duration={1500}
           />
@@ -154,6 +156,8 @@ function LiveStatsCard({
     </div>
   );
 }
+
+
 
 // Fleet Status Grid - Fixed for real data
 function FleetStatusGrid({ vehicles }) {
@@ -412,7 +416,7 @@ function EnhancedLiveActivityFeed({ activities, milestones }) {
 }
 
 export default function EnhancedAdminDashboard() {
-  // Enhanced state management with Week 2 customer intelligence
+  // Enhanced state management with customer intelligence
   const [dashboardData, setDashboardData] = useState({
     todayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
     yesterdayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
@@ -436,8 +440,6 @@ export default function EnhancedAdminDashboard() {
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [isLive, setIsLive] = useState(true);
   const [calculatingRevenue, setCalculatingRevenue] = useState(false);
-
-
 
   // Helper function to check if a time block crosses night charge threshold
   const isNightCharge = useCallback((startTime, durationMinutes, nightChargeTime) => {
@@ -472,15 +474,15 @@ export default function EnhancedAdminDashboard() {
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
 
-      // Filter bookings by date
+      // Filter bookings by date and exclude cancelled bookings
       const todayBookings = data.bookings.filter(booking => {
         const bookingDate = new Date(booking.createdAt);
-        return bookingDate >= today && bookingDate < tomorrow;
+        return bookingDate >= today && bookingDate < tomorrow && booking.status !== 'cancelled';
       });
 
       const yesterdayBookings = data.bookings.filter(booking => {
         const bookingDate = new Date(booking.createdAt);
-        return bookingDate >= yesterday && bookingDate < today;
+        return bookingDate >= yesterday && bookingDate < today && booking.status !== 'cancelled';
       });
 
       // Calculate advanced pricing for each booking
@@ -512,24 +514,24 @@ export default function EnhancedAdminDashboard() {
     }
   }, []);
 
-  // Fixed: Enhanced data fetching with Week 2 customer intelligence - FIXED circular dependency
+
+
+  // Enhanced data fetching with customer intelligence
   const fetchEnhancedDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       
-      // Enhanced API calls including Week 2 customer intelligence
+      // Enhanced API calls including customer intelligence
       const [realTimeRes, hourlyRes, fleetRes, customerInsightsRes, milestonesRes, advancedRevenueData] = await Promise.all([
         fetch('/api/analytics/real-time-stats').catch(() => null),
         fetch('/api/analytics/hourly-revenue').catch(() => null),
         fetch('/api/analytics/fleet-heatmap').catch(() => null),
-        // Week 2: Customer Intelligence APIs
         fetch('/api/analytics/customer-insights').catch(() => null),
         fetch('/api/analytics/customer-milestones').catch(() => null),
-        // Calculate advanced revenue
         calculateAdvancedRevenue()
       ]);
 
-      // Start with empty base data instead of spreading existing state
+      // Start with empty base data
       let newData = {
         todayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
         yesterdayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
@@ -540,7 +542,6 @@ export default function EnhancedAdminDashboard() {
         hourlyRevenue: [],
         recentActivity: [],
         monthlyStats: { totalRevenue: 0, totalBookings: 0, avgPerBooking: 0, topVehicle: '' },
-        // Week 2: Customer Intelligence Data
         topLoyalCustomers: [],
         topReliableCustomers: [],
         recentMilestones: [],
@@ -556,11 +557,10 @@ export default function EnhancedAdminDashboard() {
         newData.yesterdayStats.bookings = advancedRevenueData.yesterdayBookingsCount;
       }
 
-      // If new APIs are available, use them
+      // Handle real-time stats
       if (realTimeRes?.ok) {
         const realTimeData = await realTimeRes.json();
         if (realTimeData.success) {
-          // Only override if we don't have advanced revenue data
           if (!advancedRevenueData) {
             newData.todayStats = {
               revenue: realTimeData.data.todayRevenue,
@@ -575,7 +575,6 @@ export default function EnhancedAdminDashboard() {
               vehiclesOut: 0
             };
           } else {
-            // Keep advanced revenue but update other stats
             newData.todayStats.activeRentals = realTimeData.data.activeBookings;
             newData.todayStats.vehiclesOut = realTimeData.data.rentedVehicles;
           }
@@ -592,11 +591,9 @@ export default function EnhancedAdminDashboard() {
         if (statsRes?.ok) {
           const stats = await statsRes.json();
           if (stats.success) {
-            // Only use basic stats if we don't have advanced revenue
             if (!advancedRevenueData) {
               newData.todayStats = stats.todayStats || stats.stats || {};
             } else {
-              // Keep advanced revenue but update other stats
               const basicStats = stats.todayStats || stats.stats || {};
               newData.todayStats.activeRentals = basicStats.activeBookings || 0;
               newData.todayStats.vehiclesOut = basicStats.activeBookings || 0;
@@ -642,7 +639,6 @@ export default function EnhancedAdminDashboard() {
           if (vehiclesRes.ok) {
             const vehiclesData = await vehiclesRes.json();
             if (vehiclesData.success && vehiclesData.vehicles) {
-              // Transform vehicle data to match fleet heatmap format
               newData.fleetHeatmap = vehiclesData.vehicles.map(vehicle => ({
                 _id: vehicle._id,
                 id: vehicle._id,
@@ -658,7 +654,7 @@ export default function EnhancedAdminDashboard() {
         }
       }
 
-      // Week 2: Handle customer intelligence data
+      // Handle customer intelligence data
       if (customerInsightsRes?.ok) {
         const customerData = await customerInsightsRes.json();
         if (customerData.success) {
@@ -686,7 +682,7 @@ export default function EnhancedAdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [timeRange, calculateAdvancedRevenue]); // Fixed: removed dashboardData dependency
+  }, [timeRange, calculateAdvancedRevenue]);
 
   useEffect(() => {
     fetchEnhancedDashboardData();
@@ -695,7 +691,7 @@ export default function EnhancedAdminDashboard() {
     const interval = setInterval(fetchEnhancedDashboardData, 30000);
     
     return () => clearInterval(interval);
-  }, [fetchEnhancedDashboardData]); // Fixed: now properly depends on the memoized function
+  }, [fetchEnhancedDashboardData]);
 
   // Mock data fallback for demonstration
   const mockRevenueData = [
@@ -706,13 +702,6 @@ export default function EnhancedAdminDashboard() {
     { date: 'Fri', revenue: 4000, bookings: 15 },
     { date: 'Sat', revenue: 3600, bookings: 14 },
     { date: 'Sun', revenue: 3000, bookings: 11 }
-  ];
-
-  const mockVehicleData = [
-    { name: 'Hero Splendor', hours: 45, revenue: 3600 },
-    { name: 'Honda Activa', hours: 38, revenue: 3040 },
-    { name: 'TVS Jupiter', hours: 32, revenue: 2560 },
-    { name: 'Bajaj Pulsar', hours: 28, revenue: 2240 }
   ];
 
   const pieColors = ['#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];

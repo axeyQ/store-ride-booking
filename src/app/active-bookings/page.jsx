@@ -10,7 +10,8 @@ import {
   ThemedSelect,
   ThemedBadge
 } from '@/components/themed';
-import { VehicleChangeModal } from '@/components/VehicleChangeModal'; // ✅ NEW: Import vehicle change modal
+import { VehicleChangeModal } from '@/components/VehicleChangeModal';
+import { CancellationModal } from '@/components/CancellationModal'; // ✅ NEW: Import cancellation modal
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -22,8 +23,13 @@ export default function ThemedActiveBookingsPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [currentAmounts, setCurrentAmounts] = useState({});
 
-  // ✅ NEW: Vehicle change state
+  
   const [vehicleChangeModal, setVehicleChangeModal] = useState({
+    isOpen: false,
+    booking: null
+  });
+
+  const [cancellationModal, setCancellationModal] = useState({
     isOpen: false,
     booking: null
   });
@@ -54,8 +60,12 @@ export default function ThemedActiveBookingsPage() {
       const data = await response.json();
       console.log('API response:', data);
       if (data.success) {
-        console.log(`Received ${data.bookings.length} active bookings`);
-        setBookings(data.bookings);
+        // ✅ DOUBLE-CHECK: Filter out any non-active bookings that might slip through
+        const activeBookings = data.bookings.filter(booking => 
+          booking.status === 'active' && booking.status !== 'cancelled'
+        );
+        console.log(`Received ${activeBookings.length} active bookings`);
+        setBookings(activeBookings);
       } else {
         console.error('API error:', data.error);
       }
@@ -69,15 +79,22 @@ export default function ThemedActiveBookingsPage() {
   // Fetch advanced pricing for a specific booking
   const fetchCurrentAmount = async (bookingId) => {
     try {
+      const booking = bookings.find(b => b._id === bookingId);
+      
+      // ✅ NEW: Skip calculation if booking is somehow cancelled
+      if (!booking || booking.status === 'cancelled') {
+        console.warn(`Skipping amount calculation for cancelled/missing booking: ${bookingId}`);
+        return 0;
+      }
+  
       const response = await fetch(`/api/bookings/current-amount/${bookingId}`);
       const data = await response.json();
       if (data.success) {
         return data.currentAmount;
       } else {
         console.error('Error fetching current amount for booking:', bookingId, data.error);
-        // Fallback to simple calculation
-        const booking = bookings.find(b => b._id === bookingId);
-        if (booking) {
+        // Fallback to simple calculation only for active bookings
+        if (booking.status === 'active') {
           const duration = calculateDuration(booking.startTime);
           return Math.max(duration.totalHours * 80, 80); // Minimum 1 hour charge
         }
@@ -85,9 +102,9 @@ export default function ThemedActiveBookingsPage() {
       }
     } catch (error) {
       console.error('Error fetching current amount:', error);
-      // Fallback to simple calculation
+      // Fallback calculation only for active bookings
       const booking = bookings.find(b => b._id === bookingId);
-      if (booking) {
+      if (booking && booking.status === 'active') {
         const duration = calculateDuration(booking.startTime);
         return Math.max(duration.totalHours * 80, 80); // Minimum 1 hour charge
       }
@@ -144,7 +161,7 @@ export default function ThemedActiveBookingsPage() {
     }
   };
 
-  // ✅ NEW: Check if vehicle change is allowed (within 15 minutes)
+  // ✅ Check if vehicle change is allowed (within 15 minutes)
   const canChangeVehicle = (booking) => {
     try {
       const now = new Date();
@@ -157,7 +174,7 @@ export default function ThemedActiveBookingsPage() {
     }
   };
 
-  // ✅ NEW: Get remaining time for vehicle change
+  // ✅ Get remaining time for vehicle change
   const getChangeTimeRemaining = (booking) => {
     try {
       const now = new Date();
@@ -170,7 +187,35 @@ export default function ThemedActiveBookingsPage() {
     }
   };
 
-  // ✅ NEW: Vehicle change handlers
+  // ✅ NEW: Cancellation window check (2 hours from booking creation)
+  const isWithinCancellationWindow = (booking) => {
+    if (!booking?.createdAt) return false;
+    const bookingTime = new Date(booking.createdAt);
+    const twoHoursLater = new Date(bookingTime.getTime() + (2 * 60 * 60 * 1000));
+    return new Date() <= twoHoursLater;
+  };
+
+  // ✅ NEW: Get remaining cancellation time
+  const getCancellationTimeRemaining = (booking) => {
+    if (!booking?.createdAt) return null;
+    const bookingTime = new Date(booking.createdAt);
+    const twoHoursLater = new Date(bookingTime.getTime() + (2 * 60 * 60 * 1000));
+    const now = new Date();
+    
+    if (now > twoHoursLater) return null;
+    
+    const remainingMs = twoHoursLater - now;
+    const remainingMinutes = Math.ceil(remainingMs / (1000 * 60));
+    
+    if (remainingMinutes > 60) {
+      const hours = Math.floor(remainingMinutes / 60);
+      const mins = remainingMinutes % 60;
+      return `${hours}h ${mins}m`;
+    }
+    return `${remainingMinutes}m`;
+  };
+
+  // ✅ Vehicle change handlers
   const handleOpenVehicleChange = (booking) => {
     setVehicleChangeModal({
       isOpen: true,
@@ -197,6 +242,41 @@ export default function ThemedActiveBookingsPage() {
     alert(`Vehicle changed successfully to ${updatedBooking.vehicleId.model} (${updatedBooking.vehicleId.plateNumber})`);
     
     // Refresh amounts after vehicle change
+    updateCurrentAmounts();
+  };
+
+  // ✅ NEW: Cancellation handlers
+  const handleOpenCancellation = (booking) => {
+    setCancellationModal({
+      isOpen: true,
+      booking: booking
+    });
+  };
+
+  const handleCloseCancellation = () => {
+    setCancellationModal({
+      isOpen: false,
+      booking: null
+    });
+  };
+
+  const handleBookingCancelled = (cancelledBooking) => {
+    // ✅ IMPROVED: Remove cancelled booking from active list immediately
+    setBookings(prevBookings => 
+      prevBookings.filter(booking => booking._id !== cancelledBooking._id)
+    );
+    
+    // ✅ NEW: Also remove its revenue from current amounts
+    setCurrentAmounts(prevAmounts => {
+      const newAmounts = { ...prevAmounts };
+      delete newAmounts[cancelledBooking._id];
+      return newAmounts;
+    });
+    
+    // Show success message
+    alert(`Booking ${cancelledBooking.bookingId} has been cancelled successfully. Vehicle is now available.`);
+    
+    // Refresh amounts for remaining bookings
     updateCurrentAmounts();
   };
 
@@ -310,7 +390,7 @@ export default function ThemedActiveBookingsPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">Live Dashboard</h3>
-                <p className="text-gray-400">Real-time rental monitoring with advanced pricing</p>
+                <p className="text-gray-400">Real-time rental monitoring with 2-hour free cancellation</p>
               </div>
             </div>
             <div className="text-right">
@@ -384,9 +464,12 @@ export default function ThemedActiveBookingsPage() {
             {filteredBookings.map((booking) => {
               const duration = calculateDuration(booking.startTime);
               const currentAmount = currentAmounts[booking._id] || 0;
-              // ✅ NEW: Vehicle change status
+              // Vehicle change status
               const canChange = canChangeVehicle(booking);
               const timeRemaining = getChangeTimeRemaining(booking);
+              // ✅ NEW: Cancellation status
+              const withinCancellationWindow = isWithinCancellationWindow(booking);
+              const cancellationTimeRemaining = getCancellationTimeRemaining(booking);
 
               return (
                 <ThemedCard
@@ -407,10 +490,16 @@ export default function ThemedActiveBookingsPage() {
                         <ThemedBadge status="active">
                           🔴 LIVE
                         </ThemedBadge>
-                        {/* ✅ NEW: Vehicle Change Status Indicator */}
+                        {/* Vehicle Change Status Indicator */}
                         {canChange && timeRemaining > 0 && (
                           <span className="text-xs text-green-400 bg-green-900/30 px-2 py-1 rounded border border-green-700/50">
                             ✨ Change available ({timeRemaining}min left)
+                          </span>
+                        )}
+                        {/* ✅ NEW: Cancellation Status Indicator */}
+                        {withinCancellationWindow && cancellationTimeRemaining && (
+                          <span className="text-xs text-blue-400 bg-blue-900/30 px-2 py-1 rounded border border-blue-700/50">
+                            🚫 Free cancel ({cancellationTimeRemaining} left)
                           </span>
                         )}
                       </div>
@@ -457,12 +546,12 @@ export default function ThemedActiveBookingsPage() {
                         <span className="font-medium text-white">{formatTime(booking.startTime)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Base Rate:</span>
-                        <span className="font-medium text-white">₹80/hour</span>
+                        <span className="text-gray-400">Created:</span>
+                        <span className="font-medium text-white">{formatTime(booking.createdAt)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Pricing:</span>
-                        <span className="font-bold text-cyan-400">Advanced System</span>
+                        <span className="text-gray-400">Base Rate:</span>
+                        <span className="font-medium text-white">₹80/hour</span>
                       </div>
                     </div>
 
@@ -482,37 +571,51 @@ export default function ThemedActiveBookingsPage() {
                       </div>
                     </div>
 
-                    {/* ✅ UPDATED: Action Buttons with Vehicle Change */}
-                    <div className="flex gap-3">
-                      <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
-                        <ThemedButton variant="secondary" className="w-full">
-                          View Details
-                        </ThemedButton>
-                      </Link>
-                      
-                      {/* Conditional buttons based on change availability */}
-                      {canChange && timeRemaining > 0 ? (
-                        <div className="flex-1 flex gap-2">
+                    {/* ✅ UPDATED: Enhanced Action Buttons with Cancellation */}
+                    <div className="space-y-3">
+                      {/* Primary Action Row */}
+                      <div className="flex gap-3">
+                        <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
+                          <ThemedButton variant="secondary" className="w-full">
+                            👁️ View Details
+                          </ThemedButton>
+                        </Link>
+                        
+                        <Link href={`/return/${booking.bookingId}`} className="flex-1">
+                          <ThemedButton variant="success" className="w-full">
+                            ✅ Process Return
+                          </ThemedButton>
+                        </Link>
+                      </div>
+
+                      {/* Secondary Action Row */}
+                      <div className="flex gap-2">
+                        {/* Vehicle Change Button - Only show if within 15 min window */}
+                        {canChange && timeRemaining > 0 && (
                           <ThemedButton 
                             variant="warning" 
                             onClick={() => handleOpenVehicleChange(booking)}
                             className="flex-1 text-sm bg-orange-600 hover:bg-orange-700 text-white"
                           >
-                            🔄 Change
+                            🔄 Change Vehicle
                           </ThemedButton>
-                          <Link href={`/return/${booking.bookingId}`} className="flex-1">
-                            <ThemedButton variant="success" className="w-full text-sm">
-                              Return
-                            </ThemedButton>
-                          </Link>
-                        </div>
-                      ) : (
-                        <Link href={`/return/${booking.bookingId}`} className="flex-1">
-                          <ThemedButton variant="success" className="w-full">
-                            Return Vehicle
-                          </ThemedButton>
-                        </Link>
-                      )}
+                        )}
+                        
+                        {/* ✅ NEW: Cancellation Button */}
+                        <ThemedButton 
+                          variant="danger" 
+                          onClick={() => handleOpenCancellation(booking)}
+                          className={cn(
+                            "text-sm",
+                            canChange && timeRemaining > 0 ? "flex-1" : "flex-1"
+                          )}
+                        >
+                          {withinCancellationWindow 
+                            ? "🚫 Cancel (Free)" 
+                            : "🚫 Cancel (Override)"
+                          }
+                        </ThemedButton>
+                      </div>
                     </div>
                   </div>
                 </ThemedCard>
@@ -521,7 +624,7 @@ export default function ThemedActiveBookingsPage() {
           </div>
         )}
 
-        {/* Quick Actions */}
+        {/* Enhanced Quick Actions */}
         <div className="flex flex-col md:flex-row gap-4">
           <ThemedButton
             variant="primary"
@@ -538,6 +641,11 @@ export default function ThemedActiveBookingsPage() {
               + New Booking
             </ThemedButton>
           </Link>
+          <Link href="/bookings/cancelled" className="flex-1 md:flex-initial">
+            <ThemedButton variant="secondary" className="w-full">
+              🚫 View Cancelled
+            </ThemedButton>
+          </Link>
           <Link href="/admin" className="flex-1 md:flex-initial">
             <ThemedButton variant="secondary" className="w-full">
               📊 Dashboard
@@ -546,12 +654,20 @@ export default function ThemedActiveBookingsPage() {
         </div>
       </div>
 
-      {/* ✅ NEW: Vehicle Change Modal */}
+      {/* ✅ Vehicle Change Modal */}
       <VehicleChangeModal
         isOpen={vehicleChangeModal.isOpen}
         onClose={handleCloseVehicleChange}
         booking={vehicleChangeModal.booking}
         onVehicleChanged={handleVehicleChanged}
+      />
+
+      {/* ✅ NEW: Cancellation Modal */}
+      <CancellationModal
+        isOpen={cancellationModal.isOpen}
+        onClose={handleCloseCancellation}
+        booking={cancellationModal.booking}
+        onCancel={handleBookingCancelled}
       />
     </ThemedLayout>
   );

@@ -159,6 +159,41 @@ const bookingSchema = new mongoose.Schema({
   type: Number,
   default: 0
 },
+cancellationDetails: {
+  cancelledAt: {
+    type: Date
+  },
+  cancelledBy: {
+    type: String
+  },
+  reason: {
+    type: String,
+    enum: [
+      'customer_changed_mind',
+      'emergency', 
+      'vehicle_issue',
+      'weather_conditions',
+      'customer_no_show',
+      'staff_error',
+      'duplicate_booking',
+      'other'
+    ]
+  },
+  customReason: {
+    type: String
+  },
+  staffNotes: {
+    type: String
+  },
+  withinWindow: {
+    type: Boolean,
+    default: false
+  },
+  manualOverride: {
+    type: Boolean,
+    default: false
+  }
+}
 
 }, {
   timestamps: true
