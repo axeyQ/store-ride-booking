@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { calculateAdvancedPricing, formatCurrency } from '@/lib/pricing'; // ✅ Import advanced pricing
 
 export default function ReturnConfirmationPage() {
   const params = useParams();
@@ -9,12 +10,24 @@ export default function ReturnConfirmationPage() {
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // ✅ NEW: Advanced pricing state
+  const [advancedPricing, setAdvancedPricing] = useState(null);
+  const [pricingCalculating, setPricingCalculating] = useState(false);
+  const [pricingError, setPricingError] = useState(null);
 
   useEffect(() => {
     if (bookingId) {
       fetchBookingDetails();
     }
   }, [bookingId]);
+
+  // ✅ NEW: Calculate advanced pricing when booking is loaded
+  useEffect(() => {
+    if (booking && booking.startTime && booking.endTime) {
+      calculateRealTimeAdvancedPricing();
+    }
+  }, [booking]);
 
   const fetchBookingDetails = async () => {
     try {
@@ -23,7 +36,7 @@ export default function ReturnConfirmationPage() {
       
       if (data.success) {
         console.log('Booking data received:', data.booking);
-        console.log('Pricing breakdown:', data.booking.pricingBreakdown);
+        console.log('Stored pricing breakdown:', data.booking.pricingBreakdown);
         setBooking(data.booking);
       } else {
         setError(data.error || 'Booking not found');
@@ -33,6 +46,40 @@ export default function ReturnConfirmationPage() {
       setError('Failed to load booking details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ NEW: Calculate real-time advanced pricing
+  const calculateRealTimeAdvancedPricing = async () => {
+    setPricingCalculating(true);
+    setPricingError(null);
+    
+    try {
+      console.log('🧮 Calculating real-time advanced pricing for return confirmation...');
+      
+      const startTime = new Date(booking.startTime);
+      const endTime = new Date(booking.endTime);
+      
+      // Use the advanced pricing calculator
+      const pricingResult = await calculateAdvancedPricing(startTime, endTime);
+      
+      console.log('✅ Advanced pricing calculated:', pricingResult);
+      setAdvancedPricing(pricingResult);
+      
+    } catch (error) {
+      console.error('❌ Error calculating advanced pricing:', error);
+      setPricingError('Failed to calculate advanced pricing');
+      
+      // Fallback to simple calculation
+      const duration = calculateDuration(booking.startTime, booking.endTime);
+      const fallbackAmount = Math.max(duration.hours * 80, 80);
+      setAdvancedPricing({
+        totalAmount: fallbackAmount,
+        breakdown: [],
+        summary: `${duration.hours}h ${duration.minutes}m (fallback calculation)`
+      });
+    } finally {
+      setPricingCalculating(false);
     }
   };
 
@@ -86,44 +133,178 @@ export default function ReturnConfirmationPage() {
     return { hours, minutes };
   };
 
-  // ✅ NEW: Function to render advanced pricing breakdown
+  // ✅ UPDATED: Enhanced pricing breakdown using real-time calculations
   const renderAdvancedPricingBreakdown = () => {
-    if (!booking.pricingBreakdown || booking.pricingBreakdown.length === 0) {
-      // Fallback to simple calculation if no breakdown available
+    if (pricingCalculating) {
       return (
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <span>Rate per hour:</span>
-            <span>₹80</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Duration:</span>
-            <span>{booking.actualDuration} hours</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Base amount:</span>
-            <span>₹{(booking.actualDuration * 80).toLocaleString('en-IN')}</span>
-          </div>
+        <div className="text-center py-4">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+          <div className="text-sm text-gray-600">🧮 Calculating advanced pricing...</div>
         </div>
       );
     }
 
-    // ✅ Display detailed advanced pricing breakdown
+    if (pricingError) {
+      return (
+        <div className="text-center py-4">
+          <div className="text-red-600 text-sm">❌ {pricingError}</div>
+          <button 
+            onClick={calculateRealTimeAdvancedPricing}
+            className="mt-2 text-blue-600 hover:text-blue-800 text-sm underline"
+          >
+            🔄 Retry Calculation
+          </button>
+        </div>
+      );
+    }
+
+    if (!advancedPricing) {
+      // Fallback to stored breakdown or simple calculation
+      if (booking.pricingBreakdown && booking.pricingBreakdown.length > 0) {
+        return renderStoredPricingBreakdown();
+      }
+      
+      return renderSimplePricingFallback();
+    }
+
+    // ✅ Render real-time advanced pricing breakdown
     return (
       <div className="space-y-3">
-        <div className="font-medium text-gray-800 mb-3">🧮 Advanced Pricing Breakdown:</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-medium text-gray-800">🧮 Real-Time Advanced Pricing:</div>
+          <div className="text-xs text-cyan-600 bg-cyan-50 px-2 py-1 rounded">
+            Live Calculation
+          </div>
+        </div>
+        
+        {advancedPricing.breakdown && advancedPricing.breakdown.length > 0 ? (
+          // Display detailed breakdown
+          <>
+            {advancedPricing.breakdown.map((block, index) => (
+              <div key={index} className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-medium text-blue-800">
+                    {block.period || `Block ${index + 1}`}
+                    {block.isNightCharge && <span className="ml-2 text-purple-600">🌙 Night</span>}
+                  </span>
+                  <span className="font-bold text-blue-900">₹{block.rate}</span>
+                </div>
+                
+                <div className="text-sm text-blue-700 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Time:</span>
+                    <span>{block.startTime} - {block.endTime}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Duration:</span>
+                    <span>{block.minutes} minutes</span>
+                  </div>
+                  {block.description && (
+                    <div className="text-xs text-blue-600 italic">{block.description}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {/* Advanced Pricing Summary */}
+            <div className="border-t pt-3 mt-4">
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Total blocks:</span>
+                <span>{advancedPricing.breakdown.length}</span>
+              </div>
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Total duration:</span>
+                <span>{advancedPricing.totalMinutes || advancedPricing.breakdown.reduce((sum, block) => sum + block.minutes, 0)} minutes</span>
+              </div>
+              {advancedPricing.summary && (
+                <div className="text-xs text-gray-600 mt-2 italic">
+                  📊 {advancedPricing.summary}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          // Simple advanced pricing display
+          <div className="bg-cyan-50 rounded-lg p-4 border border-cyan-200">
+            <div className="flex justify-between items-center">
+              <span className="font-medium text-cyan-800">Advanced Pricing Total:</span>
+              <span className="font-bold text-cyan-900">₹{advancedPricing.totalAmount.toLocaleString('en-IN')}</span>
+            </div>
+            {advancedPricing.summary && (
+              <div className="text-sm text-cyan-700 mt-2">
+                📊 {advancedPricing.summary}
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* ✅ NEW: Comparison with stored amount */}
+        {renderPricingComparison()}
+      </div>
+    );
+  };
+
+  // ✅ NEW: Compare calculated vs stored pricing
+  const renderPricingComparison = () => {
+    if (!advancedPricing || !booking.finalAmount) return null;
+    
+    const difference = advancedPricing.totalAmount - booking.finalAmount;
+    
+    if (Math.abs(difference) < 0.01) {
+      return (
+        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-sm">
+          <span className="text-green-700">✅ Advanced pricing matches stored amount</span>
+        </div>
+      );
+    }
+    
+    return (
+      <div className={`mt-3 p-3 rounded border ${difference > 0 ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
+        <div className="text-sm font-medium mb-2">
+          {difference > 0 ? '⚠️ Pricing Discrepancy Found:' : 'ℹ️ Pricing Comparison:'}
+        </div>
+        <div className="text-xs space-y-1">
+          <div className="flex justify-between">
+            <span>Advanced Calculation:</span>
+            <span className="font-medium">₹{advancedPricing.totalAmount.toLocaleString('en-IN')}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Stored Amount:</span>
+            <span className="font-medium">₹{booking.finalAmount.toLocaleString('en-IN')}</span>
+          </div>
+          <div className="flex justify-between font-medium">
+            <span>Difference:</span>
+            <span className={difference > 0 ? 'text-orange-600' : 'text-blue-600'}>
+              {difference > 0 ? '+' : ''}₹{difference.toLocaleString('en-IN')}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ✅ Fallback: Render stored pricing breakdown
+  const renderStoredPricingBreakdown = () => {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-medium text-gray-800">📋 Stored Pricing Breakdown:</div>
+          <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+            From Database
+          </div>
+        </div>
         
         {booking.pricingBreakdown.map((block, index) => (
-          <div key={index} className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+          <div key={index} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
             <div className="flex justify-between items-center mb-2">
-              <span className="font-medium text-blue-800">
+              <span className="font-medium text-gray-700">
                 {block.period || `Block ${index + 1}`}
                 {block.isNightCharge && <span className="ml-2 text-purple-600">🌙 Night</span>}
               </span>
-              <span className="font-bold text-blue-900">₹{block.rate}</span>
+              <span className="font-bold text-gray-800">₹{block.rate}</span>
             </div>
             
-            <div className="text-sm text-blue-700 space-y-1">
+            <div className="text-sm text-gray-600 space-y-1">
               <div className="flex justify-between">
                 <span>Time:</span>
                 <span>{block.startTime} - {block.endTime}</span>
@@ -133,24 +314,15 @@ export default function ReturnConfirmationPage() {
                 <span>{block.minutes} minutes</span>
               </div>
               {block.description && (
-                <div className="text-xs text-blue-600 italic">{block.description}</div>
+                <div className="text-xs text-gray-500 italic">{block.description}</div>
               )}
             </div>
           </div>
         ))}
 
-        {/* Summary */}
         <div className="border-t pt-3 mt-4">
-          <div className="flex justify-between text-sm text-gray-600">
-            <span>Total blocks:</span>
-            <span>{booking.pricingBreakdown.length}</span>
-          </div>
-          <div className="flex justify-between text-sm text-gray-600">
-            <span>Total duration:</span>
-            <span>{booking.pricingBreakdown.reduce((sum, block) => sum + block.minutes, 0)} minutes</span>
-          </div>
-          <div className="flex justify-between font-medium text-gray-800 mt-2">
-            <span>Subtotal from breakdown:</span>
+          <div className="flex justify-between font-medium text-gray-800">
+            <span>Subtotal from stored breakdown:</span>
             <span>₹{booking.pricingBreakdown.reduce((sum, block) => sum + block.rate, 0).toLocaleString('en-IN')}</span>
           </div>
         </div>
@@ -158,8 +330,35 @@ export default function ReturnConfirmationPage() {
     );
   };
 
+  // ✅ Simple fallback calculation
+  const renderSimplePricingFallback = () => {
+    const duration = calculateDuration(booking.startTime, booking.endTime);
+    return (
+      <div className="space-y-2">
+        <div className="font-medium text-gray-800 mb-3">📊 Simple Calculation:</div>
+        <div className="flex justify-between">
+          <span>Rate per hour:</span>
+          <span>₹80</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Duration:</span>
+          <span>{duration.hours}h {duration.minutes}m</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Base amount:</span>
+          <span>₹{(Math.ceil((duration.hours * 60 + duration.minutes) / 60) * 80).toLocaleString('en-IN')}</span>
+        </div>
+      </div>
+    );
+  };
+
   const handlePrint = () => {
     window.print();
+  };
+
+  // ✅ NEW: Manual recalculation button
+  const handleRecalculatePricing = () => {
+    calculateRealTimeAdvancedPricing();
   };
 
   if (loading) {
@@ -189,6 +388,10 @@ export default function ReturnConfirmationPage() {
   const duration = calculateDuration(booking.startTime, booking.endTime);
   const conditionDisplay = getVehicleConditionDisplay(booking.vehicleCondition);
 
+  // ✅ Calculate displayed amounts
+  const displayedAmount = advancedPricing?.totalAmount || booking.finalAmount;
+  const finalAmountAfterAdjustments = displayedAmount - (booking.discountAmount || 0) + (booking.additionalCharges || 0);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header - No Print */}
@@ -203,12 +406,22 @@ export default function ReturnConfirmationPage() {
               </Link>
               <h1 className="text-3xl font-bold text-gray-900">Return Completed</h1>
             </div>
-            <button
-              onClick={handlePrint}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold"
-            >
-              🖨️ Print Receipt
-            </button>
+            <div className="flex gap-3">
+              {/* ✅ NEW: Recalculate button */}
+              <button
+                onClick={handleRecalculatePricing}
+                disabled={pricingCalculating}
+                className="bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium text-sm"
+              >
+                {pricingCalculating ? '⏳ Calculating...' : '🧮 Recalculate Pricing'}
+              </button>
+              <button
+                onClick={handlePrint}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold"
+              >
+                🖨️ Print Receipt
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -221,8 +434,13 @@ export default function ReturnConfirmationPage() {
             <div>
               <h2 className="text-2xl font-bold text-green-900">Vehicle Return Completed!</h2>
               <p className="text-green-700 text-lg">
-                Payment of ₹{booking.finalAmount.toLocaleString('en-IN')} has been collected. Vehicle is now available for new bookings.
+                Payment of ₹{finalAmountAfterAdjustments.toLocaleString('en-IN')} has been collected. Vehicle is now available for new bookings.
               </p>
+              {advancedPricing && (
+                <p className="text-green-600 text-sm mt-1">
+                  🧮 Amount calculated using advanced pricing with grace periods, block rates & night charges
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -325,12 +543,12 @@ export default function ReturnConfirmationPage() {
             </div>
           </div>
 
-          {/* ✅ UPDATED: Advanced Payment Details */}
+          {/* ✅ ENHANCED: Advanced Payment Details with Real-Time Calculation */}
           <div className="border-t pt-6 mb-8">
             <h3 className="text-xl font-bold text-gray-900 mb-4">Payment Information</h3>
             <div className="bg-gray-50 rounded-lg p-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* ✅ Left: Advanced Pricing Breakdown */}
+                {/* ✅ Left: Real-Time Advanced Pricing Breakdown */}
                 <div className="space-y-2">
                   {renderAdvancedPricingBreakdown()}
                 </div>
@@ -341,8 +559,13 @@ export default function ReturnConfirmationPage() {
                   <div className="bg-blue-50 rounded-lg p-4">
                     <div className="flex justify-between font-medium">
                       <span>Pricing Subtotal:</span>
-                      <span>₹{booking.pricingBreakdown?.reduce((sum, block) => sum + block.rate, 0)?.toLocaleString('en-IN') || (booking.actualDuration * 80).toLocaleString('en-IN')}</span>
+                      <span>₹{displayedAmount.toLocaleString('en-IN')}</span>
                     </div>
+                    {advancedPricing && (
+                      <div className="text-xs text-blue-600 mt-1">
+                        🧮 Advanced pricing applied
+                      </div>
+                    )}
                   </div>
 
                   {/* Adjustments */}
@@ -364,7 +587,7 @@ export default function ReturnConfirmationPage() {
                   <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200">
                     <div className="flex justify-between font-bold text-lg">
                       <span>Final Amount:</span>
-                      <span className="text-green-600">₹{booking.finalAmount.toLocaleString('en-IN')}</span>
+                      <span className="text-green-600">₹{finalAmountAfterAdjustments.toLocaleString('en-IN')}</span>
                     </div>
                   </div>
 
@@ -414,8 +637,8 @@ export default function ReturnConfirmationPage() {
           <div className="border-t pt-6 mt-6 text-center text-sm text-gray-500">
             <p>Thank you for choosing MR Travels!</p>
             <p>Vehicle returned on: {formatDateTime(booking.endTime)} | Return processed by: MR Travels Staff</p>
-            {booking.pricingBreakdown && booking.pricingBreakdown.length > 0 && (
-              <p className="mt-2 text-blue-600">⚡ Powered by Advanced Pricing Engine</p>
+            {advancedPricing && (
+              <p className="mt-2 text-blue-600">⚡ Powered by Advanced Pricing Engine - Real-time calculation</p>
             )}
           </div>
         </div>

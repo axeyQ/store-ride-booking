@@ -11,7 +11,7 @@ import {
   ThemedBadge
 } from '@/components/themed';
 import { VehicleChangeModal } from '@/components/VehicleChangeModal';
-import { CancellationModal } from '@/components/CancellationModal'; // ✅ NEW: Import cancellation modal
+import { CancellationModal } from '@/components/CancellationModal';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +23,6 @@ export default function ThemedActiveBookingsPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [currentAmounts, setCurrentAmounts] = useState({});
 
-  
   const [vehicleChangeModal, setVehicleChangeModal] = useState({
     isOpen: false,
     booking: null
@@ -161,26 +160,91 @@ export default function ThemedActiveBookingsPage() {
     }
   };
 
-  // ✅ Check if vehicle change is allowed (within 15 minutes)
-  const canChangeVehicle = (booking) => {
+  // ✅ ENHANCED: New vehicle change eligibility logic
+  const getChangeEligibilityReason = (booking) => {
     try {
       const now = new Date();
       const startTime = new Date(booking.startTime);
+      const createdAt = new Date(booking.createdAt);
+      
       const minutesSinceStart = Math.floor((now - startTime) / (1000 * 60));
-      return minutesSinceStart <= 15 && minutesSinceStart >= 0;
+      const minutesSinceCreation = Math.floor((now - createdAt) / (1000 * 60));
+      
+      // If rental hasn't started yet
+      if (now < startTime) {
+        const minutesToStart = Math.floor((startTime - now) / (1000 * 60));
+        return {
+          canChange: true,
+          reason: `Rental starts in ${minutesToStart}m`,
+          timeframe: 'pre-start'
+        };
+      }
+      
+      // Within 30 minutes of rental start
+      if (minutesSinceStart <= 30) {
+        return {
+          canChange: true,
+          reason: `Within 30min of start (${minutesSinceStart}m ago)`,
+          timeframe: 'early-rental'
+        };
+      }
+      
+      // Within 45 minutes of booking creation
+      if (minutesSinceCreation <= 45) {
+        return {
+          canChange: true,
+          reason: `Within 45min of booking (${minutesSinceCreation}m ago)`,
+          timeframe: 'recent-booking'
+        };
+      }
+      
+      // Within first hour of rental
+      if (minutesSinceStart <= 60) {
+        return {
+          canChange: true,
+          reason: `Within first hour (${minutesSinceStart}m into rental)`,
+          timeframe: 'first-hour'
+        };
+      }
+      
+      return {
+        canChange: false,
+        reason: `Too late (${minutesSinceStart}m into rental, ${minutesSinceCreation}m since booking)`,
+        timeframe: 'expired'
+      };
     } catch (error) {
-      console.error('Error checking vehicle change eligibility:', error);
-      return false;
+      console.error('Error getting change eligibility reason:', error);
+      return {
+        canChange: false,
+        reason: 'Error checking eligibility',
+        timeframe: 'error'
+      };
     }
   };
 
-  // ✅ Get remaining time for vehicle change
+  // ✅ ENHANCED: Enhanced remaining time calculation
   const getChangeTimeRemaining = (booking) => {
     try {
       const now = new Date();
       const startTime = new Date(booking.startTime);
+      const createdAt = new Date(booking.createdAt);
+      
       const minutesSinceStart = Math.floor((now - startTime) / (1000 * 60));
-      return Math.max(0, 15 - minutesSinceStart);
+      const minutesSinceCreation = Math.floor((now - createdAt) / (1000 * 60));
+      
+      // If rental hasn't started yet
+      if (now < startTime) {
+        const minutesToStart = Math.floor((startTime - now) / (1000 * 60));
+        return Math.max(0, minutesToStart + 30); // 30 min grace after start
+      }
+      
+      // Multiple time windows for flexibility
+      const remainingFromStart = Math.max(0, 30 - minutesSinceStart); // 30 min from start
+      const remainingFromCreation = Math.max(0, 45 - minutesSinceCreation); // 45 min from creation
+      const remainingFirstHour = Math.max(0, 60 - minutesSinceStart); // 60 min from start
+      
+      // Return the maximum remaining time from any valid window
+      return Math.max(remainingFromStart, remainingFromCreation, remainingFirstHour);
     } catch (error) {
       console.error('Error calculating remaining change time:', error);
       return 0;
@@ -213,6 +277,145 @@ export default function ThemedActiveBookingsPage() {
       return `${hours}h ${mins}m`;
     }
     return `${remainingMinutes}m`;
+  };
+
+  // ✅ NEW: Vehicle Change Status Component
+  const VehicleChangeStatus = ({ booking, detailed = false }) => {
+    const eligibility = getChangeEligibilityReason(booking);
+    const timeRemaining = getChangeTimeRemaining(booking);
+    
+    if (!eligibility.canChange) {
+      return null;
+    }
+    
+    const getStatusColor = (timeframe) => {
+      switch (timeframe) {
+        case 'pre-start': return 'blue';
+        case 'early-rental': return 'green';
+        case 'recent-booking': return 'yellow';
+        case 'first-hour': return 'orange';
+        default: return 'gray';
+      }
+    };
+    
+    const color = getStatusColor(eligibility.timeframe);
+    
+    if (detailed) {
+      return (
+        <div className={`text-xs bg-${color}-900/30 border border-${color}-700/50 text-${color}-300 px-3 py-2 rounded-lg`}>
+          <div className="font-medium">✨ Vehicle change available</div>
+          <div className="text-xs opacity-80">{eligibility.reason}</div>
+          {timeRemaining > 0 && (
+            <div className="text-xs opacity-60">{timeRemaining}min remaining</div>
+          )}
+        </div>
+      );
+    }
+    
+    return (
+      <span className={`text-xs bg-${color}-900/30 border border-${color}-700/50 text-${color}-300 px-2 py-1 rounded`}>
+        ✨ Change available ({timeRemaining}min left)
+      </span>
+    );
+  };
+
+  // ✅ NEW: Enhanced Vehicle Change Section
+  const renderEnhancedVehicleChangeSection = (booking) => {
+    const eligibility = getChangeEligibilityReason(booking);
+    
+    return (
+      <div className="mb-6">
+        <h4 className="text-sm font-medium text-gray-400 mb-3 flex items-center justify-between">
+          <span>Vehicle Change Status</span>
+          {eligibility.canChange && (
+            <span className="text-green-400 text-xs">✅ Eligible</span>
+          )}
+        </h4>
+        
+        {eligibility.canChange ? (
+          <VehicleChangeStatus booking={booking} detailed={true} />
+        ) : (
+          <div className="text-xs bg-red-900/30 border border-red-700/50 text-red-300 px-3 py-2 rounded-lg">
+            <div className="font-medium">❌ Vehicle change not available</div>
+            <div className="text-xs opacity-80">{eligibility.reason}</div>
+            <div className="text-xs opacity-60 mt-1">
+              Changes allowed within first hour of rental or 45min of booking
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ✅ NEW: Enhanced Action Buttons
+  const renderActionButtons = (booking, handlers) => {
+    const eligibility = getChangeEligibilityReason(booking);
+    const cancellationEligibility = isWithinCancellationWindow(booking);
+    
+    return (
+      <div className="space-y-3">
+        {/* Primary Action Row */}
+        <div className="flex gap-3">
+          <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
+            <ThemedButton variant="secondary" className="w-full">
+              👁️ View Details
+            </ThemedButton>
+          </Link>
+          
+          <Link href={`/return/${booking.bookingId}`} className="flex-1">
+            <ThemedButton variant="success" className="w-full">
+              ✅ Process Return
+            </ThemedButton>
+          </Link>
+        </div>
+
+        {/* Secondary Action Row */}
+        <div className="flex gap-2">
+          {/* Enhanced Vehicle Change Button */}
+          <ThemedButton 
+            variant={eligibility.canChange ? "warning" : "secondary"}
+            onClick={() => {
+              if (eligibility.canChange) {
+                handlers.openVehicleChange(booking);
+              } else {
+                alert(`Vehicle change not available: ${eligibility.reason}\n\nChanges are allowed:\n• Within 30 minutes of rental start\n• Within 45 minutes of booking creation\n• Within first hour of rental\n• Before rental starts`);
+              }
+            }}
+            disabled={!eligibility.canChange}
+            className={cn(
+              "flex-1 text-sm",
+              eligibility.canChange 
+                ? "bg-orange-600 hover:bg-orange-700 text-white" 
+                : "opacity-50 cursor-not-allowed bg-gray-600"
+            )}
+            title={eligibility.reason}
+          >
+            🔄 {eligibility.canChange ? "Change Vehicle" : "Change Unavailable"}
+          </ThemedButton>
+          
+          {/* Cancellation Button */}
+          <ThemedButton 
+            variant="danger" 
+            onClick={() => handlers.openCancellation(booking)}
+            className="flex-1 text-sm"
+          >
+            {cancellationEligibility 
+              ? "🚫 Cancel (Free)" 
+              : "🚫 Cancel (Override)"
+            }
+          </ThemedButton>
+        </div>
+        
+        {/* Debug info in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="text-xs text-gray-500 bg-gray-800/30 p-2 rounded">
+            <div>Debug: {eligibility.reason}</div>
+            <div>Timeframe: {eligibility.timeframe}</div>
+            <div>Can change: {eligibility.canChange ? 'Yes' : 'No'}</div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   // ✅ Vehicle change handlers
@@ -390,7 +593,7 @@ export default function ThemedActiveBookingsPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">Live Dashboard</h3>
-                <p className="text-gray-400">Real-time rental monitoring with 2-hour free cancellation</p>
+                <p className="text-gray-400">Real-time rental monitoring with enhanced vehicle change options</p>
               </div>
             </div>
             <div className="text-right">
@@ -432,7 +635,7 @@ export default function ThemedActiveBookingsPage() {
           </div>
         </ThemedCard>
 
-        {/* Active Bookings Grid */}
+        {/* ✅ ENHANCED: Active Bookings Grid with new vehicle change logic */}
         {filteredBookings.length === 0 ? (
           <ThemedCard className="text-center p-12">
             <div className="mb-6">
@@ -464,10 +667,12 @@ export default function ThemedActiveBookingsPage() {
             {filteredBookings.map((booking) => {
               const duration = calculateDuration(booking.startTime);
               const currentAmount = currentAmounts[booking._id] || 0;
-              // Vehicle change status
-              const canChange = canChangeVehicle(booking);
+              
+              // ✅ ENHANCED: Use the new vehicle change logic
+              const eligibility = getChangeEligibilityReason(booking);
               const timeRemaining = getChangeTimeRemaining(booking);
-              // ✅ NEW: Cancellation status
+              
+              // Cancellation status (keep existing logic)
               const withinCancellationWindow = isWithinCancellationWindow(booking);
               const cancellationTimeRemaining = getCancellationTimeRemaining(booking);
 
@@ -490,13 +695,13 @@ export default function ThemedActiveBookingsPage() {
                         <ThemedBadge status="active">
                           🔴 LIVE
                         </ThemedBadge>
-                        {/* Vehicle Change Status Indicator */}
-                        {canChange && timeRemaining > 0 && (
-                          <span className="text-xs text-green-400 bg-green-900/30 px-2 py-1 rounded border border-green-700/50">
-                            ✨ Change available ({timeRemaining}min left)
-                          </span>
+                        
+                        {/* ✅ ENHANCED: Vehicle Change Status with better logic */}
+                        {eligibility.canChange && timeRemaining > 0 && (
+                          <VehicleChangeStatus booking={booking} />
                         )}
-                        {/* ✅ NEW: Cancellation Status Indicator */}
+                        
+                        {/* Cancellation Status (unchanged) */}
                         {withinCancellationWindow && cancellationTimeRemaining && (
                           <span className="text-xs text-blue-400 bg-blue-900/30 px-2 py-1 rounded border border-blue-700/50">
                             🚫 Free cancel ({cancellationTimeRemaining} left)
@@ -555,6 +760,9 @@ export default function ThemedActiveBookingsPage() {
                       </div>
                     </div>
 
+                    {/* ✅ NEW: Enhanced Vehicle Change Status Section */}
+                    {renderEnhancedVehicleChangeSection(booking)}
+
                     {/* Safety Checklist Status */}
                     <div className="mb-6">
                       <h4 className="text-sm font-medium text-gray-400 mb-3">Safety Checklist</h4>
@@ -571,52 +779,11 @@ export default function ThemedActiveBookingsPage() {
                       </div>
                     </div>
 
-                    {/* ✅ UPDATED: Enhanced Action Buttons with Cancellation */}
-                    <div className="space-y-3">
-                      {/* Primary Action Row */}
-                      <div className="flex gap-3">
-                        <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
-                          <ThemedButton variant="secondary" className="w-full">
-                            👁️ View Details
-                          </ThemedButton>
-                        </Link>
-                        
-                        <Link href={`/return/${booking.bookingId}`} className="flex-1">
-                          <ThemedButton variant="success" className="w-full">
-                            ✅ Process Return
-                          </ThemedButton>
-                        </Link>
-                      </div>
-
-                      {/* Secondary Action Row */}
-                      <div className="flex gap-2">
-                        {/* Vehicle Change Button - Only show if within 15 min window */}
-                        {canChange && timeRemaining > 0 && (
-                          <ThemedButton 
-                            variant="warning" 
-                            onClick={() => handleOpenVehicleChange(booking)}
-                            className="flex-1 text-sm bg-orange-600 hover:bg-orange-700 text-white"
-                          >
-                            🔄 Change Vehicle
-                          </ThemedButton>
-                        )}
-                        
-                        {/* ✅ NEW: Cancellation Button */}
-                        <ThemedButton 
-                          variant="danger" 
-                          onClick={() => handleOpenCancellation(booking)}
-                          className={cn(
-                            "text-sm",
-                            canChange && timeRemaining > 0 ? "flex-1" : "flex-1"
-                          )}
-                        >
-                          {withinCancellationWindow 
-                            ? "🚫 Cancel (Free)" 
-                            : "🚫 Cancel (Override)"
-                          }
-                        </ThemedButton>
-                      </div>
-                    </div>
+                    {/* ✅ ENHANCED: Action Buttons with improved logic */}
+                    {renderActionButtons(booking, {
+                      openVehicleChange: handleOpenVehicleChange,
+                      openCancellation: handleOpenCancellation
+                    })}
                   </div>
                 </ThemedCard>
               );
