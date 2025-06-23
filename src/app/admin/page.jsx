@@ -1,11 +1,12 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ThemedLayout,
   ThemedCard,
   ThemedStatsCard,
   ThemedButton,
   ThemedSelect,
+  ThemedInput
 } from '@/components/themed';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -21,10 +22,670 @@ import {
   Bar,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  ComposedChart
 } from 'recharts';
 
 import { calculateCurrentAmount } from '@/lib/pricing';
+
+// ✅ FIXED: Helper function to calculate booking revenue with proper async handling
+const calculateBookingRevenue = async (booking) => {
+  try {
+    const result = await calculateCurrentAmount(booking);
+    return typeof result === 'number' ? result : result.amount;
+  } catch (error) {
+    console.warn(`Advanced pricing failed for booking ${booking.bookingId}, using fallback:`, error);
+    return booking.finalAmount || booking.baseAmount || 0;
+  }
+};
+
+// ✅ FIXED: Helper function to process multiple bookings with async
+const calculateTotalRevenue = async (bookings) => {
+  let totalRevenue = 0;
+  for (const booking of bookings) {
+    const revenue = await calculateBookingRevenue(booking);
+    totalRevenue += revenue;
+  }
+  return totalRevenue;
+};
+
+// ✅ NEW: Daily Revenue Bar Chart Component
+function DailyRevenueBarChart() {
+  const [chartData, setChartData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [timeFilter, setTimeFilter] = useState('7days');
+  const [chartType, setChartType] = useState('bar'); // bar, line, composed
+  const [showComparison, setShowComparison] = useState(false);
+  const [customDateRange, setCustomDateRange] = useState({
+    start: '',
+    end: ''
+  });
+  const [exportLoading, setExportLoading] = useState(false);
+
+  // Fetch daily revenue data from real bookings
+  const fetchDailyRevenueData = useCallback(async () => {
+    if (loading) return; // ✅ FIXED: Prevent multiple simultaneous calls
+    
+    setLoading(true);
+    console.log('🧮 Fetching daily revenue data using advanced pricing...');
+    
+    try {
+      // Get real bookings data
+      const bookingsResponse = await fetch('/api/bookings');
+      const bookingsData = await bookingsResponse.json();
+      
+      if (!bookingsData.success || !bookingsData.bookings) {
+        console.error('Failed to fetch bookings data');
+        setChartData([]);
+        return;
+      }
+
+      console.log(`📊 Processing ${bookingsData.bookings.length} total bookings with advanced pricing...`);
+
+      // Calculate date range based on filter
+      let endDate = new Date();
+      let startDate = new Date();
+      let days = 7;
+
+      if (timeFilter === 'custom' && customDateRange.start && customDateRange.end) {
+        startDate = new Date(customDateRange.start);
+        endDate = new Date(customDateRange.end);
+        days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+      } else {
+        days = timeFilter === '7days' ? 7 : timeFilter === '30days' ? 30 : 90;
+        startDate.setDate(endDate.getDate() - days + 1);
+      }
+
+      // Filter bookings by date range and exclude cancelled
+      const filteredBookings = bookingsData.bookings.filter(booking => {
+        const bookingDate = new Date(booking.createdAt);
+        bookingDate.setHours(0, 0, 0, 0);
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        return bookingDate >= start && bookingDate <= end && booking.status !== 'cancelled';
+      });
+
+      // Group bookings by date
+      const dailyData = new Map();
+      
+      // Initialize all dates in range with zero values
+      for (let i = 0; i < days; i++) {
+        const date = new Date(startDate);
+        date.setDate(startDate.getDate() + i);
+        const dateKey = date.toISOString().split('T')[0];
+        
+        dailyData.set(dateKey, {
+          date: dateKey,
+          dateFormatted: date.toLocaleDateString('en-IN', { 
+            day: '2-digit', 
+            month: 'short',
+            weekday: days <= 7 ? 'short' : undefined 
+          }).replace(',', ''),
+          revenue: 0,
+          bookings: 0,
+          avgBookingValue: 0,
+          bookingsList: []
+        });
+      }
+
+      // Process each booking and add to appropriate date
+      for (const booking of filteredBookings) {
+        const bookingDate = new Date(booking.createdAt);
+        const dateKey = bookingDate.toISOString().split('T')[0];
+        
+        if (dailyData.has(dateKey)) {
+          const dayData = dailyData.get(dateKey);
+          
+          // ✅ FIXED: Use helper function for async calculation
+          const bookingRevenue = await calculateBookingRevenue(booking);
+          console.log(`Advanced pricing for ${booking.bookingId}: ₹${bookingRevenue}`);
+
+          dayData.revenue += bookingRevenue;
+          dayData.bookings += 1;
+          dayData.bookingsList.push(booking);
+        }
+      }
+
+      // Calculate average booking values and add comparison data if needed
+      const chartDataArray = [];
+      
+      for (const dayData of dailyData.values()) {
+        dayData.avgBookingValue = dayData.bookings > 0 ? Math.round(dayData.revenue / dayData.bookings) : 0;
+        
+        // Add comparison data if requested
+        if (showComparison) {
+          // For comparison, look at the same day in the previous period
+          const comparisonDate = new Date(dayData.date);
+          comparisonDate.setDate(comparisonDate.getDate() - days);
+          
+          const comparisonBookings = bookingsData.bookings.filter(booking => {
+            const bookingDate = new Date(booking.createdAt);
+            return bookingDate.toISOString().split('T')[0] === comparisonDate.toISOString().split('T')[0] && 
+                   booking.status !== 'cancelled';
+          });
+
+          // ✅ FIXED: Use helper function for comparison revenue calculation
+          const comparisonRevenue = await calculateTotalRevenue(comparisonBookings);
+          dayData.prevRevenue = Math.round(comparisonRevenue);
+          dayData.prevBookings = comparisonBookings.length;
+        }
+        
+        chartDataArray.push(dayData);
+      }
+
+      setChartData(chartDataArray);
+      
+      const totalRevenue = chartDataArray.reduce((sum, day) => sum + day.revenue, 0);
+      const totalBookings = chartDataArray.reduce((sum, day) => sum + day.bookings, 0);
+      console.log(`✅ Advanced pricing calculation completed:`);
+      console.log(`   📊 ${chartDataArray.length} days processed`);
+      console.log(`   💰 Total revenue: ₹${totalRevenue.toLocaleString('en-IN')}`);
+      console.log(`   📋 Total bookings: ${totalBookings}`);
+      console.log(`   🧮 Average per booking: ₹${totalBookings > 0 ? Math.round(totalRevenue/totalBookings) : 0}`);
+      
+    } catch (error) {
+      console.error('Error fetching daily revenue data:', error);
+      setChartData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [timeFilter, customDateRange, showComparison]);
+
+  useEffect(() => {
+    fetchDailyRevenueData();
+  }, [fetchDailyRevenueData]);
+
+  // Export chart data to CSV
+  const exportChartData = async () => {
+    setExportLoading(true);
+    try {
+      const csvHeader = showComparison 
+        ? 'Date,Revenue,Bookings,Avg Booking Value,Previous Revenue,Previous Bookings\n'
+        : 'Date,Revenue,Bookings,Avg Booking Value\n';
+      
+      const csvData = chartData.map(item => {
+        const baseRow = `${item.date},${item.revenue},${item.bookings},${item.avgBookingValue}`;
+        return showComparison 
+          ? `${baseRow},${item.prevRevenue || 0},${item.prevBookings || 0}`
+          : baseRow;
+      }).join('\n');
+      
+      const csvContent = csvHeader + csvData;
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `daily-revenue-${timeFilter}-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Export failed. Please try again.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // Handle bar click for drill-down
+  const handleBarClick = (data) => {
+    if (data && data.date) {
+      const confirmDrilldown = confirm(`View detailed bookings for ${data.dateFormatted}?\n\nRevenue: ₹${data.revenue.toLocaleString('en-IN')}\nBookings: ${data.bookings}`);
+      if (confirmDrilldown) {
+        // Navigate to bookings page with date filter
+        window.open(`/admin/bookings?date=${data.date}`, '_blank');
+      }
+    }
+  };
+
+  // Custom tooltip for charts
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 shadow-xl">
+          <h4 className="text-white font-semibold mb-2">{data.dateFormatted}</h4>
+          <div className="space-y-1 text-sm">
+            <div className="text-green-400">
+              Revenue: ₹{data.revenue.toLocaleString('en-IN')}
+            </div>
+            <div className="text-blue-400">
+              Bookings: {data.bookings}
+            </div>
+            <div className="text-purple-400">
+              Avg Value: ₹{data.avgBookingValue.toLocaleString('en-IN')}
+            </div>
+            {showComparison && data.prevRevenue && (
+              <>
+                <hr className="border-gray-600 my-2" />
+                <div className="text-gray-400">Previous Period:</div>
+                <div className="text-green-300">
+                  Revenue: ₹{data.prevRevenue.toLocaleString('en-IN')}
+                </div>
+                <div className="text-blue-300">
+                  Bookings: {data.prevBookings}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const chartTheme = {
+    cartesianGrid: { stroke: '#374151', strokeDasharray: '3 3' },
+    xAxis: { stroke: '#9CA3AF', fontSize: 12 },
+    yAxis: { stroke: '#9CA3AF', fontSize: 12 }
+  };
+
+  return (
+    <ThemedCard title="📊 Daily Revenue Analysis" description="🧮 Advanced pricing with grace periods, block rates & night charges">
+      {/* Filter Controls */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        <ThemedSelect
+          label="Time Period"
+          value={timeFilter}
+          onValueChange={setTimeFilter}
+          options={[
+            { value: '7days', label: 'Last 7 Days' },
+            { value: '30days', label: 'Last 30 Days' },
+            { value: '90days', label: 'Last 3 Months' },
+            { value: 'custom', label: 'Custom Range' }
+          ]}
+        />
+
+        <ThemedSelect
+          label="Chart Type"
+          value={chartType}
+          onValueChange={setChartType}
+          options={[
+            { value: 'bar', label: '📊 Bar Chart' },
+            { value: 'line', label: '📈 Line Chart' },
+            { value: 'composed', label: '📋 Combined' }
+          ]}
+        />
+
+        {/* Custom Date Range */}
+        {timeFilter === 'custom' && (
+          <>
+            <ThemedInput
+              label="Start Date"
+              type="date"
+              value={customDateRange.start}
+              onChange={(e) => setCustomDateRange(prev => ({ ...prev, start: e.target.value }))}
+            />
+            <ThemedInput
+              label="End Date"
+              type="date"
+              value={customDateRange.end}
+              onChange={(e) => setCustomDateRange(prev => ({ ...prev, end: e.target.value }))}
+            />
+          </>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex flex-col gap-2">
+          <ThemedButton
+            variant="secondary"
+            onClick={() => setShowComparison(!showComparison)}
+            className="text-xs"
+          >
+            {showComparison ? '🔀 Hide Comparison' : '🔀 Compare Periods'}
+          </ThemedButton>
+          <ThemedButton
+            variant="primary"
+            onClick={exportChartData}
+            disabled={exportLoading || chartData.length === 0}
+            className="text-xs"
+          >
+            {exportLoading ? '⏳ Exporting...' : '📥 Export CSV'}
+          </ThemedButton>
+        </div>
+      </div>
+
+      {/* Chart Display */}
+      {loading ? (
+        <div className="h-96 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto mb-4"></div>
+            <div className="text-gray-400">🧮 Calculating advanced pricing...</div>
+            <div className="text-gray-500 text-sm mt-2">Processing bookings with grace periods, block rates & night charges</div>
+          </div>
+        </div>
+      ) : chartData.length === 0 ? (
+        <div className="h-96 flex items-center justify-center">
+          <div className="text-center text-gray-400">
+            <div className="text-4xl mb-4">📊</div>
+            <h3 className="text-lg font-medium mb-2">No Revenue Data</h3>
+            <p className="text-sm">Daily revenue data will appear here once you have bookings</p>
+          </div>
+        </div>
+      ) : (
+        <div className="h-96">
+          <ResponsiveContainer width="100%" height="100%">
+            {chartType === 'bar' ? (
+              <BarChart data={chartData} onClick={handleBarClick}>
+                <CartesianGrid {...chartTheme.cartesianGrid} />
+                <XAxis dataKey="dateFormatted" {...chartTheme.xAxis} />
+                <YAxis {...chartTheme.yAxis} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar 
+                  dataKey="revenue" 
+                  fill="#10B981" 
+                  radius={[4, 4, 0, 0]}
+                  cursor="pointer"
+                />
+                {showComparison && (
+                  <Bar 
+                    dataKey="prevRevenue" 
+                    fill="#6B7280" 
+                    radius={[4, 4, 0, 0]}
+                    opacity={0.6}
+                  />
+                )}
+              </BarChart>
+            ) : chartType === 'line' ? (
+              <LineChart data={chartData}>
+                <CartesianGrid {...chartTheme.cartesianGrid} />
+                <XAxis dataKey="dateFormatted" {...chartTheme.xAxis} />
+                <YAxis {...chartTheme.yAxis} />
+                <Tooltip content={<CustomTooltip />} />
+                <Line 
+                  type="monotone" 
+                  dataKey="revenue" 
+                  stroke="#10B981" 
+                  strokeWidth={3}
+                  dot={{ fill: '#10B981', strokeWidth: 2, r: 6 }}
+                />
+                {showComparison && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="prevRevenue" 
+                    stroke="#6B7280" 
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={{ fill: '#6B7280', strokeWidth: 2, r: 4 }}
+                  />
+                )}
+              </LineChart>
+            ) : (
+              <ComposedChart data={chartData}>
+                <CartesianGrid {...chartTheme.cartesianGrid} />
+                <XAxis dataKey="dateFormatted" {...chartTheme.xAxis} />
+                <YAxis yAxisId="revenue" {...chartTheme.yAxis} />
+                <YAxis yAxisId="bookings" orientation="right" {...chartTheme.yAxis} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar 
+                  yAxisId="revenue"
+                  dataKey="revenue" 
+                  fill="#10B981" 
+                  radius={[4, 4, 0, 0]}
+                />
+                <Line 
+                  yAxisId="bookings"
+                  type="monotone" 
+                  dataKey="bookings" 
+                  stroke="#06B6D4" 
+                  strokeWidth={3}
+                  dot={{ fill: '#06B6D4', strokeWidth: 2, r: 6 }}
+                />
+              </ComposedChart>
+            )}
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Summary Stats */}
+      {chartData.length > 0 && (
+        <div className="mt-6 pt-4 border-t border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-lg font-semibold text-white">Period Summary</h4>
+            <div className="text-xs text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded">
+              🧮 Advanced Pricing
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-400">
+                ₹{chartData.reduce((sum, item) => sum + item.revenue, 0).toLocaleString('en-IN')}
+              </div>
+              <div className="text-sm text-gray-400">Total Revenue</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-400">
+                {chartData.reduce((sum, item) => sum + item.bookings, 0)}
+              </div>
+              <div className="text-sm text-gray-400">Total Bookings</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-400">
+                ₹{Math.round(
+                  chartData.reduce((sum, item) => sum + item.revenue, 0) / 
+                  chartData.reduce((sum, item) => sum + item.bookings, 0)
+                ).toLocaleString('en-IN')}
+              </div>
+              <div className="text-sm text-gray-400">Avg per Booking</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-orange-400">
+                ₹{Math.round(
+                  chartData.reduce((sum, item) => sum + item.revenue, 0) / chartData.length
+                ).toLocaleString('en-IN')}
+              </div>
+              <div className="text-sm text-gray-400">Daily Average</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </ThemedCard>
+  );
+}
+
+// ✅ FIXED: Daily Revenue Summary Stats Component
+function DailyRevenueSummary() {
+  const [summaryData, setSummaryData] = useState({
+    todayRevenue: 0,
+    weekRevenue: 0,
+    monthRevenue: 0,
+    peakDay: null,
+    averageDailyRevenue: 0,
+    revenueGrowth: 0
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSummaryData = async () => {
+      if (loading) return; // ✅ FIXED: Prevent multiple simultaneous calls
+      
+      try {
+        console.log('🧮 Calculating revenue summary using advanced pricing...');
+        
+        // Get real bookings data
+        const bookingsResponse = await fetch('/api/bookings');
+        const bookingsData = await bookingsResponse.json();
+        
+        if (!bookingsData.success || !bookingsData.bookings) {
+          console.error('Failed to fetch bookings for summary');
+          setLoading(false);
+          return;
+        }
+
+        const now = new Date();
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const weekAgo = new Date(today);
+        weekAgo.setDate(today.getDate() - 7);
+        
+        const monthAgo = new Date(today);
+        monthAgo.setDate(today.getDate() - 30);
+        
+        const twoMonthsAgo = new Date(today);
+        twoMonthsAgo.setDate(today.getDate() - 60);
+
+        // Filter out cancelled bookings
+        const validBookings = bookingsData.bookings.filter(booking => booking.status !== 'cancelled');
+
+        // Calculate today's revenue using helper function
+        const todayBookings = validBookings.filter(booking => {
+          const bookingDate = new Date(booking.createdAt);
+          return bookingDate >= today && bookingDate < tomorrow;
+        });
+        const todayRevenue = await calculateTotalRevenue(todayBookings);
+
+        // Calculate week revenue using helper function
+        const weekBookings = validBookings.filter(booking => {
+          const bookingDate = new Date(booking.createdAt);
+          return bookingDate >= weekAgo && bookingDate <= now;
+        });
+        const weekRevenue = await calculateTotalRevenue(weekBookings);
+
+        // Calculate month revenue using helper function
+        const monthBookings = validBookings.filter(booking => {
+          const bookingDate = new Date(booking.createdAt);
+          return bookingDate >= monthAgo && bookingDate <= now;
+        });
+        const monthRevenue = await calculateTotalRevenue(monthBookings);
+
+        // Calculate previous month revenue for growth calculation
+        const prevMonthBookings = validBookings.filter(booking => {
+          const bookingDate = new Date(booking.createdAt);
+          return bookingDate >= twoMonthsAgo && bookingDate < monthAgo;
+        });
+        const prevMonthRevenue = await calculateTotalRevenue(prevMonthBookings);
+
+        // Calculate growth rate
+        const revenueGrowth = prevMonthRevenue > 0 ? 
+          ((monthRevenue - prevMonthRevenue) / prevMonthRevenue * 100) : 0;
+
+        // Find peak day in the last 30 days
+        const dailyRevenue = new Map();
+        
+        for (const booking of monthBookings) {
+          const date = new Date(booking.createdAt).toISOString().split('T')[0];
+          const bookingRevenue = await calculateBookingRevenue(booking);
+          dailyRevenue.set(date, (dailyRevenue.get(date) || 0) + bookingRevenue);
+        }
+
+        let peakDay = null;
+        let maxRevenue = 0;
+        for (const [date, revenue] of dailyRevenue.entries()) {
+          if (revenue > maxRevenue) {
+            maxRevenue = revenue;
+            peakDay = { date, revenue: Math.round(revenue) };
+          }
+        }
+
+        // Calculate average daily revenue
+        const averageDailyRevenue = dailyRevenue.size > 0 ? 
+          Math.round(monthRevenue / Math.min(30, dailyRevenue.size)) : 0;
+
+        setSummaryData({
+          todayRevenue: Math.round(todayRevenue),
+          weekRevenue: Math.round(weekRevenue),
+          monthRevenue: Math.round(monthRevenue),
+          peakDay,
+          averageDailyRevenue,
+          revenueGrowth: Math.round(revenueGrowth * 10) / 10
+        });
+
+        console.log(`✅ Advanced pricing summary completed:`);
+        console.log(`   📅 Today: ₹${Math.round(todayRevenue).toLocaleString('en-IN')}`);
+        console.log(`   📅 Week: ₹${Math.round(weekRevenue).toLocaleString('en-IN')}`);
+        console.log(`   📅 Month: ₹${Math.round(monthRevenue).toLocaleString('en-IN')}`);
+        console.log(`   📈 Growth: ${Math.round(revenueGrowth * 10) / 10}%`);
+
+      } catch (error) {
+        console.error('Error fetching summary data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSummaryData();
+  }, []);
+
+  if (loading) {
+    return (
+      <ThemedCard title="📈 Revenue Summary" description="Key performance indicators">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="animate-pulse">
+              <div className="h-4 bg-gray-700 rounded mb-2"></div>
+              <div className="h-8 bg-gray-600 rounded"></div>
+            </div>
+          ))}
+        </div>
+      </ThemedCard>
+    );
+  }
+
+  return (
+    <ThemedCard title="📈 Revenue Summary" description="🧮 Advanced pricing calculations with real-time updates">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+        <div className="text-center p-4 rounded-lg bg-green-900/20 border border-green-700/30">
+          <div className="text-2xl font-bold text-green-400 mb-1">
+            ₹{summaryData.todayRevenue.toLocaleString('en-IN')}
+          </div>
+          <div className="text-green-200 text-sm">Today's Revenue</div>
+          <div className="text-xs text-green-300 mt-1">Live Updates</div>
+        </div>
+
+        <div className="text-center p-4 rounded-lg bg-blue-900/20 border border-blue-700/30">
+          <div className="text-2xl font-bold text-blue-400 mb-1">
+            ₹{summaryData.weekRevenue.toLocaleString('en-IN')}
+          </div>
+          <div className="text-blue-200 text-sm">This Week</div>
+          <div className="text-xs text-blue-300 mt-1">7-day total</div>
+        </div>
+
+        <div className="text-center p-4 rounded-lg bg-purple-900/20 border border-purple-700/30">
+          <div className="text-2xl font-bold text-purple-400 mb-1">
+            ₹{summaryData.monthRevenue.toLocaleString('en-IN')}
+          </div>
+          <div className="text-purple-200 text-sm">This Month</div>
+          <div className="text-xs text-purple-300 mt-1">30-day total</div>
+        </div>
+
+        <div className="text-center p-4 rounded-lg bg-orange-900/20 border border-orange-700/30">
+          <div className="text-2xl font-bold text-orange-400 mb-1">
+            ₹{summaryData.peakDay?.revenue.toLocaleString('en-IN') || '0'}
+          </div>
+          <div className="text-orange-200 text-sm">Peak Day</div>
+          <div className="text-xs text-orange-300 mt-1">
+            {summaryData.peakDay?.date && new Date(summaryData.peakDay.date).toLocaleDateString('en-IN')}
+          </div>
+        </div>
+
+        <div className="text-center p-4 rounded-lg bg-cyan-900/20 border border-cyan-700/30">
+          <div className="text-2xl font-bold text-cyan-400 mb-1">
+            ₹{summaryData.averageDailyRevenue.toLocaleString('en-IN')}
+          </div>
+          <div className="text-cyan-200 text-sm">Daily Average</div>
+          <div className="text-xs text-cyan-300 mt-1">30-day avg</div>
+        </div>
+
+        <div className="text-center p-4 rounded-lg bg-emerald-900/20 border border-emerald-700/30">
+          <div className="text-2xl font-bold text-emerald-400 mb-1 flex items-center justify-center">
+            {summaryData.revenueGrowth >= 0 ? '📈' : '📉'}
+            {Math.abs(summaryData.revenueGrowth)}%
+          </div>
+          <div className="text-emerald-200 text-sm">Growth Rate</div>
+          <div className="text-xs text-emerald-300 mt-1">vs last month</div>
+        </div>
+      </div>
+    </ThemedCard>
+  );
+}
 
 // Enhanced Animated Counter Component
 function EnhancedAnimatedCounter({ value, duration = 1000, prefix = '', suffix = '', previousValue }) {
@@ -156,8 +817,6 @@ function LiveStatsCard({
     </div>
   );
 }
-
-
 
 // Fleet Status Grid - Fixed for real data
 function FleetStatusGrid({ vehicles }) {
@@ -441,30 +1100,18 @@ export default function EnhancedAdminDashboard() {
   const [isLive, setIsLive] = useState(true);
   const [calculatingRevenue, setCalculatingRevenue] = useState(false);
 
-  // Helper function to check if a time block crosses night charge threshold
-  const isNightCharge = useCallback((startTime, durationMinutes, nightChargeTime) => {
-    try {
-      const [nightHour, nightMinute] = nightChargeTime.split(':').map(Number);
-      const blockEndTime = new Date(startTime.getTime() + durationMinutes * 60000);
-      const nightThreshold = new Date(startTime);
-      nightThreshold.setHours(nightHour, nightMinute, 0, 0);
-      
-      // Check if the block crosses or includes the night threshold
-      return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
-    } catch (error) {
-      return false;
-    }
-  }, []);
+  // ✅ FIXED: Ref to store latest fetch function for interval
+  const fetchDataRef = useRef();
 
-  // Calculate advanced revenue for today and yesterday
-  const calculateAdvancedRevenue = useCallback(async () => {
+  // ✅ FIXED: Calculate advanced revenue function (not useCallback to avoid dependency issues)
+  const calculateAdvancedRevenue = async () => {
     try {
       setCalculatingRevenue(true);
       
       // Get all bookings
       const response = await fetch('/api/bookings');
       const data = await response.json();
-      if (!data.success) return;
+      if (!data.success) return null;
   
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -473,7 +1120,7 @@ export default function EnhancedAdminDashboard() {
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
   
-      // ✅ FIXED: Filter bookings by date and exclude cancelled bookings
+      // Filter bookings by date and exclude cancelled bookings
       const todayBookings = data.bookings.filter(booking => {
         const bookingDate = new Date(booking.createdAt);
         return bookingDate >= today && bookingDate < tomorrow && booking.status !== 'cancelled';
@@ -484,55 +1131,40 @@ export default function EnhancedAdminDashboard() {
         return bookingDate >= yesterday && bookingDate < today && booking.status !== 'cancelled';
       });
   
-      // Calculate advanced pricing for each booking
-      let todayAdvancedRevenue = 0;
-      let yesterdayAdvancedRevenue = 0;
-  
-      for (const booking of todayBookings) {
-        const result = await calculateCurrentAmount(booking);
-        todayAdvancedRevenue += typeof result === 'number' ? result : result.amount;
-      }
-  
-      for (const booking of yesterdayBookings) {
-        const result = await calculateCurrentAmount(booking);
-        yesterdayAdvancedRevenue += typeof result === 'number' ? result : result.amount;
-      }
-  
-      // Update dashboard data with advanced revenue
-      setDashboardData(prev => ({
-        ...prev,
-        todayStats: {
-          ...prev.todayStats,
-          revenue: todayAdvancedRevenue
-        },
-        yesterdayStats: {
-          ...prev.yesterdayStats,
-          revenue: yesterdayAdvancedRevenue
-        }
-      }));
+      // Calculate advanced pricing using helper functions
+      const todayAdvancedRevenue = await calculateTotalRevenue(todayBookings);
+      const yesterdayAdvancedRevenue = await calculateTotalRevenue(yesterdayBookings);
+
+      return {
+        todayAdvancedRevenue,
+        yesterdayAdvancedRevenue,
+        todayBookingsCount: todayBookings.length,
+        yesterdayBookingsCount: yesterdayBookings.length
+      };
   
     } catch (error) {
       console.error('Error calculating advanced revenue:', error);
+      return null;
     } finally {
       setCalculatingRevenue(false);
     }
-  }, []);
-
-
+  };
 
   // Enhanced data fetching with customer intelligence
   const fetchEnhancedDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       
+      // Calculate advanced revenue first
+      const advancedRevenueData = await calculateAdvancedRevenue();
+      
       // Enhanced API calls including customer intelligence
-      const [realTimeRes, hourlyRes, fleetRes, customerInsightsRes, milestonesRes, advancedRevenueData] = await Promise.all([
+      const [realTimeRes, hourlyRes, fleetRes, customerInsightsRes, milestonesRes] = await Promise.all([
         fetch('/api/analytics/real-time-stats').catch(() => null),
         fetch('/api/analytics/hourly-revenue').catch(() => null),
         fetch('/api/analytics/fleet-heatmap').catch(() => null),
         fetch('/api/analytics/customer-insights').catch(() => null),
-        fetch('/api/analytics/customer-milestones').catch(() => null),
-        calculateAdvancedRevenue()
+        fetch('/api/analytics/customer-milestones').catch(() => null)
       ]);
 
       // Start with empty base data
@@ -686,16 +1318,23 @@ export default function EnhancedAdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [timeRange, calculateAdvancedRevenue]);
+  }, [timeRange]); // ✅ FIXED: Removed calculateAdvancedRevenue dependency
+
+  // ✅ FIXED: Store the latest function in ref
+  fetchDataRef.current = fetchEnhancedDashboardData;
 
   useEffect(() => {
     fetchEnhancedDashboardData();
-    
-    // Enhanced auto-refresh: 30 seconds for real-time, 5 minutes fallback
-    const interval = setInterval(fetchEnhancedDashboardData, 30000);
+  }, [fetchEnhancedDashboardData]);
+
+  // ✅ FIXED: Separate useEffect for interval using ref to prevent stale closures
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchDataRef.current?.();
+    }, 30000);
     
     return () => clearInterval(interval);
-  }, [fetchEnhancedDashboardData]);
+  }, []); // ✅ Empty dependency array - interval will use the latest function via ref
 
   // Mock data fallback for demonstration
   const mockRevenueData = [
@@ -873,6 +1512,19 @@ export default function EnhancedAdminDashboard() {
                 milestones={dashboardData.recentMilestones}
               />
             </ThemedCard>
+          </div>
+        </div>
+
+        {/* ✅ NEW: Daily Revenue Analysis Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          {/* Daily Revenue Bar Chart */}
+          <div className="lg:col-span-2">
+            <DailyRevenueBarChart />
+          </div>
+
+          {/* Daily Revenue Summary */}
+          <div>
+            <DailyRevenueSummary />
           </div>
         </div>
 

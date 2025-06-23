@@ -4,10 +4,9 @@ const dailyOperationsSchema = new mongoose.Schema({
   date: {
     type: Date,
     required: true,
-    unique: true, // One record per day
+    unique: true, // ✅ CRITICAL: One record per day
     index: true
   },
-  
   // Day start details
   dayStarted: {
     type: Boolean,
@@ -18,14 +17,13 @@ const dailyOperationsSchema = new mongoose.Schema({
     default: null
   },
   startedBy: {
-    type: String, // Staff member name/ID
+    type: String,
     default: null
   },
   startNotes: {
     type: String,
     default: ''
   },
-  
   // Day end details
   dayEnded: {
     type: Boolean,
@@ -36,7 +34,7 @@ const dailyOperationsSchema = new mongoose.Schema({
     default: null
   },
   endedBy: {
-    type: String, // Staff member name/ID
+    type: String,
     default: null
   },
   endNotes: {
@@ -45,60 +43,27 @@ const dailyOperationsSchema = new mongoose.Schema({
   },
   autoEnded: {
     type: Boolean,
-    default: false // True if ended automatically at midnight
+    default: false
   },
-  
-  // Daily summary (calculated when day ends)
+  // Daily summary
   dailySummary: {
-    totalRevenue: {
-      type: Number,
-      default: 0
-    },
-    totalBookings: {
-      type: Number,
-      default: 0
-    },
-    activeBookings: {
-      type: Number,
-      default: 0
-    },
-    completedBookings: {
-      type: Number,
-      default: 0
-    },
-    cancelledBookings: {
-      type: Number,
-      default: 0
-    },
-    newCustomers: {
-      type: Number,
-      default: 0
-    },
-    vehiclesRented: {
-      type: Number,
-      default: 0
-    },
-    averageBookingValue: {
-      type: Number,
-      default: 0
-    },
-    operatingHours: {
-      type: Number, // Hours between start and end
-      default: 0
-    },
-    revenuePerHour: {
-      type: Number,
-      default: 0
-    }
+    totalRevenue: { type: Number, default: 0 },
+    totalBookings: { type: Number, default: 0 },
+    activeBookings: { type: Number, default: 0 },
+    completedBookings: { type: Number, default: 0 },
+    cancelledBookings: { type: Number, default: 0 },
+    newCustomers: { type: Number, default: 0 },
+    vehiclesRented: { type: Number, default: 0 },
+    averageBookingValue: { type: Number, default: 0 },
+    operatingHours: { type: Number, default: 0 },
+    revenuePerHour: { type: Number, default: 0 }
   },
-  
   // Status tracking
   status: {
     type: String,
     enum: ['not_started', 'in_progress', 'ended'],
     default: 'not_started'
   },
-  
   // Restart tracking
   restartCount: {
     type: Number,
@@ -113,31 +78,126 @@ const dailyOperationsSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Static methods
+// ✅ FIXED: Race-condition safe method using upsert
 dailyOperationsSchema.statics.getTodaysOperation = async function() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  let operation = await this.findOne({ date: today });
-  
-  if (!operation) {
-    operation = new this({ date: today });
-    await operation.save();
+  try {
+    // Use findOneAndUpdate with upsert to prevent race conditions
+    const operation = await this.findOneAndUpdate(
+      { date: today },
+      { 
+        $setOnInsert: { 
+          date: today,
+          dayStarted: false,
+          status: 'not_started',
+          dailySummary: {
+            totalRevenue: 0,
+            totalBookings: 0,
+            activeBookings: 0,
+            completedBookings: 0,
+            cancelledBookings: 0,
+            newCustomers: 0,
+            vehiclesRented: 0,
+            averageBookingValue: 0,
+            operatingHours: 0,
+            revenuePerHour: 0
+          },
+          restartCount: 0,
+          restartHistory: []
+        }
+      },
+      { 
+        upsert: true, 
+        new: true,
+        setDefaultsOnInsert: true
+      }
+    );
+    
+    return operation;
+  } catch (error) {
+    // Handle duplicate key error (race condition)
+    if (error.code === 11000) {
+      // If duplicate, just find and return the existing record
+      return await this.findOne({ date: today });
+    }
+    throw error;
   }
-  
-  return operation;
 };
 
+// ✅ NEW: Method to clean up duplicate records
+dailyOperationsSchema.statics.cleanupDuplicates = async function() {
+  console.log('🧹 Cleaning up duplicate daily operations...');
+  
+  const pipeline = [
+    {
+      $group: {
+        _id: {
+          year: { $year: '$date' },
+          month: { $month: '$date' },
+          day: { $dayOfMonth: '$date' }
+        },
+        docs: { $push: '$$ROOT' },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $match: { count: { $gt: 1 } }
+    }
+  ];
+  
+  const duplicateGroups = await this.aggregate(pipeline);
+  let cleanedCount = 0;
+  
+  for (const group of duplicateGroups) {
+    const docs = group.docs;
+    
+    // Keep the record with the most complete data (ended > in_progress > not_started)
+    const priority = { 'ended': 3, 'in_progress': 2, 'not_started': 1 };
+    docs.sort((a, b) => {
+      const aPriority = priority[a.status] || 0;
+      const bPriority = priority[b.status] || 0;
+      if (aPriority !== bPriority) return bPriority - aPriority;
+      
+      // If same status, keep the one with more data
+      const aScore = (a.dayStarted ? 1 : 0) + (a.dayEnded ? 1 : 0) + (a.dailySummary?.totalRevenue || 0);
+      const bScore = (b.dayStarted ? 1 : 0) + (b.dayEnded ? 1 : 0) + (b.dailySummary?.totalRevenue || 0);
+      return bScore - aScore;
+    });
+    
+    const keepDoc = docs[0];
+    const removeIds = docs.slice(1).map(doc => doc._id);
+    
+    console.log(`📅 ${new Date(keepDoc.date).toDateString()}: Keeping ${keepDoc.status}, removing ${removeIds.length} duplicates`);
+    
+    // Remove duplicates
+    await this.deleteMany({ _id: { $in: removeIds } });
+    cleanedCount += removeIds.length;
+  }
+  
+  console.log(`✅ Cleanup complete: Removed ${cleanedCount} duplicate records`);
+  return cleanedCount;
+};
+
+// ✅ NEW: Ensure database indexes exist
+dailyOperationsSchema.statics.ensureIndexes = async function() {
+  try {
+    // Ensure unique index on date field
+    await this.collection.createIndex({ date: 1 }, { unique: true });
+    console.log('✅ Daily operations indexes verified');
+  } catch (error) {
+    console.error('❌ Error creating indexes:', error);
+  }
+};
+
+// Other existing methods...
 dailyOperationsSchema.statics.getOperationsInRange = async function(startDate, endDate) {
   return await this.find({
-    date: {
-      $gte: startDate,
-      $lte: endDate
-    }
+    date: { $gte: startDate, $lte: endDate }
   }).sort({ date: -1 });
 };
 
-// Instance methods
 dailyOperationsSchema.methods.startDay = function(staffName, notes = '') {
   this.dayStarted = true;
   this.startTime = new Date();
@@ -148,9 +208,7 @@ dailyOperationsSchema.methods.startDay = function(staffName, notes = '') {
 };
 
 dailyOperationsSchema.methods.endDay = async function(staffName, notes = '', isAuto = false) {
-  // Calculate daily summary before ending
   await this.calculateDailySummary();
-  
   this.dayEnded = true;
   this.endTime = new Date();
   this.endedBy = staffName;
@@ -158,7 +216,6 @@ dailyOperationsSchema.methods.endDay = async function(staffName, notes = '', isA
   this.autoEnded = isAuto;
   this.status = 'ended';
   
-  // Calculate operating hours
   if (this.startTime && this.endTime) {
     const diffMs = this.endTime - this.startTime;
     this.dailySummary.operatingHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
@@ -167,7 +224,6 @@ dailyOperationsSchema.methods.endDay = async function(staffName, notes = '', isA
       this.dailySummary.revenuePerHour = Math.round((this.dailySummary.totalRevenue / this.dailySummary.operatingHours) * 100) / 100;
     }
   }
-  
   return this.save();
 };
 
@@ -178,14 +234,12 @@ dailyOperationsSchema.methods.restartDay = function(staffName, reason = '') {
     restartedBy: staffName,
     reason: reason
   });
-  
   this.dayEnded = false;
   this.endTime = null;
   this.endedBy = null;
   this.endNotes = '';
   this.autoEnded = false;
   this.status = 'in_progress';
-  
   return this.save();
 };
 
@@ -211,22 +265,36 @@ dailyOperationsSchema.methods.calculateDailySummary = async function() {
   }
   
   // Get all bookings for the day
-  const bookings = await Booking.find(bookingQuery);
+  const allBookings = await Booking.find(bookingQuery);
   
-  // Calculate metrics
-  this.dailySummary.totalBookings = bookings.length;
-  this.dailySummary.totalRevenue = bookings.reduce((sum, booking) => 
+  // ✅ FIXED: Separate bookings by status for accurate calculations
+  const completedBookings = allBookings.filter(b => b.status === 'completed');
+  const activeBookings = allBookings.filter(b => b.status === 'active');
+  const cancelledBookings = allBookings.filter(b => b.status === 'cancelled');
+  
+  // ✅ FIXED: Revenue only from COMPLETED bookings (payment collected)
+  this.dailySummary.totalRevenue = completedBookings.reduce((sum, booking) => 
     sum + (booking.finalAmount || booking.baseAmount || 0), 0);
-  this.dailySummary.completedBookings = bookings.filter(b => b.status === 'completed').length;
-  this.dailySummary.activeBookings = bookings.filter(b => b.status === 'active').length;
-  this.dailySummary.cancelledBookings = bookings.filter(b => b.status === 'cancelled').length;
   
-  if (this.dailySummary.totalBookings > 0) {
-    this.dailySummary.averageBookingValue = Math.round((this.dailySummary.totalRevenue / this.dailySummary.totalBookings) * 100) / 100;
+  // Booking counts
+  this.dailySummary.totalBookings = allBookings.length;
+  this.dailySummary.completedBookings = completedBookings.length;
+  this.dailySummary.activeBookings = activeBookings.length;
+  this.dailySummary.cancelledBookings = cancelledBookings.length;
+  
+  // ✅ FIXED: Average booking value based on completed bookings only
+  if (completedBookings.length > 0) {
+    this.dailySummary.averageBookingValue = 
+      Math.round((this.dailySummary.totalRevenue / completedBookings.length) * 100) / 100;
+  } else {
+    this.dailySummary.averageBookingValue = 0;
   }
   
-  // Get unique vehicles rented
-  const vehicleIds = [...new Set(bookings.map(b => b.vehicleId?.toString()).filter(Boolean))];
+  // ✅ FIXED: Vehicle count based on ALL bookings (including active and completed)
+  // but excluding cancelled ones since they never actually used vehicles
+  const actualRentalBookings = allBookings.filter(b => b.status !== 'cancelled');
+  const vehicleIds = [...new Set(actualRentalBookings.map(b => 
+    b.vehicleId?.toString()).filter(Boolean))];
   this.dailySummary.vehiclesRented = vehicleIds.length;
   
   // Count new customers registered today
@@ -234,6 +302,15 @@ dailyOperationsSchema.methods.calculateDailySummary = async function() {
     createdAt: { $gte: dayStart, $lt: dayEnd }
   });
   this.dailySummary.newCustomers = newCustomers;
+  
+  console.log(`📊 Daily Summary Calculated:
+    📋 Total Bookings: ${this.dailySummary.totalBookings}
+    ✅ Completed: ${this.dailySummary.completedBookings}
+    🔄 Active: ${this.dailySummary.activeBookings}
+    ❌ Cancelled: ${this.dailySummary.cancelledBookings}
+    💰 Revenue (Completed Only): ₹${this.dailySummary.totalRevenue}
+    📊 Avg Value: ₹${this.dailySummary.averageBookingValue}
+    🚗 Vehicles Used: ${this.dailySummary.vehiclesRented}`);
 };
 
 // Indexes for performance
