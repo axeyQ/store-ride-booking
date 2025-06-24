@@ -1,13 +1,21 @@
+// src/app/page.js - Main App with Authentication Integration
 'use client';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import LoginPage from '@/components/LoginPage';
+import UserRegistration from '@/components/UserRegistration';
+import UserManagement from '@/components/UserManagement';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { calculateCurrentAmount } from '@/lib/pricing';
+import { useApiRequest } from '@/hooks/useApiRequest';
 
-// Day Operations Control Component (inline for easy integration)
+// Day Operations Control Component (updated with authentication)
 function DayOperationsControl({ onStatusChange }) {
+  const { apiCall } = useAuth();
   const [operation, setOperation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
@@ -18,7 +26,7 @@ function DayOperationsControl({ onStatusChange }) {
 
   const fetchTodaysOperation = async () => {
     try {
-      const response = await fetch('/api/daily-operations?range=today');
+      const response = await apiCall('/api/daily-operations?range=today');
       const data = await response.json();
       if (data.success) {
         setOperation(data.operation);
@@ -45,9 +53,8 @@ function DayOperationsControl({ onStatusChange }) {
 
     setActionLoading('starting');
     try {
-      const response = await fetch('/api/daily-operations/start', {
+      const response = await apiCall('/api/daily-operations/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ staffName: staffName.trim(), notes: notes.trim() })
       });
 
@@ -78,9 +85,8 @@ function DayOperationsControl({ onStatusChange }) {
 
     setActionLoading('ending');
     try {
-      const response = await fetch('/api/daily-operations/end', {
+      const response = await apiCall('/api/daily-operations/end', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ staffName: staffName.trim(), notes: notes.trim() })
       });
 
@@ -112,9 +118,8 @@ function DayOperationsControl({ onStatusChange }) {
 
     setActionLoading('restarting');
     try {
-      const response = await fetch('/api/daily-operations/restart', {
+      const response = await apiCall('/api/daily-operations/restart', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           staffName: staffName.trim(), 
           reason: reason.trim() 
@@ -362,7 +367,10 @@ function DayOperationsControl({ onStatusChange }) {
   );
 }
 
-export default function ModernHomePage() {
+// Main Dashboard Component (integrated with authentication)
+function MRTravelsDashboard() {
+  const { user, logout, apiCall } = useAuth();
+  const { request, loading: apiLoading, error: apiError } = useApiRequest();
   const [stats, setStats] = useState({
     todayRevenue: 0,
     activeBookings: 0,
@@ -375,6 +383,10 @@ export default function ModernHomePage() {
   const [calculatingRevenue, setCalculatingRevenue] = useState(false);
   const [dayOperation, setDayOperation] = useState(null);
   const [businessHoursRevenue, setBusinessHoursRevenue] = useState(0);
+  
+  // User Management State
+  const [showUserRegistration, setShowUserRegistration] = useState(false);
+  const [showUserManagement, setShowUserManagement] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -392,7 +404,7 @@ export default function ModernHomePage() {
   // Fetch revenue during business hours only
   const fetchBusinessHoursRevenue = async () => {
     try {
-      const response = await fetch('/api/admin/revenue-with-business-hours?businessHoursOnly=true');
+      const response = await apiCall('/api/admin/revenue-with-business-hours?businessHoursOnly=true');
       const data = await response.json();
       if (data.success) {
         setBusinessHoursRevenue(data.data.todayRevenue);
@@ -404,9 +416,8 @@ export default function ModernHomePage() {
 
   const fetchStats = async () => {
     try {
-      // Fetch basic stats first
-      const response = await fetch('/api/stats');
-      const data = await response.json();
+      // Fetch basic stats first using authenticated API call
+      const data = await request('/api/stats');
       if (data.success && data.stats) {
         setStats({
           todayRevenue: data.stats.todayRevenue || 0,
@@ -435,8 +446,7 @@ export default function ModernHomePage() {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
   
-      const response = await fetch('/api/bookings');
-      const data = await response.json();
+      const data = await request('/api/bookings');
       
       if (data.success) {
         // ✅ FIXED: Exclude cancelled bookings
@@ -489,6 +499,12 @@ export default function ModernHomePage() {
     return '🧮 Advanced Pricing';
   };
 
+  const handleLogout = async () => {
+    if (confirm('Are you sure you want to logout?')) {
+      await logout();
+    }
+  };
+
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex flex-col">
@@ -496,9 +512,17 @@ export default function ModernHomePage() {
           <div className="container mx-auto px-6 py-4">
             <div className="flex justify-between items-center">
               <h1 className="text-2xl font-bold text-white">MR Travels</h1>
-              <Badge variant="outline" className="text-cyan-400 border-cyan-400">
-                Bike & Scooter Rentals
-              </Badge>
+              <div className="flex items-center space-x-4">
+                <Badge variant="outline" className="text-cyan-400 border-cyan-400">
+                  Bike & Scooter Rentals
+                </Badge>
+                <button
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </header>
@@ -522,25 +546,28 @@ export default function ModernHomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
-      {/* Modern Header with Business Status */}
+      {/* Original Header Navigation with Authentication */}
       <header className="border-b border-gray-800 bg-black/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
+            {/* Left side - Logo and Brand */}
             <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-lg">MR</span>
+              <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
+                <span className="text-white font-bold text-xl">MR</span>
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">MR Travels</h1>
                 <p className="text-gray-400 text-sm">Rental Management System</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+
+            {/* Center - Business Status and User Management */}
+            <div className="flex items-center space-x-4">
               {/* Business Status Indicator */}
               {dayOperation && (
                 <div className="flex items-center space-x-2">
-                  <div className={`w-3 h-3 rounded-full ${
-                    dayOperation.status === 'in_progress' ? 'bg-green-400 animate-pulse' : 
+                  <div className={`w-2 h-2 rounded-full ${
+                    dayOperation.status === 'in_progress' ? 'bg-green-400' : 
                     dayOperation.status === 'ended' ? 'bg-blue-400' : 'bg-orange-400'
                   }`}></div>
                   <span className={`text-sm font-medium ${
@@ -553,9 +580,77 @@ export default function ModernHomePage() {
                   </span>
                 </div>
               )}
-              <Badge variant="outline" className="text-cyan-400 border-cyan-400 bg-cyan-400/10">
+
+              {/* User Management Buttons (only for first user) */}
+              {user?.isFirstUser && (
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => setShowUserRegistration(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all duration-200 flex items-center space-x-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>Add User</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => setShowUserManagement(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 flex items-center space-x-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    <span>Manage Users</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Right side - User Info and System Status */}
+            <div className="flex items-center space-x-4">
+              {/* System Administrator Label */}
+              {user?.isFirstUser && (
+                <div className="text-right">
+                  <div className="text-white font-semibold">System Administrator</div>
+                </div>
+              )}
+
+              {/* User Info */}
+              <div className="flex items-center space-x-3">
+                <div className="text-right">
+                  <div className="text-gray-400 text-sm">@{user?.username}</div>
+                  {user?.isFirstUser && (
+                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-yellow-600 text-white">
+                      Admin
+                    </span>
+                  )}
+                </div>
+                
+                {/* User Avatar */}
+                <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
+                  <span className="text-white font-bold text-lg">
+                    {user?.fullName?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Bike & Scooter Rentals Badge */}
+              <Badge className="bg-cyan-500 text-white border-0 px-3 py-1">
                 Bike & Scooter Rentals
               </Badge>
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors flex items-center space-x-2"
+                title="Logout"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span>Logout</span>
+              </button>
             </div>
           </div>
         </div>
@@ -566,10 +661,10 @@ export default function ModernHomePage() {
         {/* Hero Section */}
         <div className="text-center mb-12">
           <h2 className="text-4xl font-bold text-white mb-4">
-            Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">MR Travels</span>
+            Welcome back, <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">{user?.fullName}!</span>
           </h2>
           <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-            Professional rental management system for bikes and scooters
+            Professional rental management system - Now Secure! 🔒
           </p>
         </div>
 
@@ -850,7 +945,7 @@ export default function ModernHomePage() {
               Today&apos;s Business Summary
             </CardTitle>
             <CardDescription className="text-gray-400">
-              Real-time overview with advanced pricing calculations and day operations tracking
+              Real-time overview with advanced pricing calculations and day operations tracking - Accessed by {user?.fullName}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -916,12 +1011,12 @@ export default function ModernHomePage() {
               </div>
               <div>
                 <div className="text-white font-semibold">MR Travels</div>
-                <div className="text-gray-400 text-sm">Professional Rental Management</div>
+                <div className="text-gray-400 text-sm">Professional Rental Management - Secured</div>
               </div>
             </div>
             <div className="flex items-center space-x-6">
               <Badge variant="outline" className="text-gray-400 border-gray-600">
-                System Status: Online
+                System Status: Online & Secure
               </Badge>
               <div className="text-gray-400 text-sm">
                 © 2025 MR Travels. All rights reserved.
@@ -930,6 +1025,57 @@ export default function ModernHomePage() {
           </div>
         </div>
       </footer>
+
+      {/* Authentication Modals */}
+      <UserRegistration
+        isOpen={showUserRegistration}
+        onClose={() => setShowUserRegistration(false)}
+        onUserCreated={() => {
+          setShowUserRegistration(false);
+        }}
+      />
+
+      <UserManagement
+        isOpen={showUserManagement}
+        onClose={() => setShowUserManagement(false)}
+      />
     </div>
+  );
+}
+
+// Loading Screen Component
+const LoadingScreen = () => (
+  <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+    <div className="text-center">
+      <div className="w-16 h-16 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center mx-auto mb-6">
+        <span className="text-white font-bold text-2xl">MR</span>
+      </div>
+      <div className="flex items-center space-x-3">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+        <span className="text-white text-lg">Loading MR Travels...</span>
+      </div>
+    </div>
+  </div>
+);
+
+// Main App Router Component
+const AppRouter = () => {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
+  return isAuthenticated ? <MRTravelsDashboard /> : <LoginPage />;
+};
+
+// Root App Component with Error Boundary
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppRouter />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
