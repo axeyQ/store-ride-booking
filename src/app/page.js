@@ -1,4 +1,3 @@
-// src/app/page.js - Main App with Authentication Integration
 'use client';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import LoginPage from '@/components/LoginPage';
@@ -15,12 +14,11 @@ import { useApiRequest } from '@/hooks/useApiRequest';
 
 // Day Operations Control Component (updated with authentication)
 function DayOperationsControl({ onStatusChange }) {
-  const { apiCall } = useAuth();
+  const { apiCall, user } = useAuth();
   const [operation, setOperation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [showModal, setShowModal] = useState(null);
-  const [staffName, setStaffName] = useState('');
   const [notes, setNotes] = useState('');
   const [reason, setReason] = useState('');
 
@@ -46,23 +44,21 @@ function DayOperationsControl({ onStatusChange }) {
   }, []);
 
   const handleStartDay = async () => {
-    if (!staffName.trim()) {
-      alert('Please enter your name');
-      return;
-    }
-
     setActionLoading('starting');
     try {
       const response = await apiCall('/api/daily-operations/start', {
         method: 'POST',
-        body: JSON.stringify({ staffName: staffName.trim(), notes: notes.trim() })
+        body: JSON.stringify({ 
+          staffName: user?.fullName || user?.username,
+          staffUsername: user?.username,
+          notes: notes.trim() 
+        })
       });
 
       const data = await response.json();
       if (data.success) {
         setOperation(data.operation);
         setShowModal(null);
-        setStaffName('');
         setNotes('');
         onStatusChange?.(data.operation);
         alert('Day started successfully! 🌅');
@@ -78,23 +74,21 @@ function DayOperationsControl({ onStatusChange }) {
   };
 
   const handleEndDay = async () => {
-    if (!staffName.trim()) {
-      alert('Please enter your name');
-      return;
-    }
-
     setActionLoading('ending');
     try {
       const response = await apiCall('/api/daily-operations/end', {
         method: 'POST',
-        body: JSON.stringify({ staffName: staffName.trim(), notes: notes.trim() })
+        body: JSON.stringify({ 
+          staffName: user?.fullName || user?.username,
+          staffUsername: user?.username,
+          notes: notes.trim() 
+        })
       });
 
       const data = await response.json();
       if (data.success) {
         setOperation(data.operation);
         setShowModal(null);
-        setStaffName('');
         setNotes('');
         onStatusChange?.(data.operation);
         
@@ -111,8 +105,8 @@ function DayOperationsControl({ onStatusChange }) {
   };
 
   const handleRestartDay = async () => {
-    if (!staffName.trim() || !reason.trim()) {
-      alert('Please enter your name and reason for restart');
+    if (!reason.trim()) {
+      alert('Please provide a reason for restart');
       return;
     }
 
@@ -121,7 +115,8 @@ function DayOperationsControl({ onStatusChange }) {
       const response = await apiCall('/api/daily-operations/restart', {
         method: 'POST',
         body: JSON.stringify({ 
-          staffName: staffName.trim(), 
+          staffName: user?.fullName || user?.username,
+          staffUsername: user?.username,
           reason: reason.trim() 
         })
       });
@@ -130,7 +125,6 @@ function DayOperationsControl({ onStatusChange }) {
       if (data.success) {
         setOperation(data.operation);
         setShowModal(null);
-        setStaffName('');
         setReason('');
         onStatusChange?.(data.operation);
         alert('Day restarted successfully! 🔄');
@@ -295,16 +289,19 @@ function DayOperationsControl({ onStatusChange }) {
             </h3>
             
             <div className="space-y-4">
-              <div>
-                <label className="block text-white text-sm font-medium mb-2">Your Name</label>
-                <input
-                  type="text"
-                  value={staffName}
-                  onChange={(e) => setStaffName(e.target.value)}
-                  placeholder="Enter your name"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:border-cyan-500 focus:outline-none"
-                  required
-                />
+              {/* User Information Display */}
+              <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">
+                      {user?.fullName?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-white font-medium">{user?.fullName || user?.username}</div>
+                    <div className="text-gray-400 text-sm">@{user?.username}</div>
+                  </div>
+                </div>
               </div>
               
               {showModal === 'restart' ? (
@@ -338,7 +335,6 @@ function DayOperationsControl({ onStatusChange }) {
                 variant="outline"
                 onClick={() => {
                   setShowModal(null);
-                  setStaffName('');
                   setNotes('');
                   setReason('');
                 }}
@@ -352,7 +348,7 @@ function DayOperationsControl({ onStatusChange }) {
                   else if (showModal === 'end') handleEndDay();
                   else if (showModal === 'restart') handleRestartDay();
                 }}
-                disabled={!staffName.trim() || (showModal === 'restart' && !reason.trim())}
+                disabled={showModal === 'restart' && !reason.trim()}
                 className={`flex-1 ${showModal === 'end' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
               >
                 {showModal === 'start' && '🌅 Start Day'}
