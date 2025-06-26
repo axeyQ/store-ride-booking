@@ -11,8 +11,6 @@ import {
 } from '@/components/themed';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
-// Import the advanced pricing functions
-import { calculateAdvancedPricing, formatCurrency } from '@/lib/pricing';
 
 export default function DailyOperationsPage() {
   const [operations, setOperations] = useState([]);
@@ -20,19 +18,14 @@ export default function DailyOperationsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [range, setRange] = useState('month');
-  const [recalculatingPricing, setRecalculatingPricing] = useState(false);
-  const [showPricingComparison, setShowPricingComparison] = useState(false);
   const [stats, setStats] = useState({
     totalOperatingDays: 0,
     totalRevenue: 0,
-    totalAdvancedRevenue: 0, // NEW: Advanced pricing total
     averageRevenue: 0,
-    averageAdvancedRevenue: 0, // NEW: Advanced pricing average
     totalOperatingHours: 0,
     averageOperatingHours: 0,
     bestDay: null,
-    autoEndedDays: 0,
-    pricingDifference: 0 // NEW: Difference between stored and calculated
+    autoEndedDays: 0
   });
 
   const fetchOperations = async (page = 1) => {
@@ -46,78 +39,13 @@ export default function DailyOperationsPage() {
         setCurrentPage(page);
         setTotalPages(data.totalPages || 1);
         
-        // Calculate stats with original pricing
+        // Calculate stats
         calculateStats(data.operations || []);
-        
-        // Calculate advanced pricing if enabled
-        if (showPricingComparison) {
-          recalculateAdvancedPricing(data.operations || []);
-        }
       }
     } catch (error) {
       console.error('Error fetching operations:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // NEW: Recalculate revenue using advanced pricing for comparison
-  const recalculateAdvancedPricing = async (ops) => {
-    setRecalculatingPricing(true);
-    try {
-      // Fetch all bookings for these operations to recalculate pricing
-      const operationsWithAdvancedPricing = await Promise.all(
-        ops.map(async (operation) => {
-          if (operation.status !== 'ended') {
-            return { ...operation, advancedRevenue: operation.dailySummary?.totalRevenue || 0 };
-          }
-
-          try {
-            // Fetch bookings for this operation date
-            const startOfDay = new Date(operation.date);
-            startOfDay.setHours(0, 0, 0, 0);
-            const endOfDay = new Date(operation.date);
-            endOfDay.setHours(23, 59, 59, 999);
-
-            const bookingsResponse = await fetch(
-              `/api/bookings?startDate=${startOfDay.toISOString()}&endDate=${endOfDay.toISOString()}&status=completed`
-            );
-            const bookingsData = await bookingsResponse.json();
-
-            if (bookingsData.success && bookingsData.bookings) {
-              // Calculate advanced pricing for each completed booking
-              let totalAdvancedRevenue = 0;
-              
-              for (const booking of bookingsData.bookings) {
-                if (booking.startTime && booking.endTime) {
-                  const advancedResult = await calculateAdvancedPricing(
-                    new Date(booking.startTime),
-                    new Date(booking.endTime)
-                  );
-                  totalAdvancedRevenue += advancedResult.totalAmount;
-                }
-              }
-
-              return { 
-                ...operation, 
-                advancedRevenue: totalAdvancedRevenue,
-                pricingDifference: totalAdvancedRevenue - (operation.dailySummary?.totalRevenue || 0)
-              };
-            }
-          } catch (error) {
-            console.error(`Error calculating advanced pricing for ${operation.date}:`, error);
-          }
-
-          return { ...operation, advancedRevenue: operation.dailySummary?.totalRevenue || 0 };
-        })
-      );
-
-      setOperations(operationsWithAdvancedPricing);
-      calculateAdvancedStats(operationsWithAdvancedPricing);
-    } catch (error) {
-      console.error('Error recalculating advanced pricing:', error);
-    } finally {
-      setRecalculatingPricing(false);
     }
   };
 
@@ -133,8 +61,7 @@ export default function DailyOperationsPage() {
       return revenue > (best?.dailySummary?.totalRevenue || 0) ? op : best;
     }, null);
 
-    setStats(prev => ({
-      ...prev,
+    setStats({
       totalOperatingDays: completedOps.length,
       totalRevenue,
       averageRevenue: completedOps.length > 0 ? Math.round(totalRevenue / completedOps.length) : 0,
@@ -142,35 +69,12 @@ export default function DailyOperationsPage() {
       averageOperatingHours: completedOps.length > 0 ? Math.round((totalHours / completedOps.length) * 10) / 10 : 0,
       bestDay,
       autoEndedDays: autoEnded
-    }));
-  };
-
-  // NEW: Calculate stats including advanced pricing
-  const calculateAdvancedStats = (ops) => {
-    const completedOps = ops.filter(op => op.status === 'ended');
-    
-    const totalAdvancedRevenue = completedOps.reduce((sum, op) => sum + (op.advancedRevenue || 0), 0);
-    const totalPricingDifference = completedOps.reduce((sum, op) => sum + (op.pricingDifference || 0), 0);
-
-    setStats(prev => ({
-      ...prev,
-      totalAdvancedRevenue,
-      averageAdvancedRevenue: completedOps.length > 0 ? Math.round(totalAdvancedRevenue / completedOps.length) : 0,
-      pricingDifference: totalPricingDifference
-    }));
+    });
   };
 
   useEffect(() => {
     fetchOperations(1);
   }, [range]);
-
-  // NEW: Toggle pricing comparison
-  const togglePricingComparison = () => {
-    setShowPricingComparison(!showPricingComparison);
-    if (!showPricingComparison) {
-      recalculateAdvancedPricing(operations);
-    }
-  };
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -216,12 +120,12 @@ export default function DailyOperationsPage() {
 
   const exportData = async () => {
     try {
-      const response = await fetch(`/api/daily-operations/export?range=${range}&includeAdvancedPricing=${showPricingComparison}`);
+      const response = await fetch(`/api/daily-operations/export?range=${range}`);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `daily-operations-${range}-${showPricingComparison ? 'advanced-' : ''}${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `daily-operations-${range}-${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -239,63 +143,16 @@ export default function DailyOperationsPage() {
     >
       <div className="container mx-auto px-6 py-8">
         
-        {/* NEW: Advanced Pricing Toggle */}
-        <div className="mb-6">
-          <ThemedCard>
-            <div className="flex justify-between items-center p-4">
-              <div>
-                <h3 className="text-lg font-semibold text-white">Advanced Pricing Analysis</h3>
-                <p className="text-gray-400 text-sm">
-                  Compare stored revenue with current advanced pricing calculations
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <ThemedButton
-                  variant={showPricingComparison ? "primary" : "secondary"}
-                  onClick={togglePricingComparison}
-                  disabled={recalculatingPricing}
-                  className="flex items-center gap-2"
-                >
-                  {recalculatingPricing ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      Calculating...
-                    </>
-                  ) : (
-                    <>
-                      🧮 {showPricingComparison ? 'Hide' : 'Show'} Advanced Pricing
-                    </>
-                  )}
-                </ThemedButton>
-              </div>
-            </div>
-          </ThemedCard>
-        </div>
-        
         {/* Statistics Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-6 text-center">
             <div className="text-3xl font-bold text-green-400 mb-2">
               ₹{stats.totalRevenue.toLocaleString('en-IN')}
             </div>
-            <div className="text-green-200 text-sm">Stored Revenue</div>
+            <div className="text-green-200 text-sm">Total Revenue</div>
             <div className="text-xs text-green-300 mt-1">
               Avg: ₹{stats.averageRevenue.toLocaleString('en-IN')}
             </div>
-            {/* NEW: Show advanced pricing comparison */}
-            {showPricingComparison && (
-              <div className="mt-2 pt-2 border-t border-green-700/30">
-                <div className="text-lg font-bold text-cyan-400">
-                  ₹{stats.totalAdvancedRevenue.toLocaleString('en-IN')}
-                </div>
-                <div className="text-cyan-200 text-xs">Advanced Pricing</div>
-                {stats.pricingDifference !== 0 && (
-                  <div className={`text-xs mt-1 ${stats.pricingDifference > 0 ? 'text-green-300' : 'text-red-300'}`}>
-                    {stats.pricingDifference > 0 ? '+' : ''}₹{stats.pricingDifference.toLocaleString('en-IN')} difference
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-6 text-center">
@@ -336,9 +193,6 @@ export default function DailyOperationsPage() {
               <h3 className="text-xl font-bold text-white mb-2">Operations History</h3>
               <p className="text-gray-400 text-sm">
                 View and analyze your daily business operations
-                {showPricingComparison && (
-                  <span className="text-cyan-300"> • Advanced pricing calculations enabled</span>
-                )}
               </p>
             </div>
 
@@ -392,12 +246,7 @@ export default function DailyOperationsPage() {
                       <th className="text-center py-4 px-4 text-gray-300 font-medium">Start</th>
                       <th className="text-center py-4 px-4 text-gray-300 font-medium">End</th>
                       <th className="text-center py-4 px-4 text-gray-300 font-medium">Hours</th>
-                      <th className="text-center py-4 px-4 text-gray-300 font-medium">
-                        Revenue
-                        {showPricingComparison && (
-                          <div className="text-xs text-gray-400 font-normal">Stored / Advanced</div>
-                        )}
-                      </th>
+                      <th className="text-center py-4 px-4 text-gray-300 font-medium">Revenue</th>
                       <th className="text-center py-4 px-4 text-gray-300 font-medium">Bookings</th>
                       <th className="text-center py-4 px-4 text-gray-300 font-medium">Staff</th>
                     </tr>
@@ -465,18 +314,6 @@ export default function DailyOperationsPage() {
                             <div className="text-green-400 font-bold">
                               ₹{(operation.dailySummary?.totalRevenue || 0).toLocaleString('en-IN')}
                             </div>
-                            {/* NEW: Show advanced pricing comparison */}
-                            {showPricingComparison && operation.advancedRevenue !== undefined && (
-                              <div className="text-cyan-400 font-bold text-sm">
-                                ₹{operation.advancedRevenue.toLocaleString('en-IN')}
-                              </div>
-                            )}
-                            {/* NEW: Show pricing difference */}
-                            {showPricingComparison && operation.pricingDifference !== undefined && operation.pricingDifference !== 0 && (
-                              <div className={`text-xs ${operation.pricingDifference > 0 ? 'text-green-300' : 'text-red-300'}`}>
-                                {operation.pricingDifference > 0 ? '+' : ''}₹{operation.pricingDifference.toLocaleString('en-IN')}
-                              </div>
-                            )}
                             {operation.dailySummary?.revenuePerHour > 0 && (
                               <div className="text-gray-400 text-xs">
                                 ₹{operation.dailySummary.revenuePerHour}/hr

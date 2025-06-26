@@ -789,6 +789,28 @@ function MRTravelsDashboard() {
             </Card>
           </Link>
 
+          {/* Custom Booking Card - Add this to your existing dashboard grid */}
+<Link href="/custom-booking" className="group">
+  <Card className="bg-gradient-to-br from-purple-800 to-purple-900 border-purple-700 hover:border-purple-500/50 transition-all duration-300 hover:scale-105 h-full">
+    <CardContent className="p-8 text-center h-full flex flex-col justify-center">
+      <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+        </svg>
+      </div>
+      <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-purple-400 transition-colors">
+        Custom Booking
+      </CardTitle>
+      <CardDescription className="text-purple-200 text-lg">
+        Fixed rate packages
+      </CardDescription>
+      <Badge className="mt-4 bg-purple-500/20 text-purple-400 border-purple-500/30">
+        Flat Rates
+      </Badge>
+    </CardContent>
+  </Card>
+</Link>
+
           {/* Active Bookings */}
           <Link href="/active-bookings" className="group">
             <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-orange-500/50 transition-all duration-300 hover:scale-105 h-full">

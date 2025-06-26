@@ -28,18 +28,24 @@ import {
 
 import { calculateCurrentAmount } from '@/lib/pricing';
 
-// ✅ FIXED: Helper function to calculate booking revenue with proper async handling
+// ✅ ENHANCED: Helper function to calculate booking revenue (both types)
 const calculateBookingRevenue = async (booking) => {
   try {
+    // If it's a custom booking, use the stored finalAmount directly
+    if (booking.isCustomBooking) {
+      return booking.finalAmount || 0;
+    }
+    
+    // For advanced pricing bookings, use the complex calculation
     const result = await calculateCurrentAmount(booking);
     return typeof result === 'number' ? result : result.amount;
   } catch (error) {
-    console.warn(`Advanced pricing failed for booking ${booking.bookingId}, using fallback:`, error);
+    console.warn(`Pricing calculation failed for booking ${booking.bookingId}, using fallback:`, error);
     return booking.finalAmount || booking.baseAmount || 0;
   }
 };
 
-// ✅ FIXED: Helper function to process multiple bookings with async
+// ✅ ENHANCED: Helper function to process multiple bookings with async
 const calculateTotalRevenue = async (bookings) => {
   let totalRevenue = 0;
   for (const booking of bookings) {
@@ -49,13 +55,202 @@ const calculateTotalRevenue = async (bookings) => {
   return totalRevenue;
 };
 
-// ✅ IMPROVED: Enhanced Daily Revenue Bar Chart Component
+// ✅ ENHANCED: Booking Type Breakdown Component
+function BookingTypeBreakdown({ bookings, title = "Booking Type Distribution" }) {
+  const [breakdown, setBreakdown] = useState({
+    advanced: { count: 0, revenue: 0, percentage: 0 },
+    custom: { count: 0, revenue: 0, percentage: 0, packages: { half_day: 0, full_day: 0, night: 0 } }
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const calculateBreakdown = async () => {
+      if (!bookings || bookings.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        let advancedCount = 0, customCount = 0;
+        let advancedRevenue = 0, customRevenue = 0;
+        const customPackages = { half_day: 0, full_day: 0, night: 0 };
+
+        for (const booking of bookings) {
+          if (booking.status === 'cancelled') continue;
+
+          const revenue = await calculateBookingRevenue(booking);
+          
+          if (booking.isCustomBooking) {
+            customCount++;
+            customRevenue += revenue;
+            if (booking.customBookingType && customPackages[booking.customBookingType] !== undefined) {
+              customPackages[booking.customBookingType]++;
+            }
+          } else {
+            advancedCount++;
+            advancedRevenue += revenue;
+          }
+        }
+
+        const totalBookings = advancedCount + customCount;
+        const totalRevenue = advancedRevenue + customRevenue;
+
+        setBreakdown({
+          advanced: {
+            count: advancedCount,
+            revenue: Math.round(advancedRevenue),
+            percentage: totalBookings > 0 ? Math.round((advancedCount / totalBookings) * 100) : 0
+          },
+          custom: {
+            count: customCount,
+            revenue: Math.round(customRevenue),
+            percentage: totalBookings > 0 ? Math.round((customCount / totalBookings) * 100) : 0,
+            packages: customPackages
+          }
+        });
+      } catch (error) {
+        console.error('Error calculating booking breakdown:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    calculateBreakdown();
+  }, [bookings]);
+
+  if (loading) {
+    return (
+      <ThemedCard title={title}>
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mr-3"></div>
+          <span className="text-white">Calculating breakdown...</span>
+        </div>
+      </ThemedCard>
+    );
+  }
+
+  const totalBookings = breakdown.advanced.count + breakdown.custom.count;
+  const totalRevenue = breakdown.advanced.revenue + breakdown.custom.revenue;
+
+  if (totalBookings === 0) {
+    return (
+      <ThemedCard title={title}>
+        <div className="text-center py-8 text-gray-400">
+          <div className="text-4xl mb-4">📊</div>
+          <p className="text-lg">No booking data available</p>
+        </div>
+      </ThemedCard>
+    );
+  }
+
+  return (
+    <ThemedCard title={title}>
+      <div className="space-y-6">
+        {/* Revenue Breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Advanced Pricing */}
+          <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <div className="text-2xl">⚡</div>
+                <div>
+                  <div className="text-blue-200 font-medium">Advanced Pricing</div>
+                  <div className="text-xs text-blue-300">Time-based calculations</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold text-blue-400">{breakdown.advanced.percentage}%</div>
+                <div className="text-xs text-blue-300">{breakdown.advanced.count} bookings</div>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-400 mb-1">
+                ₹{breakdown.advanced.revenue.toLocaleString('en-IN')}
+              </div>
+              <div className="text-xs text-blue-300">
+                Avg: ₹{breakdown.advanced.count > 0 ? Math.round(breakdown.advanced.revenue / breakdown.advanced.count).toLocaleString('en-IN') : '0'}
+              </div>
+            </div>
+          </div>
+
+          {/* Custom Packages */}
+          <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <div className="text-2xl">📦</div>
+                <div>
+                  <div className="text-purple-200 font-medium">Custom Packages</div>
+                  <div className="text-xs text-purple-300">Fixed flat rates</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold text-purple-400">{breakdown.custom.percentage}%</div>
+                <div className="text-xs text-purple-300">{breakdown.custom.count} bookings</div>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-400 mb-1">
+                ₹{breakdown.custom.revenue.toLocaleString('en-IN')}
+              </div>
+              <div className="text-xs text-purple-300">
+                Avg: ₹{breakdown.custom.count > 0 ? Math.round(breakdown.custom.revenue / breakdown.custom.count).toLocaleString('en-IN') : '0'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Custom Package Breakdown */}
+        {breakdown.custom.count > 0 && (
+          <div>
+            <h4 className="text-sm font-medium text-white mb-3">📦 Custom Package Distribution</h4>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                <div className="text-lg mb-1">🌅</div>
+                <div className="text-sm font-bold text-white">{breakdown.custom.packages.half_day}</div>
+                <div className="text-xs text-gray-400">Half Day</div>
+              </div>
+              <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                <div className="text-lg mb-1">☀️</div>
+                <div className="text-sm font-bold text-white">{breakdown.custom.packages.full_day}</div>
+                <div className="text-xs text-gray-400">Full Day</div>
+              </div>
+              <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                <div className="text-lg mb-1">🌙</div>
+                <div className="text-sm font-bold text-white">{breakdown.custom.packages.night}</div>
+                <div className="text-xs text-gray-400">Night</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Summary */}
+        <div className="border-t border-gray-700/50 pt-4">
+          <div className="grid grid-cols-2 gap-4 text-center">
+            <div>
+              <div className="text-lg font-bold text-green-400">{totalBookings}</div>
+              <div className="text-xs text-gray-400">Total Bookings</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-green-400">
+                ₹{totalRevenue.toLocaleString('en-IN')}
+              </div>
+              <div className="text-xs text-gray-400">Total Revenue</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ThemedCard>
+  );
+}
+
+// ✅ IMPROVED: Enhanced Daily Revenue Bar Chart Component with Custom Booking Support
 function DailyRevenueBarChart() {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [timeFilter, setTimeFilter] = useState('7days');
   const [chartType, setChartType] = useState('bar');
-  const [showComparison, setShowComparison] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(true);
   const [customDateRange, setCustomDateRange] = useState({
     start: '',
     end: ''
@@ -63,13 +258,13 @@ function DailyRevenueBarChart() {
   const [exportLoading, setExportLoading] = useState(false);
   const [dataError, setDataError] = useState(null);
 
-  // Fetch daily revenue data from real bookings
+  // Fetch daily revenue data from real bookings (both types)
   const fetchDailyRevenueData = useCallback(async () => {
     if (loading) return;
     
     setLoading(true);
     setDataError(null);
-    console.log('🧮 Fetching daily revenue data using advanced pricing...');
+    console.log('🧮 Fetching daily revenue data with booking type breakdown...');
     
     try {
       // Get real bookings data
@@ -82,7 +277,7 @@ function DailyRevenueBarChart() {
         return;
       }
 
-      console.log(`📊 Processing ${bookingsData.bookings.length} total bookings with advanced pricing...`);
+      console.log(`📊 Processing ${bookingsData.bookings.length} total bookings with both pricing types...`);
 
       // Calculate date range based on filter
       let endDate = new Date();
@@ -133,7 +328,11 @@ function DailyRevenueBarChart() {
             day: 'numeric'
           }),
           revenue: 0,
+          advancedRevenue: 0,
+          customRevenue: 0,
           bookings: 0,
+          advancedBookings: 0,
+          customBookings: 0,
           avgBookingValue: 0,
           bookingsList: []
         });
@@ -147,38 +346,29 @@ function DailyRevenueBarChart() {
         if (dailyData.has(dateKey)) {
           const dayData = dailyData.get(dateKey);
           
-          // ✅ Use helper function for async calculation
+          // Calculate revenue based on booking type
           const bookingRevenue = await calculateBookingRevenue(booking);
-          console.log(`Advanced pricing for ${booking.bookingId}: ₹${bookingRevenue}`);
+          console.log(`${booking.isCustomBooking ? 'Custom' : 'Advanced'} pricing for ${booking.bookingId}: ₹${bookingRevenue}`);
 
           dayData.revenue += bookingRevenue;
           dayData.bookings += 1;
           dayData.bookingsList.push(booking);
+
+          if (booking.isCustomBooking) {
+            dayData.customRevenue += bookingRevenue;
+            dayData.customBookings += 1;
+          } else {
+            dayData.advancedRevenue += bookingRevenue;
+            dayData.advancedBookings += 1;
+          }
         }
       }
 
-      // Calculate average booking values and add comparison data if needed
+      // Calculate average booking values
       const chartDataArray = [];
       
       for (const dayData of dailyData.values()) {
         dayData.avgBookingValue = dayData.bookings > 0 ? Math.round(dayData.revenue / dayData.bookings) : 0;
-        
-        // Add comparison data if requested
-        if (showComparison) {
-          const comparisonDate = new Date(dayData.date);
-          comparisonDate.setDate(comparisonDate.getDate() - days);
-          
-          const comparisonBookings = bookingsData.bookings.filter(booking => {
-            const bookingDate = new Date(booking.createdAt);
-            return bookingDate.toISOString().split('T')[0] === comparisonDate.toISOString().split('T')[0] && 
-                   booking.status !== 'cancelled';
-          });
-
-          const comparisonRevenue = await calculateTotalRevenue(comparisonBookings);
-          dayData.prevRevenue = Math.round(comparisonRevenue);
-          dayData.prevBookings = comparisonBookings.length;
-        }
-        
         chartDataArray.push(dayData);
       }
 
@@ -186,9 +376,14 @@ function DailyRevenueBarChart() {
       
       const totalRevenue = chartDataArray.reduce((sum, day) => sum + day.revenue, 0);
       const totalBookings = chartDataArray.reduce((sum, day) => sum + day.bookings, 0);
-      console.log(`✅ Advanced pricing calculation completed:`);
+      const totalAdvanced = chartDataArray.reduce((sum, day) => sum + day.advancedRevenue, 0);
+      const totalCustom = chartDataArray.reduce((sum, day) => sum + day.customRevenue, 0);
+      
+      console.log(`✅ Enhanced pricing calculation completed:`);
       console.log(`   📊 ${chartDataArray.length} days processed`);
       console.log(`   💰 Total revenue: ₹${totalRevenue.toLocaleString('en-IN')}`);
+      console.log(`   ⚡ Advanced: ₹${totalAdvanced.toLocaleString('en-IN')}`);
+      console.log(`   📦 Custom: ₹${totalCustom.toLocaleString('en-IN')}`);
       console.log(`   📋 Total bookings: ${totalBookings}`);
       
     } catch (error) {
@@ -198,7 +393,7 @@ function DailyRevenueBarChart() {
     } finally {
       setLoading(false);
     }
-  }, [timeFilter, customDateRange, showComparison]);
+  }, [timeFilter, customDateRange]);
 
   useEffect(() => {
     fetchDailyRevenueData();
@@ -208,14 +403,14 @@ function DailyRevenueBarChart() {
   const exportChartData = async () => {
     setExportLoading(true);
     try {
-      const csvHeader = showComparison 
-        ? 'Date,Revenue,Bookings,Avg Booking Value,Previous Revenue,Previous Bookings\n'
+      const csvHeader = showBreakdown 
+        ? 'Date,Total Revenue,Advanced Revenue,Custom Revenue,Total Bookings,Advanced Bookings,Custom Bookings,Avg Booking Value\n'
         : 'Date,Revenue,Bookings,Avg Booking Value\n';
       
       const csvData = chartData.map(item => {
         const baseRow = `${item.date},${item.revenue},${item.bookings},${item.avgBookingValue}`;
-        return showComparison 
-          ? `${baseRow},${item.prevRevenue || 0},${item.prevBookings || 0}`
+        return showBreakdown 
+          ? `${item.date},${item.revenue},${item.advancedRevenue},${item.customRevenue},${item.bookings},${item.advancedBookings},${item.customBookings},${item.avgBookingValue}`
           : baseRow;
       }).join('\n');
       
@@ -225,7 +420,7 @@ function DailyRevenueBarChart() {
       
       const a = document.createElement('a');
       a.href = url;
-      a.download = `daily-revenue-${timeFilter}-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `daily-revenue-breakdown-${timeFilter}-${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -243,8 +438,10 @@ function DailyRevenueBarChart() {
     if (data && data.date) {
       const confirmDrilldown = confirm(
         `📊 ${data.fullDate}\n\n` +
-        `💰 Revenue: ₹${data.revenue.toLocaleString('en-IN')}\n` +
-        `📋 Bookings: ${data.bookings}\n` +
+        `💰 Total Revenue: ₹${data.revenue.toLocaleString('en-IN')}\n` +
+        `⚡ Advanced: ₹${data.advancedRevenue.toLocaleString('en-IN')} (${data.advancedBookings} bookings)\n` +
+        `📦 Custom: ₹${data.customRevenue.toLocaleString('en-IN')} (${data.customBookings} bookings)\n` +
+        `📋 Total Bookings: ${data.bookings}\n` +
         `💸 Avg per Booking: ₹${data.avgBookingValue.toLocaleString('en-IN')}\n\n` +
         `Click OK to view detailed bookings for this date.`
       );
@@ -265,31 +462,30 @@ function DailyRevenueBarChart() {
           </h4>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between items-center">
-              <span className="text-gray-300">Revenue:</span>
+              <span className="text-gray-300">Total Revenue:</span>
               <span className="text-green-400 font-bold">₹{data.revenue.toLocaleString('en-IN')}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-gray-300">Bookings:</span>
+              <span className="text-gray-300">Total Bookings:</span>
               <span className="text-blue-400 font-medium">{data.bookings}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-300">Avg Value:</span>
-              <span className="text-purple-400 font-medium">₹{data.avgBookingValue.toLocaleString('en-IN')}</span>
-            </div>
-            {showComparison && data.prevRevenue && (
+            {showBreakdown && (
               <>
                 <hr className="border-gray-600 my-2" />
-                <div className="text-gray-400 text-xs">Previous Period:</div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">Revenue:</span>
-                  <span className="text-green-300">₹{data.prevRevenue.toLocaleString('en-IN')}</span>
+                  <span className="text-blue-300">⚡ Advanced:</span>
+                  <span className="text-blue-400">₹{data.advancedRevenue.toLocaleString('en-IN')} ({data.advancedBookings})</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">Bookings:</span>
-                  <span className="text-blue-300">{data.prevBookings}</span>
+                  <span className="text-purple-300">📦 Custom:</span>
+                  <span className="text-purple-400">₹{data.customRevenue.toLocaleString('en-IN')} ({data.customBookings})</span>
                 </div>
               </>
             )}
+            <div className="flex justify-between items-center">
+              <span className="text-gray-300">Avg Value:</span>
+              <span className="text-cyan-400 font-medium">₹{data.avgBookingValue.toLocaleString('en-IN')}</span>
+            </div>
           </div>
           <div className="mt-3 pt-2 border-t border-gray-600 text-xs text-cyan-400">
             💡 Click to view detailed bookings
@@ -315,11 +511,11 @@ function DailyRevenueBarChart() {
             <h3 className="text-2xl font-bold text-white flex items-center gap-3">
               📊 Daily Revenue Analysis
               <div className="text-xs text-cyan-400 bg-cyan-400/10 px-3 py-1 rounded-full">
-                🧮 Advanced Pricing
+                ⚡📦 Dual Pricing
               </div>
             </h3>
             <p className="text-gray-400 mt-1">
-              Grace periods, block rates & night charges included
+              Advanced pricing + Custom packages combined
             </p>
           </div>
           
@@ -327,10 +523,10 @@ function DailyRevenueBarChart() {
           <div className="flex flex-wrap gap-2">
             <ThemedButton
               variant="secondary"
-              onClick={() => setShowComparison(!showComparison)}
+              onClick={() => setShowBreakdown(!showBreakdown)}
               className="text-sm flex items-center gap-2"
             >
-              {showComparison ? '🔀 Hide Comparison' : '🔀 Compare Periods'}
+              {showBreakdown ? '📊 Hide Breakdown' : '📊 Show Breakdown'}
             </ThemedButton>
             <ThemedButton
               variant="primary"
@@ -344,7 +540,7 @@ function DailyRevenueBarChart() {
         </div>
       </div>
 
-      {/* Improved Filter Controls */}
+      {/* Filter Controls */}
       <div className="p-6 bg-gray-800/30 border-b border-gray-700/50">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
@@ -368,6 +564,7 @@ function DailyRevenueBarChart() {
               onValueChange={setChartType}
               options={[
                 { value: 'bar', label: '📊 Bar Chart' },
+                { value: 'stacked', label: '📊 Stacked Bar' },
                 { value: 'line', label: '📈 Line Chart' },
                 { value: 'composed', label: '📋 Combined' }
               ]}
@@ -404,8 +601,8 @@ function DailyRevenueBarChart() {
           <div className="h-96 flex items-center justify-center">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto mb-4"></div>
-              <div className="text-white text-lg mb-2">🧮 Calculating Advanced Pricing</div>
-              <div className="text-gray-400 text-sm">Processing bookings with grace periods, block rates & night charges</div>
+              <div className="text-white text-lg mb-2">🧮 Calculating Dual Pricing</div>
+              <div className="text-gray-400 text-sm">Processing advanced pricing + custom packages</div>
             </div>
           </div>
         ) : dataError ? (
@@ -425,9 +622,14 @@ function DailyRevenueBarChart() {
               <div className="text-6xl mb-4">📊</div>
               <h3 className="text-xl font-medium mb-2">No Revenue Data</h3>
               <p className="text-sm mb-4">Daily revenue data will appear here once you have bookings</p>
-              <ThemedButton variant="secondary" onClick={() => window.location.href = '/booking'}>
-                ➕ Create First Booking
-              </ThemedButton>
+              <div className="flex gap-3 justify-center">
+                <ThemedButton variant="secondary" onClick={() => window.location.href = '/booking'}>
+                  ⚡ Advanced Booking
+                </ThemedButton>
+                <ThemedButton variant="success" onClick={() => window.location.href = '/custom-booking'}>
+                  📦 Custom Booking
+                </ThemedButton>
+              </div>
             </div>
           </div>
         ) : (
@@ -455,14 +657,33 @@ function DailyRevenueBarChart() {
                     radius={[4, 4, 0, 0]}
                     cursor="pointer"
                   />
-                  {showComparison && (
-                    <Bar 
-                      dataKey="prevRevenue" 
-                      fill="#6B7280" 
-                      radius={[4, 4, 0, 0]}
-                      opacity={0.6}
-                    />
-                  )}
+                </BarChart>
+              ) : chartType === 'stacked' ? (
+                <BarChart data={chartData} onClick={handleBarClick}>
+                  <CartesianGrid {...chartTheme.cartesianGrid} />
+                  <XAxis 
+                    dataKey="dateFormatted" 
+                    {...chartTheme.xAxis}
+                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                  />
+                  <YAxis 
+                    {...chartTheme.yAxis}
+                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                    tickFormatter={(value) => `₹${value}`}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar 
+                    dataKey="advancedRevenue" 
+                    stackId="a"
+                    fill="#3B82F6" 
+                    name="Advanced Pricing"
+                  />
+                  <Bar 
+                    dataKey="customRevenue" 
+                    stackId="a"
+                    fill="#8B5CF6" 
+                    name="Custom Packages"
+                  />
                 </BarChart>
               ) : chartType === 'line' ? (
                 <LineChart data={chartData}>
@@ -485,15 +706,25 @@ function DailyRevenueBarChart() {
                     strokeWidth={3}
                     dot={{ fill: '#10B981', strokeWidth: 2, r: 6 }}
                   />
-                  {showComparison && (
-                    <Line 
-                      type="monotone" 
-                      dataKey="prevRevenue" 
-                      stroke="#6B7280" 
-                      strokeWidth={2}
-                      strokeDasharray="5 5"
-                      dot={{ fill: '#6B7280', strokeWidth: 2, r: 4 }}
-                    />
+                  {showBreakdown && (
+                    <>
+                      <Line 
+                        type="monotone" 
+                        dataKey="advancedRevenue" 
+                        stroke="#3B82F6" 
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="customRevenue" 
+                        stroke="#8B5CF6" 
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        dot={{ fill: '#8B5CF6', strokeWidth: 2, r: 4 }}
+                      />
+                    </>
                   )}
                 </LineChart>
               ) : (
@@ -544,10 +775,10 @@ function DailyRevenueBarChart() {
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-lg font-semibold text-white">Period Summary</h4>
             <div className="text-xs text-cyan-400 bg-cyan-400/10 px-3 py-1 rounded-full">
-              🧮 Advanced Pricing Applied
+              ⚡📦 Dual Pricing Applied
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center p-4 rounded-lg bg-green-900/20 border border-green-700/30">
               <div className="text-2xl font-bold text-green-400 mb-1">
                 ₹{chartData.reduce((sum, item) => sum + item.revenue, 0).toLocaleString('en-IN')}
@@ -556,26 +787,30 @@ function DailyRevenueBarChart() {
             </div>
             <div className="text-center p-4 rounded-lg bg-blue-900/20 border border-blue-700/30">
               <div className="text-2xl font-bold text-blue-400 mb-1">
-                {chartData.reduce((sum, item) => sum + item.bookings, 0)}
+                ₹{chartData.reduce((sum, item) => sum + item.advancedRevenue, 0).toLocaleString('en-IN')}
               </div>
-              <div className="text-sm text-blue-200">Total Bookings</div>
+              <div className="text-sm text-blue-200">⚡ Advanced</div>
             </div>
             <div className="text-center p-4 rounded-lg bg-purple-900/20 border border-purple-700/30">
               <div className="text-2xl font-bold text-purple-400 mb-1">
+                ₹{chartData.reduce((sum, item) => sum + item.customRevenue, 0).toLocaleString('en-IN')}
+              </div>
+              <div className="text-sm text-purple-200">📦 Custom</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-cyan-900/20 border border-cyan-700/30">
+              <div className="text-2xl font-bold text-cyan-400 mb-1">
+                {chartData.reduce((sum, item) => sum + item.bookings, 0)}
+              </div>
+              <div className="text-sm text-cyan-200">Total Bookings</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-orange-900/20 border border-orange-700/30">
+              <div className="text-2xl font-bold text-orange-400 mb-1">
                 ₹{Math.round(
                   chartData.reduce((sum, item) => sum + item.revenue, 0) / 
                   Math.max(chartData.reduce((sum, item) => sum + item.bookings, 0), 1)
                 ).toLocaleString('en-IN')}
               </div>
-              <div className="text-sm text-purple-200">Avg per Booking</div>
-            </div>
-            <div className="text-center p-4 rounded-lg bg-orange-900/20 border border-orange-700/30">
-              <div className="text-2xl font-bold text-orange-400 mb-1">
-                ₹{Math.round(
-                  chartData.reduce((sum, item) => sum + item.revenue, 0) / chartData.length
-                ).toLocaleString('en-IN')}
-              </div>
-              <div className="text-sm text-orange-200">Daily Average</div>
+              <div className="text-sm text-orange-200">Avg per Booking</div>
             </div>
           </div>
         </div>
@@ -584,24 +819,27 @@ function DailyRevenueBarChart() {
   );
 }
 
-// ✅ FIXED: Daily Revenue Summary Stats Component
+// ✅ ENHANCED: Daily Revenue Summary Stats Component with Custom Booking Support
 function DailyRevenueSummary() {
   const [summaryData, setSummaryData] = useState({
     todayRevenue: 0,
+    todayAdvanced: 0,
+    todayCustom: 0,
     weekRevenue: 0,
     monthRevenue: 0,
     peakDay: null,
     averageDailyRevenue: 0,
-    revenueGrowth: 0
+    revenueGrowth: 0,
+    bookingTypeRatio: { advanced: 0, custom: 0 }
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchSummaryData = async () => {
-      if (loading) return; // ✅ FIXED: Prevent multiple simultaneous calls
+      if (loading) return;
       
       try {
-        console.log('🧮 Calculating revenue summary using advanced pricing...');
+        console.log('🧮 Calculating enhanced revenue summary with both pricing types...');
         
         // Get real bookings data
         const bookingsResponse = await fetch('/api/bookings');
@@ -631,28 +869,38 @@ function DailyRevenueSummary() {
         // Filter out cancelled bookings
         const validBookings = bookingsData.bookings.filter(booking => booking.status !== 'cancelled');
 
-        // Calculate today's revenue using helper function
+        // Calculate today's revenue by type
         const todayBookings = validBookings.filter(booking => {
           const bookingDate = new Date(booking.createdAt);
           return bookingDate >= today && bookingDate < tomorrow;
         });
-        const todayRevenue = await calculateTotalRevenue(todayBookings);
+        
+        let todayAdvanced = 0, todayCustom = 0;
+        for (const booking of todayBookings) {
+          const revenue = await calculateBookingRevenue(booking);
+          if (booking.isCustomBooking) {
+            todayCustom += revenue;
+          } else {
+            todayAdvanced += revenue;
+          }
+        }
+        const todayRevenue = todayAdvanced + todayCustom;
 
-        // Calculate week revenue using helper function
+        // Calculate week revenue
         const weekBookings = validBookings.filter(booking => {
           const bookingDate = new Date(booking.createdAt);
           return bookingDate >= weekAgo && bookingDate <= now;
         });
         const weekRevenue = await calculateTotalRevenue(weekBookings);
 
-        // Calculate month revenue using helper function
+        // Calculate month revenue
         const monthBookings = validBookings.filter(booking => {
           const bookingDate = new Date(booking.createdAt);
           return bookingDate >= monthAgo && bookingDate <= now;
         });
         const monthRevenue = await calculateTotalRevenue(monthBookings);
 
-        // Calculate previous month revenue for growth calculation
+        // Calculate previous month revenue for growth
         const prevMonthBookings = validBookings.filter(booking => {
           const bookingDate = new Date(booking.createdAt);
           return bookingDate >= twoMonthsAgo && bookingDate < monthAgo;
@@ -685,17 +933,28 @@ function DailyRevenueSummary() {
         const averageDailyRevenue = dailyRevenue.size > 0 ? 
           Math.round(monthRevenue / Math.min(30, dailyRevenue.size)) : 0;
 
+        // Calculate booking type ratio for today
+        const totalTodayBookings = todayBookings.length;
+        const advancedCount = todayBookings.filter(b => !b.isCustomBooking).length;
+        const customCount = todayBookings.filter(b => b.isCustomBooking).length;
+        
         setSummaryData({
           todayRevenue: Math.round(todayRevenue),
+          todayAdvanced: Math.round(todayAdvanced),
+          todayCustom: Math.round(todayCustom),
           weekRevenue: Math.round(weekRevenue),
           monthRevenue: Math.round(monthRevenue),
           peakDay,
           averageDailyRevenue,
-          revenueGrowth: Math.round(revenueGrowth * 10) / 10
+          revenueGrowth: Math.round(revenueGrowth * 10) / 10,
+          bookingTypeRatio: {
+            advanced: totalTodayBookings > 0 ? Math.round((advancedCount / totalTodayBookings) * 100) : 0,
+            custom: totalTodayBookings > 0 ? Math.round((customCount / totalTodayBookings) * 100) : 0
+          }
         });
 
-        console.log(`✅ Advanced pricing summary completed:`);
-        console.log(`   📅 Today: ₹${Math.round(todayRevenue).toLocaleString('en-IN')}`);
+        console.log(`✅ Enhanced pricing summary completed:`);
+        console.log(`   📅 Today: ₹${Math.round(todayRevenue).toLocaleString('en-IN')} (⚡₹${Math.round(todayAdvanced)} + 📦₹${Math.round(todayCustom)})`);
         console.log(`   📅 Week: ₹${Math.round(weekRevenue).toLocaleString('en-IN')}`);
         console.log(`   📅 Month: ₹${Math.round(monthRevenue).toLocaleString('en-IN')}`);
         console.log(`   📈 Growth: ${Math.round(revenueGrowth * 10) / 10}%`);
@@ -726,14 +985,17 @@ function DailyRevenueSummary() {
   }
 
   return (
-    <ThemedCard title="📈 Revenue Summary" description="🧮 Advanced pricing calculations with real-time updates">
+    <ThemedCard title="📈 Revenue Summary" description="⚡📦 Dual pricing calculations with real-time updates">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
         <div className="text-center p-4 rounded-lg bg-green-900/20 border border-green-700/30">
           <div className="text-2xl font-bold text-green-400 mb-1">
             ₹{summaryData.todayRevenue.toLocaleString('en-IN')}
           </div>
           <div className="text-green-200 text-sm">Today's Revenue</div>
-          <div className="text-xs text-green-300 mt-1">Live Updates</div>
+          <div className="text-xs text-green-300 mt-1 flex justify-center gap-2">
+            <span>⚡₹{summaryData.todayAdvanced.toLocaleString('en-IN')}</span>
+            <span>📦₹{summaryData.todayCustom.toLocaleString('en-IN')}</span>
+          </div>
         </div>
 
         <div className="text-center p-4 rounded-lg bg-blue-900/20 border border-blue-700/30">
@@ -779,11 +1041,28 @@ function DailyRevenueSummary() {
           <div className="text-xs text-emerald-300 mt-1">vs last month</div>
         </div>
       </div>
+
+      {/* Today's Booking Type Breakdown */}
+      {(summaryData.todayAdvanced > 0 || summaryData.todayCustom > 0) && (
+        <div className="mt-6 pt-4 border-t border-gray-700/50">
+          <h4 className="text-sm font-medium text-white mb-3">Today's Booking Mix</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="text-center p-3 bg-blue-800/30 rounded-lg">
+              <div className="text-lg font-bold text-blue-400">{summaryData.bookingTypeRatio.advanced}%</div>
+              <div className="text-xs text-blue-300">⚡ Advanced Pricing</div>
+            </div>
+            <div className="text-center p-3 bg-purple-800/30 rounded-lg">
+              <div className="text-lg font-bold text-purple-400">{summaryData.bookingTypeRatio.custom}%</div>
+              <div className="text-xs text-purple-300">📦 Custom Packages</div>
+            </div>
+          </div>
+        </div>
+      )}
     </ThemedCard>
   );
 }
 
-// Enhanced Animated Counter Component
+// Enhanced Animated Counter Component (unchanged)
 function EnhancedAnimatedCounter({ value, duration = 1000, prefix = '', suffix = '', previousValue }) {
   const [displayValue, setDisplayValue] = useState(previousValue || 0);
 
@@ -796,7 +1075,6 @@ function EnhancedAnimatedCounter({ value, duration = 1000, prefix = '', suffix =
       const elapsed = Date.now() - startTime;
       const progress = Math.min(elapsed / duration, 1);
       
-      // Smooth easing function
       const easeOutQuart = 1 - Math.pow(1 - progress, 4);
       const currentValue = Math.floor(startValue + (difference * easeOutQuart));
       
@@ -817,7 +1095,7 @@ function EnhancedAnimatedCounter({ value, duration = 1000, prefix = '', suffix =
   );
 }
 
-// Enhanced Stats Card with Live Features
+// Enhanced Stats Card with Live Features (unchanged)
 function LiveStatsCard({ 
   title, 
   value, 
@@ -839,7 +1117,6 @@ function LiveStatsCard({
       "hover:border-gray-600/50 transition-all duration-300",
       "hover:scale-105 hover:shadow-xl p-6"
     )}>
-      {/* Live indicator */}
       <div className="absolute top-4 right-4">
         <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
       </div>
@@ -914,7 +1191,7 @@ function LiveStatsCard({
   );
 }
 
-// Fleet Status Grid - Fixed for real data
+// Fleet Status Grid (unchanged)
 function FleetStatusGrid({ vehicles }) {
   if (!vehicles || vehicles.length === 0) {
     return (
@@ -928,7 +1205,6 @@ function FleetStatusGrid({ vehicles }) {
 
   return (
     <div className="space-y-4">
-      {/* Vehicle Cards Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {vehicles.map((vehicle, index) => (
           <div
@@ -940,7 +1216,6 @@ function FleetStatusGrid({ vehicles }) {
               vehicle.status === 'maintenance' && "border-red-500/50 bg-red-500/10"
             )}
           >
-            {/* Status indicator */}
             <div className="flex justify-between items-start mb-2">
               <div className="text-lg">
                 {vehicle.type === 'bike' ? '🏍️' : '🛵'}
@@ -978,22 +1253,20 @@ function FleetStatusGrid({ vehicles }) {
   );
 }
 
+// ✅ ENHANCED: Top Loyal Customers with Custom Booking Revenue
 function TopLoyalCustomers({ customers }) {
   const [customersWithAdvancedPricing, setCustomersWithAdvancedPricing] = useState([]);
   const [recalculating, setRecalculating] = useState(false);
   const [hasRecalculated, setHasRecalculated] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
 
-  // Fixed recalculation with proper customer ID matching
   const recalculateWithAdvancedPricing = useCallback(async () => {
     if (!customers || customers.length === 0) return;
     
     setRecalculating(true);
     try {
-      console.log('🧮 Recalculating loyal customers with advanced pricing...');
-      console.log('📊 Customer data structure:', customers[0]);
+      console.log('🧮 Recalculating loyal customers with dual pricing...');
       
-      // Fetch all bookings to recalculate each customer's revenue
       const bookingsResponse = await fetch('/api/bookings');
       const bookingsData = await bookingsResponse.json();
       
@@ -1002,12 +1275,8 @@ function TopLoyalCustomers({ customers }) {
         return;
       }
 
-      console.log('📋 Sample booking structure:', bookingsData.bookings[0]);
-      console.log(`📊 Total bookings found: ${bookingsData.bookings.length}`);
-
       const updatedCustomers = await Promise.all(
         customers.map(async (customer) => {
-          // ✅ FIXED: Try multiple possible customer ID field names
           const possibleCustomerIds = [
             customer.customerId,
             customer._id,
@@ -1016,10 +1285,6 @@ function TopLoyalCustomers({ customers }) {
             customer.customerDetails?.customerId
           ].filter(Boolean);
 
-          console.log(`🔍 Looking for bookings for customer: ${customer.customerName}`);
-          console.log(`🆔 Possible customer IDs: ${possibleCustomerIds.join(', ')}`);
-
-          // Get all completed bookings for this customer using any possible ID match
           const customerBookings = bookingsData.bookings.filter(booking => {
             const bookingCustomerIds = [
               booking.customerId,
@@ -1029,7 +1294,6 @@ function TopLoyalCustomers({ customers }) {
               booking.customer?.id
             ].filter(Boolean);
 
-            // Check if any customer ID matches any booking customer ID
             return possibleCustomerIds.some(custId => 
               bookingCustomerIds.some(bookCustId => 
                 custId.toString() === bookCustId.toString()
@@ -1037,96 +1301,61 @@ function TopLoyalCustomers({ customers }) {
             ) && booking.status === 'completed';
           });
 
-          console.log(`📝 Found ${customerBookings.length} completed bookings for ${customer.customerName}`);
-          
-          if (customerBookings.length > 0) {
-            console.log(`💰 Sample booking amounts for ${customer.customerName}:`, 
-              customerBookings.slice(0, 2).map(b => ({
-                id: b.bookingId,
-                finalAmount: b.finalAmount,
-                baseAmount: b.baseAmount,
-                startTime: b.startTime,
-                endTime: b.endTime
-              }))
-            );
-          }
-
-          // Calculate advanced pricing for each booking
+          // Calculate dual pricing for each booking
           let totalAdvancedRevenue = 0;
-          let totalStoredRevenue = 0;
+          let totalCustomRevenue = 0;
+          let advancedBookings = 0;
+          let customBookings = 0;
           
           for (const booking of customerBookings) {
-            // Add stored revenue for comparison
-            totalStoredRevenue += (booking.finalAmount || booking.baseAmount || 0);
+            const revenue = await calculateBookingRevenue(booking);
             
-            if (booking.startTime && booking.endTime) {
-              try {
-                const revenue = await calculateBookingRevenue(booking);
-                totalAdvancedRevenue += revenue;
-                console.log(`💡 Booking ${booking.bookingId}: Advanced=₹${revenue}, Stored=₹${booking.finalAmount || booking.baseAmount}`);
-              } catch (error) {
-                console.warn(`❌ Failed to calculate advanced pricing for booking ${booking.bookingId}:`, error);
-                // Fallback to stored amount
-                totalAdvancedRevenue += (booking.finalAmount || booking.baseAmount || 0);
-              }
+            if (booking.isCustomBooking) {
+              totalCustomRevenue += revenue;
+              customBookings++;
             } else {
-              console.warn(`⚠️ Booking ${booking.bookingId} missing start/end time`);
-              totalAdvancedRevenue += (booking.finalAmount || booking.baseAmount || 0);
+              totalAdvancedRevenue += revenue;
+              advancedBookings++;
             }
           }
 
-          console.log(`📊 ${customer.customerName} totals: Advanced=₹${totalAdvancedRevenue}, Stored=₹${totalStoredRevenue}, Original=₹${customer.totalRevenue}`);
+          const totalDualRevenue = totalAdvancedRevenue + totalCustomRevenue;
 
           return {
             ...customer,
+            totalDualRevenue: Math.round(totalDualRevenue),
             totalAdvancedRevenue: Math.round(totalAdvancedRevenue),
-            totalStoredRevenue: Math.round(totalStoredRevenue),
+            totalCustomRevenue: Math.round(totalCustomRevenue),
+            advancedBookings,
+            customBookings,
             originalRevenue: customer.totalRevenue || 0,
-            revenueDifference: Math.round(totalAdvancedRevenue - (customer.totalRevenue || 0)),
-            bookingsFound: customerBookings.length,
-            debugBookings: customerBookings.slice(0, 3).map(b => ({
-              id: b.bookingId,
-              amount: b.finalAmount || b.baseAmount,
-              status: b.status
-            }))
+            revenueDifference: Math.round(totalDualRevenue - (customer.totalRevenue || 0)),
+            bookingsFound: customerBookings.length
           };
         })
       );
 
-      // Sort by advanced revenue (descending)
-      const sortedCustomers = updatedCustomers.sort((a, b) => b.totalAdvancedRevenue - a.totalAdvancedRevenue);
+      const sortedCustomers = updatedCustomers.sort((a, b) => b.totalDualRevenue - a.totalDualRevenue);
       
       setCustomersWithAdvancedPricing(sortedCustomers);
       setHasRecalculated(true);
       
-      // Store debug info
       setDebugInfo({
         totalCustomers: customers.length,
-        totalBookings: bookingsData.bookings.length,
         customersWithBookings: sortedCustomers.filter(c => c.bookingsFound > 0).length,
-        sampleData: sortedCustomers.slice(0, 2).map(c => ({
-          name: c.customerName,
-          bookingsFound: c.bookingsFound,
-          advancedRevenue: c.totalAdvancedRevenue,
-          storedRevenue: c.totalStoredRevenue
-        }))
+        totalAdvancedRevenue: sortedCustomers.reduce((sum, c) => sum + c.totalAdvancedRevenue, 0),
+        totalCustomRevenue: sortedCustomers.reduce((sum, c) => sum + c.totalCustomRevenue, 0)
       });
       
-      console.log('✅ Customer loyalty recalculation completed with advanced pricing');
-      console.log('📊 Debug summary:', {
-        totalCustomers: customers.length,
-        customersWithBookings: sortedCustomers.filter(c => c.bookingsFound > 0).length,
-        totalAdvancedRevenue: sortedCustomers.reduce((sum, c) => sum + c.totalAdvancedRevenue, 0)
-      });
+      console.log('✅ Customer loyalty recalculation completed with dual pricing');
       
     } catch (error) {
-      console.error('❌ Error recalculating customer revenue with advanced pricing:', error);
+      console.error('❌ Error recalculating customer revenue with dual pricing:', error);
     } finally {
       setRecalculating(false);
     }
   }, [customers]);
 
-  // Auto-recalculate when customers data changes
   useEffect(() => {
     if (customers && customers.length > 0 && !hasRecalculated) {
       recalculateWithAdvancedPricing();
@@ -1154,23 +1383,17 @@ function TopLoyalCustomers({ customers }) {
 
   return (
     <div className="space-y-4">
-      {/* Header with actions and debug info */}
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center space-x-2">
           {hasRecalculated && (
             <div className="text-xs text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded">
-              🧮 Advanced Pricing
+              ⚡📦 Dual Pricing
             </div>
           )}
           {recalculating && (
             <div className="text-xs text-orange-400 bg-orange-400/10 px-2 py-1 rounded flex items-center gap-1">
               <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-400"></div>
               Calculating...
-            </div>
-          )}
-          {debugInfo && (
-            <div className="text-xs text-gray-400 bg-gray-400/10 px-2 py-1 rounded">
-              🔍 {debugInfo.customersWithBookings}/{debugInfo.totalCustomers} matched
             </div>
           )}
         </div>
@@ -1195,7 +1418,6 @@ function TopLoyalCustomers({ customers }) {
         </div>
       </div>
 
-      {/* Customer List */}
       {displayCustomers.slice(0, 5).map((customer, index) => (
         <div 
           key={customer.customerId || customer._id || index}
@@ -1208,64 +1430,63 @@ function TopLoyalCustomers({ customers }) {
           }}
         >
           <div className="flex items-center space-x-4">
-            {/* Ranking Badge */}
             <div className={cn(
               "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
-              index === 0 && "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30", // Gold
-              index === 1 && "bg-gray-400/20 text-gray-300 border border-gray-400/30", // Silver  
-              index === 2 && "bg-orange-500/20 text-orange-400 border border-orange-500/30", // Bronze
-              index > 2 && "bg-blue-500/20 text-blue-400 border border-blue-500/30" // Regular
+              index === 0 && "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
+              index === 1 && "bg-gray-400/20 text-gray-300 border border-gray-400/30",
+              index === 2 && "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+              index > 2 && "bg-blue-500/20 text-blue-400 border border-blue-500/30"
             )}>
               {index === 0 ? '🏆' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
             </div>
 
-            {/* Customer Info */}
             <div>
               <div className="font-semibold text-white hover:text-cyan-400 transition-colors">
                 {customer.customerName}
               </div>
               <div className="text-sm text-gray-400">{customer.customerPhone}</div>
-              {/* Debug info for development */}
-              {hasRecalculated && customer.bookingsFound !== undefined && (
-                <div className="text-xs text-gray-500">
-                  {customer.bookingsFound} bookings found
+              {hasRecalculated && (customer.advancedBookings > 0 || customer.customBookings > 0) && (
+                <div className="text-xs text-gray-500 flex gap-2">
+                  {customer.advancedBookings > 0 && <span>⚡{customer.advancedBookings}</span>}
+                  {customer.customBookings > 0 && <span>📦{customer.customBookings}</span>}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Stats */}
           <div className="text-right">
             <div className="text-lg font-bold text-cyan-400">
               {customer.totalBookings} bookings
             </div>
             
-            {/* Revenue with advanced pricing indicator */}
-            <div className="text-sm text-gray-400">
-              {hasRecalculated ? (
-                <div className="space-y-1">
-                  <div className="text-green-400 font-medium">
-                    ₹{customer.totalAdvancedRevenue.toLocaleString('en-IN')} total
+            {hasRecalculated ? (
+              <div className="space-y-1">
+                <div className="text-green-400 font-medium">
+                  ₹{customer.totalDualRevenue.toLocaleString('en-IN')} total
+                </div>
+                
+                {(customer.totalAdvancedRevenue > 0 || customer.totalCustomRevenue > 0) && (
+                  <div className="text-xs text-gray-400 flex gap-2">
+                    {customer.totalAdvancedRevenue > 0 && (
+                      <span>⚡₹{customer.totalAdvancedRevenue.toLocaleString('en-IN')}</span>
+                    )}
+                    {customer.totalCustomRevenue > 0 && (
+                      <span>📦₹{customer.totalCustomRevenue.toLocaleString('en-IN')}</span>
+                    )}
                   </div>
-                  
-                  {customer.revenueDifference !== 0 && (
-                    <div className={`text-xs ${customer.revenueDifference > 0 ? 'text-green-300' : 'text-red-300'}`}>
-                      {customer.revenueDifference > 0 ? '+' : ''}₹{customer.revenueDifference.toLocaleString('en-IN')} vs stored
-                    </div>
-                  )}
-                  
-                  {customer.totalStoredRevenue > 0 && customer.totalStoredRevenue !== customer.originalRevenue && (
-                    <div className="text-xs text-yellow-400">
-                      Stored: ₹{customer.totalStoredRevenue.toLocaleString('en-IN')}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-gray-400">
-                  ₹{(customer.totalRevenue || 0).toLocaleString('en-IN')} total
-                </div>
-              )}
-            </div>
+                )}
+                
+                {customer.revenueDifference !== 0 && (
+                  <div className={`text-xs ${customer.revenueDifference > 0 ? 'text-green-300' : 'text-red-300'}`}>
+                    {customer.revenueDifference > 0 ? '+' : ''}₹{customer.revenueDifference.toLocaleString('en-IN')} vs stored
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-gray-400">
+                ₹{(customer.totalRevenue || 0).toLocaleString('en-IN')} total
+              </div>
+            )}
             
             <div className="text-xs text-green-400">
               {customer.bookingFrequency?.toFixed(1) || '0.0'}/month
@@ -1274,9 +1495,6 @@ function TopLoyalCustomers({ customers }) {
         </div>
       ))}
 
-      
-
-      {/* Footer with summary */}
       {displayCustomers.length > 5 && (
         <div className="text-center pt-4 border-t border-gray-700/50">
           <p className="text-sm text-gray-400 mb-3">
@@ -1291,25 +1509,21 @@ function TopLoyalCustomers({ customers }) {
           </ThemedButton>
         </div>
       )}
-
-
     </div>
   );
 }
 
+// Customer Reliability Section (similar enhancement)
 function CustomerReliabilitySection({ customers }) {
   const [customersWithAdvancedPricing, setCustomersWithAdvancedPricing] = useState([]);
   const [recalculating, setRecalculating] = useState(false);
   const [hasRecalculated, setHasRecalculated] = useState(false);
 
-  // Similar recalculation logic for reliability customers
   const recalculateReliabilityWithAdvancedPricing = useCallback(async () => {
     if (!customers || customers.length === 0) return;
     
     setRecalculating(true);
     try {
-      console.log('🧮 Recalculating reliable customers with advanced pricing...');
-      
       const bookingsResponse = await fetch('/api/bookings');
       const bookingsData = await bookingsResponse.json();
       
@@ -1325,23 +1539,17 @@ function CustomerReliabilitySection({ customers }) {
             booking.status === 'completed'
           );
 
-          let totalAdvancedRevenue = 0;
+          let totalDualRevenue = 0;
           for (const booking of customerBookings) {
-            if (booking.startTime && booking.endTime) {
-              try {
-                const revenue = await calculateBookingRevenue(booking);
-                totalAdvancedRevenue += revenue;
-              } catch (error) {
-                totalAdvancedRevenue += (booking.finalAmount || booking.baseAmount || 0);
-              }
-            }
+            const revenue = await calculateBookingRevenue(booking);
+            totalDualRevenue += revenue;
           }
 
           return {
             ...customer,
-            totalAdvancedRevenue: Math.round(totalAdvancedRevenue),
+            totalDualRevenue: Math.round(totalDualRevenue),
             originalRevenue: customer.totalRevenue || 0,
-            revenueDifference: Math.round(totalAdvancedRevenue - (customer.totalRevenue || 0))
+            revenueDifference: Math.round(totalDualRevenue - (customer.totalRevenue || 0))
           };
         })
       );
@@ -1350,7 +1558,7 @@ function CustomerReliabilitySection({ customers }) {
       setHasRecalculated(true);
       
     } catch (error) {
-      console.error('Error recalculating reliability customers with advanced pricing:', error);
+      console.error('Error recalculating reliability customers with dual pricing:', error);
     } finally {
       setRecalculating(false);
     }
@@ -1383,12 +1591,11 @@ function CustomerReliabilitySection({ customers }) {
 
   return (
     <div className="space-y-4">
-      {/* Header with actions */}
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center space-x-2">
           {hasRecalculated && (
             <div className="text-xs text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded">
-              🧮 Advanced Pricing
+              ⚡📦 Dual Pricing
             </div>
           )}
           {recalculating && (
@@ -1419,7 +1626,6 @@ function CustomerReliabilitySection({ customers }) {
         </div>
       </div>
 
-      {/* Customer List */}
       {displayCustomers.slice(0, 5).map((customer) => (
         <div 
           key={customer.customerId}
@@ -1427,7 +1633,6 @@ function CustomerReliabilitySection({ customers }) {
           onClick={() => window.location.href = `/customers/${customer.customerId}`}
         >
           <div className="flex items-center space-x-4">
-            {/* Reliability Score Circle */}
             <div className="relative w-12 h-12">
               <svg className="w-12 h-12 transform -rotate-90">
                 <circle
@@ -1452,7 +1657,6 @@ function CustomerReliabilitySection({ customers }) {
               </div>
             </div>
 
-            {/* Customer Info */}
             <div>
               <div className="font-semibold text-white hover:text-cyan-400 transition-colors">
                 {customer.customerName}
@@ -1466,16 +1670,14 @@ function CustomerReliabilitySection({ customers }) {
                 </div>
               )}
               
-              {/* Advanced pricing revenue */}
               {hasRecalculated && (
                 <div className="text-xs text-green-400 mt-1">
-                  ₹{customer.totalAdvancedRevenue.toLocaleString('en-IN')} advanced revenue
+                  ₹{customer.totalDualRevenue.toLocaleString('en-IN')} dual revenue
                 </div>
               )}
             </div>
           </div>
 
-          {/* Reliability Badge */}
           <div className={cn(
             "px-3 py-1 rounded-full text-sm font-medium",
             customer.reliabilityScore >= 95 && "bg-green-500/20 text-green-400",
@@ -1488,7 +1690,6 @@ function CustomerReliabilitySection({ customers }) {
         </div>
       ))}
 
-      {/* Footer */}
       {displayCustomers.length > 5 && (
         <div className="text-center pt-4 border-t border-gray-700/50">
           <ThemedButton
@@ -1504,7 +1705,7 @@ function CustomerReliabilitySection({ customers }) {
   );
 }
 
-// Week 2: Enhanced Live Activity Feed with Milestones
+// Enhanced Live Activity Feed (unchanged)
 function EnhancedLiveActivityFeed({ activities, milestones }) {
   const allActivities = [
     ...(milestones || []).map(m => ({
@@ -1565,8 +1766,8 @@ function EnhancedLiveActivityFeed({ activities, milestones }) {
   );
 }
 
+// ✅ ENHANCED: Main Dashboard Component with Dual Pricing Integration
 export default function EnhancedAdminDashboard() {
-  // Enhanced state management with customer intelligence
   const [dashboardData, setDashboardData] = useState({
     todayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
     yesterdayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
@@ -1589,14 +1790,13 @@ export default function EnhancedAdminDashboard() {
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [isLive, setIsLive] = useState(true);
   const [calculatingRevenue, setCalculatingRevenue] = useState(false);
-  const [hasInitialized, setHasInitialized] = useState(false); // NEW: Prevent multiple initial loads
+  const [hasInitialized, setHasInitialized] = useState(false);
 
-  // ✅ FIXED: Memoize the advanced revenue calculation
-  const calculateAdvancedRevenue = useCallback(async () => {
+  // ✅ ENHANCED: Calculate revenue with dual pricing support
+  const calculateEnhancedRevenue = useCallback(async () => {
     try {
       setCalculatingRevenue(true);
       
-      // Get all bookings
       const response = await fetch('/api/bookings');
       const data = await response.json();
       if (!data.success) return null;
@@ -1608,7 +1808,7 @@ export default function EnhancedAdminDashboard() {
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
   
-      // Filter bookings by date and exclude cancelled bookings
+      // Filter bookings by date and exclude cancelled
       const todayBookings = data.bookings.filter(booking => {
         const bookingDate = new Date(booking.createdAt);
         return bookingDate >= today && bookingDate < tomorrow && booking.status !== 'cancelled';
@@ -1619,28 +1819,27 @@ export default function EnhancedAdminDashboard() {
         return bookingDate >= yesterday && bookingDate < today && booking.status !== 'cancelled';
       });
   
-      // Calculate advanced pricing using helper functions
-      const todayAdvancedRevenue = await calculateTotalRevenue(todayBookings);
-      const yesterdayAdvancedRevenue = await calculateTotalRevenue(yesterdayBookings);
+      // Calculate dual pricing revenue
+      const todayEnhancedRevenue = await calculateTotalRevenue(todayBookings);
+      const yesterdayEnhancedRevenue = await calculateTotalRevenue(yesterdayBookings);
 
       return {
-        todayAdvancedRevenue,
-        yesterdayAdvancedRevenue,
+        todayEnhancedRevenue,
+        yesterdayEnhancedRevenue,
         todayBookingsCount: todayBookings.length,
         yesterdayBookingsCount: yesterdayBookings.length
       };
   
     } catch (error) {
-      console.error('Error calculating advanced revenue:', error);
+      console.error('Error calculating enhanced revenue:', error);
       return null;
     } finally {
       setCalculatingRevenue(false);
     }
-  }, []); // ✅ FIXED: Empty dependency array since it doesn't depend on props/state
+  }, []);
 
-  // ✅ FIXED: Stable reference for the main fetch function
+  // ✅ ENHANCED: Fetch dashboard data with dual pricing
   const fetchEnhancedDashboardData = useCallback(async () => {
-    // ✅ FIXED: Prevent multiple simultaneous calls
     if (loading && hasInitialized) {
       console.log('Fetch already in progress, skipping...');
       return;
@@ -1649,36 +1848,20 @@ export default function EnhancedAdminDashboard() {
     try {
       setLoading(true);
       
-      // Calculate advanced revenue first
-      const advancedRevenueData = await calculateAdvancedRevenue();
+      const enhancedRevenueData = await calculateEnhancedRevenue();
       
-      // Enhanced API calls including customer intelligence
+      // Try enhanced revenue API first, then fallback to existing APIs
       const apiCalls = [
-        fetch('/api/analytics/real-time-stats').catch(err => {
-          console.log('Real-time stats API not available:', err.message);
-          return null;
-        }),
-        fetch('/api/analytics/hourly-revenue').catch(err => {
-          console.log('Hourly revenue API not available:', err.message);
-          return null;
-        }),
-        fetch('/api/analytics/fleet-heatmap').catch(err => {
-          console.log('Fleet heatmap API not available:', err.message);
-          return null;
-        }),
-        fetch('/api/analytics/customer-insights').catch(err => {
-          console.log('Customer insights API not available:', err.message);
-          return null;
-        }),
-        fetch('/api/analytics/customer-milestones').catch(err => {
-          console.log('Customer milestones API not available:', err.message);
-          return null;
-        })
+        fetch('/api/admin/enhanced-revenue?period=today').catch(() => null),
+        fetch('/api/analytics/real-time-stats').catch(() => null),
+        fetch('/api/analytics/hourly-revenue').catch(() => null),
+        fetch('/api/analytics/fleet-heatmap').catch(() => null),
+        fetch('/api/analytics/customer-insights').catch(() => null),
+        fetch('/api/analytics/customer-milestones').catch(() => null)
       ];
 
-      const [realTimeRes, hourlyRes, fleetRes, customerInsightsRes, milestonesRes] = await Promise.all(apiCalls);
+      const [enhancedRevenueRes, realTimeRes, hourlyRes, fleetRes, customerInsightsRes, milestonesRes] = await Promise.all(apiCalls);
 
-      // Start with empty base data
       let newData = {
         todayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
         yesterdayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
@@ -1696,20 +1879,34 @@ export default function EnhancedAdminDashboard() {
         customerSummary: { totalCustomersWithBookings: 0, averageReliability: 0, averageBookingsPerCustomer: 0 }
       };
 
-      // Use advanced revenue if calculated successfully
-      if (advancedRevenueData) {
-        newData.todayStats.revenue = advancedRevenueData.todayAdvancedRevenue;
-        newData.todayStats.bookings = advancedRevenueData.todayBookingsCount;
-        newData.yesterdayStats.revenue = advancedRevenueData.yesterdayAdvancedRevenue;
-        newData.yesterdayStats.bookings = advancedRevenueData.yesterdayBookingsCount;
+      // Use enhanced revenue calculation
+      if (enhancedRevenueData) {
+        newData.todayStats.revenue = enhancedRevenueData.todayEnhancedRevenue;
+        newData.todayStats.bookings = enhancedRevenueData.todayBookingsCount;
+        newData.yesterdayStats.revenue = enhancedRevenueData.yesterdayEnhancedRevenue;
+        newData.yesterdayStats.bookings = enhancedRevenueData.yesterdayBookingsCount;
       }
 
-      // Handle real-time stats
+      // Handle enhanced revenue API response
+      if (enhancedRevenueRes?.ok) {
+        try {
+          const enhancedData = await enhancedRevenueRes.json();
+          if (enhancedData.success) {
+            // Store enhanced revenue breakdown for later use
+            newData.enhancedRevenueBreakdown = enhancedData.breakdown;
+            newData.customBookingAnalysis = enhancedData.customBookingAnalysis;
+          }
+        } catch (err) {
+          console.log('Enhanced revenue API parsing failed:', err);
+        }
+      }
+
+      // Handle real-time stats (existing logic)
       if (realTimeRes?.ok) {
         try {
           const realTimeData = await realTimeRes.json();
           if (realTimeData.success) {
-            if (!advancedRevenueData) {
+            if (!enhancedRevenueData) {
               newData.todayStats = {
                 revenue: realTimeData.data.todayRevenue || 0,
                 bookings: realTimeData.data.todayBookings || 0,
@@ -1732,61 +1929,29 @@ export default function EnhancedAdminDashboard() {
           console.log('Error parsing real-time stats:', err);
         }
       } else {
-        // ✅ FIXED: Fallback API calls with proper error handling
+        // Fallback to existing stats API
         try {
-          const fallbackCalls = [
-            fetch('/api/admin/stats').catch(() => fetch('/api/stats').catch(() => null)),
-            fetch('/api/admin/recent-bookings').catch(() => null),
-            fetch(`/api/admin/revenue-chart?range=${timeRange}`).catch(() => null)
-          ];
-
-          const [statsRes, bookingsRes, revenueRes] = await Promise.all(fallbackCalls);
-
+          const statsRes = await fetch('/api/admin/stats').catch(() => null);
           if (statsRes?.ok) {
             const stats = await statsRes.json();
             if (stats.success) {
-              if (!advancedRevenueData) {
-                newData.todayStats = stats.todayStats || stats.stats || {};
+              if (!enhancedRevenueData) {
+                newData.todayStats = stats.todayStats || {};
+                newData.yesterdayStats = stats.yesterdayStats || {};
               } else {
-                const basicStats = stats.todayStats || stats.stats || {};
-                newData.todayStats.activeRentals = basicStats.activeBookings || 0;
-                newData.todayStats.vehiclesOut = basicStats.activeBookings || 0;
+                newData.todayStats.activeRentals = stats.todayStats?.activeRentals || 0;
+                newData.todayStats.vehiclesOut = stats.todayStats?.vehiclesOut || 0;
               }
               newData.vehicleUtilization = stats.vehicleUtilization || [];
               newData.monthlyStats = stats.monthlyStats || {};
             }
           }
-
-          if (bookingsRes?.ok) {
-            const bookings = await bookingsRes.json();
-            if (bookings.success) {
-              newData.recentBookings = bookings.bookings || [];
-            }
-          }
-
-          if (revenueRes?.ok) {
-            const revenue = await revenueRes.json();
-            if (revenue.success) {
-              newData.revenueChart = revenue.chartData || [];
-            }
-          }
         } catch (fallbackError) {
-          console.log('Fallback API calls failed:', fallbackError);
+          console.log('Fallback stats API failed:', fallbackError);
         }
       }
 
-      // Handle other API responses with proper error handling
-      if (hourlyRes?.ok) {
-        try {
-          const hourlyData = await hourlyRes.json();
-          if (hourlyData.success) {
-            newData.hourlyRevenue = hourlyData.data.hourlyRevenue || [];
-          }
-        } catch (err) {
-          console.log('Error parsing hourly data:', err);
-        }
-      }
-
+      // Handle other APIs (existing logic unchanged)
       if (fleetRes?.ok) {
         try {
           const fleetData = await fleetRes.json();
@@ -1797,7 +1962,6 @@ export default function EnhancedAdminDashboard() {
           console.log('Error parsing fleet data:', err);
         }
       } else {
-        // Fallback: get vehicles directly from existing API
         try {
           const vehiclesRes = await fetch('/api/vehicles');
           if (vehiclesRes.ok) {
@@ -1818,7 +1982,7 @@ export default function EnhancedAdminDashboard() {
         }
       }
 
-      // Handle customer intelligence data
+      // Handle customer intelligence
       if (customerInsightsRes?.ok) {
         try {
           const customerData = await customerInsightsRes.json();
@@ -1833,18 +1997,6 @@ export default function EnhancedAdminDashboard() {
         }
       }
 
-      if (milestonesRes?.ok) {
-        try {
-          const milestones = await milestonesRes.json();
-          if (milestones.success) {
-            newData.milestoneAlerts = milestones.data.milestoneAlerts || [];
-          }
-        } catch (err) {
-          console.log('Error parsing milestones:', err);
-        }
-      }
-
-      // ✅ FIXED: Only update state if data has actually changed
       setDashboardData(prevData => {
         const hasChanged = JSON.stringify(prevData) !== JSON.stringify(newData);
         return hasChanged ? newData : prevData;
@@ -1854,7 +2006,7 @@ export default function EnhancedAdminDashboard() {
       setIsLive(true);
       setHasInitialized(true);
 
-      console.log('✅ Dashboard data fetched successfully');
+      console.log('✅ Enhanced dashboard data fetched successfully');
 
     } catch (error) {
       console.error('Error fetching enhanced dashboard data:', error);
@@ -1862,58 +2014,65 @@ export default function EnhancedAdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [timeRange, calculateAdvancedRevenue, hasInitialized]); // ✅ FIXED: Include all dependencies
+  }, [timeRange, calculateEnhancedRevenue, hasInitialized]);
 
-  // ✅ FIXED: Initial load effect - only runs once
+  // Initial load effect
   useEffect(() => {
     if (!hasInitialized) {
-      console.log('🚀 Initial dashboard load...');
+      console.log('🚀 Initial enhanced dashboard load...');
       fetchEnhancedDashboardData();
     }
   }, [fetchEnhancedDashboardData, hasInitialized]);
 
-  // ✅ FIXED: Time range change effect
+  // Time range change effect
   useEffect(() => {
     if (hasInitialized) {
-      console.log('📊 Time range changed, refetching data...');
+      console.log('📊 Time range changed, refetching enhanced data...');
       fetchEnhancedDashboardData();
     }
-  }, [timeRange]); // ✅ FIXED: Only depend on timeRange, not the function
+  }, [timeRange]);
 
-  // ✅ FIXED: Interval for auto-refresh - stable and isolated
+  // Auto-refresh interval
   useEffect(() => {
     if (!hasInitialized) return;
 
-    console.log('⏰ Setting up auto-refresh interval...');
+    console.log('⏰ Setting up enhanced auto-refresh interval...');
     const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing dashboard data...');
+      console.log('🔄 Auto-refreshing enhanced dashboard data...');
       fetchEnhancedDashboardData();
     }, 30000); // 30 seconds
     
     return () => {
-      console.log('🛑 Clearing auto-refresh interval...');
+      console.log('🛑 Clearing enhanced auto-refresh interval...');
       clearInterval(interval);
     };
-  }, [hasInitialized]); // ✅ FIXED: Only depend on initialization state
+  }, [hasInitialized]);
 
-  // ✅ FIXED: Manual refresh function that's stable
+  // Manual refresh function
   const handleManualRefresh = useCallback(() => {
-    console.log('🔄 Manual refresh triggered...');
+    console.log('🔄 Manual enhanced refresh triggered...');
     fetchEnhancedDashboardData();
   }, [fetchEnhancedDashboardData]);
 
-  // Mock data fallback for demonstration
-  const mockRevenueData = [
-    { date: 'Mon', revenue: 2400, bookings: 8 },
-    { date: 'Tue', revenue: 1600, bookings: 6 },
-    { date: 'Wed', revenue: 3200, bookings: 12 },
-    { date: 'Thu', revenue: 2800, bookings: 10 },
-    { date: 'Fri', revenue: 4000, bookings: 15 },
-    { date: 'Sat', revenue: 3600, bookings: 14 },
-    { date: 'Sun', revenue: 3000, bookings: 11 }
-  ];
+  // Loading state
+  if (loading && !hasInitialized) {
+    return (
+      <ThemedLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <ThemedCard>
+            <div className="flex items-center space-x-3 p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+              <span className="text-white text-xl">Loading enhanced dual-pricing dashboard...</span>
+            </div>
+          </ThemedCard>
+        </div>
+      </ThemedLayout>
+    );
+  }
 
-  const pieColors = ['#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+  const utilizationRate = dashboardData.todayStats.vehiclesOut && dashboardData.fleetHeatmap?.length > 0
+    ? (dashboardData.todayStats.vehiclesOut / dashboardData.fleetHeatmap.length * 100)
+    : 0;
 
   const darkChartTheme = {
     cartesianGrid: { stroke: '#374151', strokeDasharray: '3 3' },
@@ -1929,36 +2088,16 @@ export default function EnhancedAdminDashboard() {
     }
   };
 
-  // ✅ FIXED: Better loading state handling
-  if (loading && !hasInitialized) {
-    return (
-      <ThemedLayout>
-        <div className="min-h-screen flex items-center justify-center">
-          <ThemedCard>
-            <div className="flex items-center space-x-3 p-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
-              <span className="text-white text-xl">Loading enhanced dashboard...</span>
-            </div>
-          </ThemedCard>
-        </div>
-      </ThemedLayout>
-    );
-  }
-
-  const utilizationRate = dashboardData.todayStats.vehiclesOut && dashboardData.fleetHeatmap?.length > 0
-    ? (dashboardData.todayStats.vehiclesOut / dashboardData.fleetHeatmap.length * 100)
-    : 0;
-
   return (
     <ThemedLayout>
       <div className="container mx-auto px-6 py-8">
         {/* Enhanced Hero Section */}
         <div className="text-center mb-8">
           <h2 className={theme.typography.hero}>
-            Admin <span className={theme.typography.gradient}>Dashboard</span>
+            Enhanced <span className={theme.typography.gradient}>Dashboard</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Real-time business analytics with advanced pricing calculations
+            Real-time analytics with advanced pricing + custom packages
           </p>
           
           {/* Enhanced Live Indicator */}
@@ -1975,6 +2114,9 @@ export default function EnhancedAdminDashboard() {
                 {isLive ? 'LIVE' : 'OFFLINE'} • Last updated {lastRefresh.toLocaleTimeString('en-IN')}
               </span>
             </div>
+            <div className="text-xs text-cyan-400 bg-cyan-400/10 px-3 py-1 rounded-full">
+              ⚡📦 Dual Pricing Active
+            </div>
             <ThemedButton 
               variant="secondary" 
               onClick={handleManualRefresh}
@@ -1986,13 +2128,13 @@ export default function EnhancedAdminDashboard() {
           </div>
         </div>
 
-        {/* Enhanced Stats Grid */}
+        {/* Enhanced Stats Grid with Dual Pricing */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <LiveStatsCard
             title="Today's Revenue"
             value={calculatingRevenue ? 0 : (dashboardData.todayStats.revenue || 0)}
             previousValue={dashboardData.yesterdayStats.revenue}
-            subtitle={calculatingRevenue ? "Calculating advanced pricing..." : "🧮 Advanced pricing"}
+            subtitle={calculatingRevenue ? "Calculating dual pricing..." : "⚡📦 Dual pricing"}
             icon="💰"
             showComparison={!calculatingRevenue}
           />
@@ -2023,12 +2165,20 @@ export default function EnhancedAdminDashboard() {
           />
         </div>
 
-        {/* Enhanced Chart Section */}
+        {/* ✅ NEW: Booking Type Breakdown Section */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          {/* Booking Type Distribution */}
+          <div className="lg:col-span-1">
+            <BookingTypeBreakdown 
+              bookings={dashboardData.recentBookings} 
+              title="📊 Today's Booking Mix"
+            />
+          </div>
+
           {/* Enhanced Revenue Chart */}
           <div className="lg:col-span-2">
-            <ThemedCard title="📈 Revenue Trends" description="Performance over time">
-              <div className="mb-4">
+            <ThemedCard title="📈 Revenue Trends" description="Performance over time with dual pricing">
+              <div className="mb-4 flex justify-between items-center">
                 <ThemedSelect
                   value={timeRange}
                   onValueChange={setTimeRange}
@@ -2038,8 +2188,11 @@ export default function EnhancedAdminDashboard() {
                     { value: 'quarter', label: 'Last 3 Months' }
                   ]}
                 />
+                <div className="text-xs text-cyan-400 bg-cyan-400/10 px-3 py-1 rounded-full">
+                  ⚡📦 Dual Pricing
+                </div>
               </div>
-              {/* Enhanced Revenue Chart - Real Data Only */}
+              
               {dashboardData.revenueChart && dashboardData.revenueChart.length > 0 ? (
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
@@ -2064,32 +2217,30 @@ export default function EnhancedAdminDashboard() {
                   <div className="text-center text-gray-400">
                     <div className="text-4xl mb-4">📈</div>
                     <h3 className="text-lg font-medium mb-2">No Revenue Data</h3>
-                    <p className="text-sm">Revenue trends will appear here once you have completed bookings</p>
+                    <p className="text-sm mb-4">Revenue trends will appear here once you have completed bookings</p>
+                    <div className="flex gap-3 justify-center">
+                      <ThemedButton variant="secondary" onClick={() => window.location.href = '/booking'}>
+                        ⚡ Advanced Booking
+                      </ThemedButton>
+                      <ThemedButton variant="success" onClick={() => window.location.href = '/custom-booking'}>
+                        📦 Custom Booking
+                      </ThemedButton>
+                    </div>
                   </div>
                 </div>
               )}
             </ThemedCard>
           </div>
-
-          {/* Enhanced Activity Feed with Week 2 Milestones */}
-          <div>
-            <ThemedCard title="🔴 Live Activity" description="Recent transactions & milestones">
-              <EnhancedLiveActivityFeed 
-                activities={dashboardData.recentActivity} 
-                milestones={dashboardData.recentMilestones}
-              />
-            </ThemedCard>
-          </div>
         </div>
 
-        {/* ✅ NEW: Daily Revenue Analysis Section */}
+        {/* ✅ NEW: Enhanced Daily Revenue Analysis Section with Dual Pricing */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Daily Revenue Bar Chart */}
+          {/* Enhanced Daily Revenue Bar Chart */}
           <div className="lg:col-span-2">
             <DailyRevenueBarChart />
           </div>
 
-          {/* Daily Revenue Summary */}
+          {/* Enhanced Daily Revenue Summary */}
           <div>
             <DailyRevenueSummary />
           </div>
@@ -2097,7 +2248,7 @@ export default function EnhancedAdminDashboard() {
 
         {/* Enhanced Vehicle Performance Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Vehicle Performance - Real Data Only */}
+          {/* Vehicle Performance */}
           <ThemedCard title="🚗 Vehicle Performance" description="Top performers this month">
             {dashboardData.vehicleUtilization && dashboardData.vehicleUtilization.length > 0 ? (
               <div className="h-64">
@@ -2149,20 +2300,56 @@ export default function EnhancedAdminDashboard() {
           </ThemedCard>
         </div>
 
-        {/* Week 2: Customer Intelligence Section */}
+        {/* Enhanced Activity Feed */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          <div className="lg:col-span-2">
+            <ThemedCard title="🔴 Live Activity Feed" description="Recent transactions, milestones & booking updates">
+              <EnhancedLiveActivityFeed 
+                activities={dashboardData.recentActivity} 
+                milestones={dashboardData.recentMilestones}
+              />
+            </ThemedCard>
+          </div>
+          
+          {/* Quick Stats Summary */}
+          <div className="space-y-4">
+            <ThemedCard title="📊 Quick Stats" description="Today's overview">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Revenue:</span>
+                  <span className="text-green-400 font-bold">₹{(dashboardData.todayStats.revenue || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Bookings:</span>
+                  <span className="text-blue-400 font-bold">{dashboardData.todayStats.bookings || 0}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Active Rentals:</span>
+                  <span className="text-orange-400 font-bold">{dashboardData.todayStats.activeRentals || 0}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Fleet Usage:</span>
+                  <span className="text-purple-400 font-bold">{Math.round(utilizationRate)}%</span>
+                </div>
+              </div>
+            </ThemedCard>
+          </div>
+        </div>
+
+        {/* Customer Intelligence Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Top Loyal Customers */}
-          <ThemedCard title="🏆 Most Loyal Customers" description="Your repeat customers ranked by bookings">
+          {/* Enhanced Top Loyal Customers */}
+          <ThemedCard title="🏆 Most Loyal Customers" description="Your repeat customers with dual pricing revenue">
             <TopLoyalCustomers customers={dashboardData.topLoyalCustomers} />
           </ThemedCard>
 
-          {/* Customer Reliability */}
+          {/* Enhanced Customer Reliability */}
           <ThemedCard title="⭐ Most Reliable Customers" description="Customers with best on-time return records">
             <CustomerReliabilitySection customers={dashboardData.topReliableCustomers} />
           </ThemedCard>
         </div>
 
-        {/* Week 2: Customer Summary Stats */}
+        {/* Customer Summary Stats */}
         {dashboardData.customerSummary && dashboardData.customerSummary.totalCustomersWithBookings > 0 && (
           <ThemedCard title="👥 Customer Overview" className="mb-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -2198,6 +2385,7 @@ export default function EnhancedAdminDashboard() {
                 ₹{(dashboardData.monthlyStats.totalRevenue || 0).toLocaleString('en-IN')}
               </div>
               <div className="text-green-200 text-sm">Total Revenue</div>
+              <div className="text-xs text-green-300 mt-1">⚡📦 Dual pricing</div>
             </div>
             
             <div className="text-center p-4 rounded-lg bg-blue-900/20 border border-blue-700/30">
@@ -2223,14 +2411,18 @@ export default function EnhancedAdminDashboard() {
           </div>
         </ThemedCard>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* ✅ ENHANCED: Quick Actions with Custom Booking */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <ThemedButton variant="primary" className="w-full py-3" onClick={() => window.location.href = '/booking'}>
-            ➕ New Booking
+            ⚡ Advanced Booking
           </ThemedButton>
 
-          <ThemedButton variant="secondary" className="w-full py-3" onClick={() => window.location.href = '/admin/bookings'}>
-            📋 All Bookings
+          <ThemedButton variant="success" className="w-full py-3" onClick={() => window.location.href = '/custom-booking'}>
+            📦 Custom Booking
+          </ThemedButton>
+
+          <ThemedButton variant="secondary" className="w-full py-3" onClick={() => window.location.href = '/custom-bookings'}>
+            📋 Custom Bookings
           </ThemedButton>
           
           <ThemedButton variant="secondary" className="w-full py-3" onClick={() => window.location.href = '/active-bookings'}>

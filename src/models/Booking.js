@@ -98,6 +98,20 @@ const bookingSchema = new mongoose.Schema({
     enum: ['active', 'completed', 'cancelled'],
     default: 'active'
   },
+
+  isCustomBooking: {
+  type: Boolean,
+  default: false
+},
+customBookingType: {
+  type: String,
+  enum: ['half_day', 'full_day', 'night'],
+  default: null
+},
+customBookingLabel: {
+  type: String,
+  default: null
+},
   
   // Safety checklist
   helmetProvided: {
@@ -303,6 +317,7 @@ bookingSchema.index({ customerId: 1 });
 bookingSchema.index({ status: 1 });
 bookingSchema.index({ startTime: 1 });
 bookingSchema.index({ 'vehicleChangeHistory.changedAt': 1 });
+bookingSchema.index({ isCustomBooking: 1, customBookingType: 1 });
 
 const Booking = mongoose.models.Booking || mongoose.model('Booking', bookingSchema);
 
