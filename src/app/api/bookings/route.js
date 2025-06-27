@@ -4,6 +4,26 @@ import Customer from '@/models/Customer';
 import Vehicle from '@/models/Vehicle';
 import { NextResponse } from 'next/server';
 
+// Helper function to validate phone number
+function validatePhoneNumber(phone) {
+  return /^[6-9]\d{9}$/.test(phone);
+}
+
+// Helper function to validate driving license
+function validateDrivingLicense(license) {
+  return /^[A-Z]{2}\d{2}[A-Z0-9]{11}$/.test(license);
+}
+
+// Helper function to validate Aadhar number
+function validateAadharNumber(aadhar) {
+  return /^\d{4}\s?\d{4}\s?\d{4}$/.test(aadhar);
+}
+
+// Helper function to validate PAN number
+function validatePanNumber(pan) {
+  return /^[A-Z]{5}\d{4}[A-Z]$/.test(pan);
+}
+
 // Helper function to calculate rental start time with settings
 async function calculateRentalStartTime() {
   try {
@@ -97,7 +117,8 @@ export async function POST(request) {
     console.log('📝 Creating booking with data:', {
       vehicleId: body.vehicleId,
       customer: body.customer,
-      hasSignature: !!body.signature
+      hasSignature: !!body.signature,
+      hasMultipleDriver: body.actualDriver && !body.actualDriver.isSameAsLicenseHolder
     });
     
     // Validate only essential required fields
@@ -114,6 +135,57 @@ export async function POST(request) {
         { success: false, error: 'Missing customer details: name, phone, or driverLicense' },
         { status: 400 }
       );
+    }
+
+    // NEW: Validate multiple driver information if provided
+    const actualDriver = body.actualDriver || { isSameAsLicenseHolder: true };
+    
+    if (!actualDriver.isSameAsLicenseHolder) {
+      console.log('🔍 Validating multiple driver information');
+      
+      // Validate actual driver details
+      if (!actualDriver.name || !actualDriver.phone || !actualDriver.relationToLicenseHolder || !actualDriver.alternateId) {
+        return NextResponse.json({
+          success: false,
+          error: 'Complete actual driver information is required when different from license holder'
+        }, { status: 400 });
+      }
+
+      // Validate phone number
+      if (!validatePhoneNumber(actualDriver.phone)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Please provide a valid phone number for the actual driver'
+        }, { status: 400 });
+      }
+
+      // Validate alternate ID (Aadhar or PAN)
+      const isValidAadhar = validateAadharNumber(actualDriver.alternateId);
+      const isValidPan = validatePanNumber(actualDriver.alternateId);
+      
+      if (!isValidAadhar && !isValidPan) {
+        return NextResponse.json({
+          success: false,
+          error: 'Please provide a valid Aadhar number (1234 5678 9012) or PAN (ABCDE1234F) for the actual driver'
+        }, { status: 400 });
+      }
+
+      // NEW: Validate enhanced security requirements for multiple drivers
+      const hasEnhancedSecurity = body.aadharCardCollected || 
+        (body.securityDepositCollected && body.securityDepositAmount >= 1000);
+
+      if (!hasEnhancedSecurity) {
+        return NextResponse.json({
+          success: false,
+          error: 'Enhanced security required for multiple drivers: Either collect both Aadhar cards OR ₹1000 security deposit'
+        }, { status: 400 });
+      }
+
+      console.log('✅ Multiple driver validation passed:', {
+        actualDriverName: actualDriver.name,
+        relationship: actualDriver.relationToLicenseHolder,
+        enhancedSecurity: hasEnhancedSecurity
+      });
     }
     
     // Clean customer data
@@ -257,24 +329,58 @@ export async function POST(request) {
     const rentalStartTime = await calculateRentalStartTime();
     console.log('⏰ Calculated start time:', rentalStartTime);
     
-    // Create booking with calculated start time
+    // NEW: Prepare enhanced security information
+    const enhancedSecurity = body.enhancedSecurity || {};
+    if (!actualDriver.isSameAsLicenseHolder) {
+      enhancedSecurity.isRequired = true;
+      enhancedSecurity.reason = 'multiple_driver';
+      enhancedSecurity.additionalDepositAmount = body.securityDepositAmount > 500 ? body.securityDepositAmount - 500 : 0;
+    }
+    
+    // Create booking with enhanced data including multiple driver support
     const bookingData = {
       vehicleId: body.vehicleId,
-      customerId: customer._id, // Ensure we use the saved customer's ID
+      customerId: customer._id,
       signature: body.signature,
       helmetProvided: body.helmetProvided || false,
       aadharCardCollected: body.aadharCardCollected || false,
       vehicleInspected: body.vehicleInspected || false,
       additionalNotes: body.additionalNotes || '',
-      securityDepositCollected: body.securityDepositCollected || false,  // NEW
-      securityDepositAmount: body.securityDepositAmount || 0,  // NEW
+      securityDepositCollected: body.securityDepositCollected || false,
+      securityDepositAmount: body.securityDepositAmount || 0,
       startTime: rentalStartTime,
-      createdAt: new Date()
+      createdAt: new Date(),
+      
+      // NEW: Multiple driver information
+      actualDriver: {
+        isSameAsLicenseHolder: actualDriver.isSameAsLicenseHolder,
+        name: actualDriver.isSameAsLicenseHolder ? null : actualDriver.name?.trim(),
+        phone: actualDriver.isSameAsLicenseHolder ? null : actualDriver.phone?.trim(),
+        relationToLicenseHolder: actualDriver.isSameAsLicenseHolder ? null : actualDriver.relationToLicenseHolder,
+        alternateId: actualDriver.isSameAsLicenseHolder ? null : actualDriver.alternateId?.trim().toUpperCase()
+      },
+      
+      // NEW: Enhanced security tracking
+      enhancedSecurity: enhancedSecurity.isRequired ? {
+        isRequired: true,
+        reason: enhancedSecurity.reason || 'multiple_driver',
+        additionalDepositAmount: enhancedSecurity.additionalDepositAmount || 0,
+        requiredAt: new Date(),
+        notes: !actualDriver.isSameAsLicenseHolder ? 
+          `Multiple driver booking: ${actualDriver.name} (${actualDriver.relationToLicenseHolder})` : null
+      } : {
+        isRequired: false
+      }
     };
     
-    console.log('📋 Creating booking with data:', {
+    console.log('📋 Creating booking with enhanced data:', {
       ...bookingData,
-      signature: '[SIGNATURE_DATA]' // Don't log the actual signature
+      signature: '[SIGNATURE_DATA]', // Don't log the actual signature
+      actualDriver: actualDriver.isSameAsLicenseHolder ? 'Same as license holder' : {
+        name: actualDriver.name,
+        relationship: actualDriver.relationToLicenseHolder,
+        hasAlternateId: !!actualDriver.alternateId
+      }
     });
     
     const booking = new Booking(bookingData);
@@ -282,6 +388,18 @@ export async function POST(request) {
     try {
       await booking.save();
       console.log('✅ Booking created with ID:', booking._id, 'Booking ID:', booking.bookingId);
+      
+      // NEW: Log multiple driver booking for analytics
+      if (!actualDriver.isSameAsLicenseHolder) {
+        console.log('📊 Multiple driver booking created:', {
+          bookingId: booking.bookingId,
+          licenseHolder: customer.name,
+          actualDriver: actualDriver.name,
+          relationship: actualDriver.relationToLicenseHolder,
+          enhancedDeposit: bookingData.securityDepositAmount
+        });
+      }
+      
     } catch (bookingSaveError) {
       console.error('❌ Error saving booking:', bookingSaveError);
       return NextResponse.json(
@@ -367,15 +485,41 @@ export async function POST(request) {
       };
     }
     
+    // NEW: Add multiple driver warning if applicable
+    let multipleDriverInfo = null;
+    if (!actualDriver.isSameAsLicenseHolder) {
+      multipleDriverInfo = {
+        actualDriverName: actualDriver.name,
+        relationship: actualDriver.relationToLicenseHolder,
+        enhancedSecurity: true,
+        message: `Multiple driver booking: ${actualDriver.name} (${actualDriver.relationToLicenseHolder}) will be driving. Enhanced security measures are in effect.`
+      };
+    }
+    
     console.log('✅ Booking creation completed successfully');
     
-    return NextResponse.json({
+    // NEW: Prepare comprehensive response
+    const response = {
       success: true,
       booking: populatedBooking,
       warning: warningInfo,
+      multipleDriverInfo: multipleDriverInfo,
       rentalStartTime: rentalStartTime.toISOString(),
       message: `Booking created successfully. Rental starts at ${rentalStartTime.toLocaleString('en-IN')}`
-    });
+    };
+    
+    // Add enhanced security confirmation if applicable
+    if (enhancedSecurity.isRequired) {
+      response.securityInfo = {
+        enhancedSecurityRequired: true,
+        reason: enhancedSecurity.reason,
+        depositAmount: bookingData.securityDepositAmount,
+        additionalAmount: enhancedSecurity.additionalDepositAmount,
+        message: 'Enhanced security measures are in effect for this booking.'
+      };
+    }
+    
+    return NextResponse.json(response);
     
   } catch (error) {
     console.error('❌ Booking creation error:', error);
