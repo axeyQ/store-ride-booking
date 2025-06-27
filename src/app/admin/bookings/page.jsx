@@ -13,6 +13,31 @@ import {
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
+// ✅ FIXED: Add custom package definitions
+const CUSTOM_PACKAGES = {
+  half_day: { 
+    label: 'Half Day', 
+    price: 800, 
+    maxHours: 12, 
+    icon: '🌅',
+    color: 'orange'
+  },
+  full_day: { 
+    label: 'Full Day', 
+    price: 1200, 
+    maxHours: 24, 
+    icon: '☀️',
+    color: 'yellow'
+  },
+  night: { 
+    label: 'Night Package', 
+    price: 600, 
+    maxHours: 11, 
+    icon: '🌙',
+    color: 'purple'
+  }
+};
+
 export default function ThemedAllBookingsPage() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,10 +58,10 @@ export default function ThemedAllBookingsPage() {
     fetchBookings();
   }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm]);
 
-  // Fetch advanced pricing for all bookings
+  // Fetch pricing for all bookings (both advanced and custom)
   useEffect(() => {
     if (bookings.length > 0) {
-      fetchAdvancedPricingForBookings();
+      fetchPricingForBookings();
     }
   }, [bookings]);
 
@@ -76,7 +101,8 @@ export default function ThemedAllBookingsPage() {
     }
   };
 
-  const fetchAdvancedPricingForBookings = async () => {
+  // ✅ FIXED: Separate pricing calculation for custom vs advanced bookings
+  const fetchPricingForBookings = async () => {
     // Process bookings in batches to avoid overwhelming the API
     const batchSize = 5;
     const batches = [];
@@ -88,7 +114,7 @@ export default function ThemedAllBookingsPage() {
     for (const batch of batches) {
       await Promise.all(
         batch.map(async (booking) => {
-          await fetchAdvancedPricingForBooking(booking._id);
+          await fetchPricingForBooking(booking._id);
         })
       );
       // Small delay between batches to prevent API overload
@@ -96,32 +122,76 @@ export default function ThemedAllBookingsPage() {
     }
   };
 
-  const fetchAdvancedPricingForBooking = async (bookingId) => {
+  // ✅ FIXED: Handle both custom and advanced pricing bookings
+  const fetchPricingForBooking = async (bookingId) => {
     try {
       setPricingLoading(prev => ({ ...prev, [bookingId]: true }));
       
       const booking = bookings.find(b => b._id === bookingId);
       if (!booking) return;
-  
+
       // ✅ Skip pricing calculation for cancelled bookings
       if (booking.status === 'cancelled') {
         setAdvancedPricing(prev => ({
           ...prev,
           [bookingId]: {
-            totalAmount: 0, // Cancelled bookings show ₹0
+            totalAmount: 0,
             breakdown: [],
             totalMinutes: 0,
-            summary: 'Cancelled - No charge'
+            summary: 'Cancelled - No charge',
+            isCustomBooking: booking.isCustomBooking || false
           }
         }));
         return;
       }
-  
-      // For active bookings, use the current-amount API
+
+      // ✅ NEW: Handle custom bookings with fixed package rates
+      if (booking.isCustomBooking) {
+        const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
+        if (packageInfo) {
+          // For custom bookings, use fixed package price + any final amount adjustments
+          const basePrice = packageInfo.price;
+          const finalAmount = booking.finalAmount || basePrice;
+          
+          setAdvancedPricing(prev => ({
+            ...prev,
+            [bookingId]: {
+              totalAmount: finalAmount,
+              breakdown: [{
+                period: `${packageInfo.icon} ${packageInfo.label}`,
+                minutes: packageInfo.maxHours * 60,
+                rate: basePrice,
+                isNightCharge: false,
+                description: `Fixed package rate for ${packageInfo.label}`
+              }],
+              totalMinutes: packageInfo.maxHours * 60,
+              summary: `${packageInfo.label} - Fixed Rate`,
+              isCustomBooking: true,
+              packageType: booking.customBookingType,
+              packageInfo: packageInfo
+            }
+          }));
+        } else {
+          // Fallback for unknown custom booking types
+          setAdvancedPricing(prev => ({
+            ...prev,
+            [bookingId]: {
+              totalAmount: booking.finalAmount || 0,
+              breakdown: [],
+              totalMinutes: 0,
+              summary: 'Custom booking - Unknown type',
+              isCustomBooking: true
+            }
+          }));
+        }
+        return;
+      }
+
+      // ✅ For advanced pricing bookings, use existing logic
       if (booking.status === 'active') {
         const response = await fetch(`/api/bookings/current-amount/${bookingId}`);
         const data = await response.json();
-  
+
         if (data.success) {
           setAdvancedPricing(prev => ({
             ...prev,
@@ -129,7 +199,8 @@ export default function ThemedAllBookingsPage() {
               totalAmount: data.currentAmount,
               breakdown: data.breakdown || [],
               totalMinutes: data.totalMinutes || 0,
-              summary: data.summary || ''
+              summary: data.summary || '',
+              isCustomBooking: false
             }
           }));
         } else {
@@ -141,24 +212,25 @@ export default function ThemedAllBookingsPage() {
               totalAmount: fallbackAmount,
               breakdown: [],
               totalMinutes: 0,
-              summary: 'API error - simple calc'
+              summary: 'API error - simple calc',
+              isCustomBooking: false
             }
           }));
         }
       } else if (booking.status === 'completed') {
         // For completed bookings, calculate advanced pricing directly
         const advancedAmount = calculateAdvancedPricingForCompleted(booking);
+        advancedAmount.isCustomBooking = false;
         setAdvancedPricing(prev => ({
           ...prev,
           [bookingId]: advancedAmount
         }));
       }
     } catch (error) {
-      console.error(`Error fetching advanced pricing for booking ${bookingId}:`, error);
+      console.error(`Error fetching pricing for booking ${bookingId}:`, error);
       // Fallback calculation
       const booking = bookings.find(b => b._id === bookingId);
       if (booking) {
-        // ✅ Handle cancelled bookings in error case too
         if (booking.status === 'cancelled') {
           setAdvancedPricing(prev => ({
             ...prev,
@@ -166,7 +238,8 @@ export default function ThemedAllBookingsPage() {
               totalAmount: 0,
               breakdown: [],
               totalMinutes: 0,
-              summary: 'Cancelled - No charge'
+              summary: 'Cancelled - No charge',
+              isCustomBooking: booking.isCustomBooking || false
             }
           }));
         } else {
@@ -177,7 +250,8 @@ export default function ThemedAllBookingsPage() {
               totalAmount: fallbackAmount,
               breakdown: [],
               totalMinutes: 0,
-              summary: 'Error - using fallback'
+              summary: 'Error - using fallback',
+              isCustomBooking: booking.isCustomBooking || false
             }
           }));
         }
@@ -308,7 +382,8 @@ export default function ThemedAllBookingsPage() {
     return Math.max(hours * 80, 80); // Minimum ₹80
   };
 
-  const getAdvancedAmount = (bookingId) => {
+  // ✅ FIXED: Get pricing amount based on booking type
+  const getPricingAmount = (bookingId) => {
     const pricing = advancedPricing[bookingId];
     return pricing ? pricing.totalAmount : 0;
   };
@@ -381,22 +456,28 @@ export default function ThemedAllBookingsPage() {
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  // Calculate stats using advanced pricing
+  // ✅ FIXED: Calculate stats with separate handling for custom/advanced bookings
   const calculateStats = () => {
-    // ✅ Filter out cancelled bookings from revenue calculation
+    // Filter out cancelled bookings from revenue calculation
     const revenueBookings = bookings.filter(booking => booking.status !== 'cancelled');
     
-    const totalAdvancedAmount = revenueBookings.reduce((sum, booking) => {
-      return sum + getAdvancedAmount(booking._id);
+    const totalAmount = revenueBookings.reduce((sum, booking) => {
+      return sum + getPricingAmount(booking._id);
     }, 0);
-  
+
+    // ✅ NEW: Separate stats for booking types
+    const customBookings = bookings.filter(b => b.isCustomBooking);
+    const advancedBookings = bookings.filter(b => !b.isCustomBooking);
+
     return {
-      totalBookings: bookings.length, // ✅ Total includes all bookings
+      totalBookings: bookings.length,
       activeRentals: bookings.filter(b => b.status === 'active').length,
       completed: bookings.filter(b => b.status === 'completed').length,
-      cancelled: bookings.filter(b => b.status === 'cancelled').length, // ✅ Add cancelled count
+      cancelled: bookings.filter(b => b.status === 'cancelled').length,
       withSignatures: bookings.filter(b => b.signature).length,
-      totalRevenue: totalAdvancedAmount // ✅ Revenue excludes cancelled bookings
+      totalRevenue: totalAmount,
+      customBookings: customBookings.length,
+      advancedBookings: advancedBookings.length
     };
   };
 
@@ -459,16 +540,16 @@ export default function ThemedAllBookingsPage() {
             All <span className={theme.typography.gradient}>Bookings</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Complete booking management with advanced pricing system
+            Complete booking management with dual pricing system (Advanced + Custom Packages)
           </p>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        {/* ✅ ENHANCED: Updated Stats Row with booking type breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <ThemedStatsCard
             title="Total Bookings"
             value={stats.totalBookings}
-            subtitle="All time records"
+            subtitle={`${stats.advancedBookings} Advanced + ${stats.customBookings} Custom`}
             colorScheme="bookings"
             icon={<div className="text-4xl mb-2">📋</div>}
           />
@@ -492,7 +573,7 @@ export default function ThemedAllBookingsPage() {
           <ThemedStatsCard
             title="Total Revenue"
             value={`₹${stats.totalRevenue.toLocaleString('en-IN')}`}
-            subtitle="Excludes cancelled"
+            subtitle="Both pricing systems"
             colorScheme="revenue"
             icon={<div className="text-4xl mb-2">💰</div>}
           />
@@ -565,7 +646,7 @@ export default function ThemedAllBookingsPage() {
         </ThemedCard>
 
         {/* Bookings Table */}
-        <ThemedCard title="📋 Booking Records" description={`Showing ${bookings.length} bookings with advanced pricing`}>
+        <ThemedCard title="📋 Booking Records" description={`Showing ${bookings.length} bookings with dual pricing system`}>
           {bookings.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-6xl mb-4">📋</div>
@@ -614,13 +695,13 @@ export default function ThemedAllBookingsPage() {
                       </div>
                     </th>
                     <th className="text-left py-4 px-4 font-semibold text-gray-400">
-                      Duration
+                      Duration/Package
                     </th>
                     <th className="text-left py-4 px-4 font-semibold text-gray-400">
                       Status
                     </th>
                     <th className="text-left py-4 px-4 font-semibold text-gray-400">
-                      Advanced Amount
+                      Amount
                     </th>
                     {showSignatures && (
                       <th className="text-left py-4 px-4 font-semibold text-gray-400">
@@ -634,10 +715,10 @@ export default function ThemedAllBookingsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-700">
                   {bookings.map((booking) => {
-                    // ✅ FIXED: Pass status to calculateDuration
                     const duration = calculateDuration(booking.startTime, booking.endTime, booking.status);
-                    const advancedAmount = getAdvancedAmount(booking._id);
+                    const pricingAmount = getPricingAmount(booking._id);
                     const isLoadingPrice = isPricingLoading(booking._id);
+                    const pricingData = advancedPricing[booking._id];
 
                     return (
                       <tr key={booking._id} className="hover:bg-gray-800/30 transition-colors">
@@ -666,15 +747,33 @@ export default function ThemedAllBookingsPage() {
                           {formatDateTime(booking.startTime)}
                         </td>
                         <td className="py-4 px-4">
-                          {/* ✅ FIXED: Special handling for cancelled bookings */}
+                          {/* ✅ ENHANCED: Show package info for custom bookings */}
                           {duration.isCancelled ? (
                             <div className="text-red-400 font-semibold">
                               CANCELLED
+                            </div>
+                          ) : booking.isCustomBooking ? (
+                            <div>
+                              <div className="flex items-center gap-2 text-white font-semibold">
+                                {pricingData?.packageInfo?.icon} {pricingData?.packageInfo?.label || 'Custom Package'}
+                              </div>
+                              <div className="text-purple-400 text-sm">
+                                Fixed Rate Package
+                              </div>
+                              {booking.status === 'active' && (
+                                <div className="text-orange-400 text-sm flex items-center gap-1">
+                                  <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
+                                  Active
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div>
                               <div className="text-white font-semibold">
                                 {duration.displayText}
+                              </div>
+                              <div className="text-cyan-400 text-sm">
+                                Advanced Pricing
                               </div>
                               {booking.status === 'active' && (
                                 <div className="text-orange-400 text-sm flex items-center gap-1">
@@ -692,7 +791,6 @@ export default function ThemedAllBookingsPage() {
                         </td>
                         <td className="py-4 px-4">
                           {booking.status === 'cancelled' ? (
-                            // ✅ Special display for cancelled bookings
                             <div>
                               <div className="text-red-400 font-bold text-lg">
                                 CANCELLED
@@ -709,11 +807,18 @@ export default function ThemedAllBookingsPage() {
                           ) : (
                             <div>
                               <div className="text-white font-bold text-lg">
-                                ₹{advancedAmount.toLocaleString('en-IN')}
+                                ₹{pricingAmount.toLocaleString('en-IN')}
                               </div>
-                              <div className="text-cyan-400 text-xs">
-                                {booking.status === 'active' ? '🔄 Live Advanced' : '🧮 Advanced Calc'}
-                              </div>
+                              {/* ✅ ENHANCED: Different labels for custom vs advanced pricing */}
+                              {booking.isCustomBooking ? (
+                                <div className="text-purple-400 text-xs">
+                                  📦 Fixed Package
+                                </div>
+                              ) : (
+                                <div className="text-cyan-400 text-xs">
+                                  {booking.status === 'active' ? '🔄 Live Advanced' : '🧮 Advanced Calc'}
+                                </div>
+                              )}
                               {booking.paymentMethod && (
                                 <div className="text-gray-400 text-sm capitalize">
                                   {booking.paymentMethod}

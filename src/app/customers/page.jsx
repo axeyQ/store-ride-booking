@@ -15,6 +15,31 @@ import { UnblacklistModal } from '@/components/UnblacklistModal';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
+// ✅ FIXED: Add custom package definitions
+const CUSTOM_PACKAGES = {
+  half_day: { 
+    label: 'Half Day', 
+    price: 800, 
+    maxHours: 12, 
+    icon: '🌅',
+    color: 'orange'
+  },
+  full_day: { 
+    label: 'Full Day', 
+    price: 1200, 
+    maxHours: 24, 
+    icon: '☀️',
+    color: 'yellow'
+  },
+  night: { 
+    label: 'Night Package', 
+    price: 600, 
+    maxHours: 11, 
+    icon: '🌙',
+    color: 'purple'
+  }
+};
+
 export default function OptimizedThemedCustomersPage() {
   const [customers, setCustomers] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -51,7 +76,35 @@ export default function OptimizedThemedCustomersPage() {
     }
   });
 
-  // Advanced pricing calculation function
+  // ✅ FIXED: Updated revenue calculation to handle both booking types
+  const calculateBookingRevenue = useCallback((booking) => {
+    try {
+      // ✅ Handle cancelled bookings
+      if (booking.status === 'cancelled') {
+        return 0;
+      }
+
+      // ✅ NEW: Handle custom bookings with fixed package rates
+      if (booking.isCustomBooking) {
+        const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
+        if (packageInfo) {
+          // Use final amount if available, otherwise use package base price
+          return booking.finalAmount || packageInfo.price;
+        }
+        // Fallback for unknown custom booking types
+        return booking.finalAmount || 0;
+      }
+
+      // ✅ For advanced pricing bookings, use existing calculation
+      return calculateAdvancedPricingForBooking(booking);
+
+    } catch (error) {
+      console.error('Error calculating booking revenue:', error);
+      return 0;
+    }
+  }, []);
+
+  // Advanced pricing calculation function (for advanced bookings only)
   const calculateAdvancedPricingForBooking = useCallback((booking) => {
     try {
       // Advanced pricing settings (should match your API)
@@ -147,7 +200,7 @@ export default function OptimizedThemedCustomersPage() {
     if (customers.length > 0 && bookings.length >= 0) {
       enrichCustomersWithBookingData();
     }
-  }, [customers, bookings, calculateAdvancedPricingForBooking]);
+  }, [customers, bookings, calculateBookingRevenue]);
 
   // Filter enriched customers when search term or filters change
   useEffect(() => {
@@ -196,15 +249,20 @@ export default function OptimizedThemedCustomersPage() {
         (booking.customerId._id === customer._id || booking.customerId === customer._id)
       );
 
-      // Calculate total revenue using advanced pricing
+      // ✅ FIXED: Calculate total revenue using new function that handles both booking types
       const totalRevenue = customerBookings.reduce((sum, booking) => {
-        return sum + calculateAdvancedPricingForBooking(booking);
+        return sum + calculateBookingRevenue(booking);
       }, 0);
 
       // Calculate statistics
       const totalBookings = customerBookings.length;
       const completedBookings = customerBookings.filter(b => b.status === 'completed').length;
       const activeBookings = customerBookings.filter(b => b.status === 'active').length;
+      const cancelledBookings = customerBookings.filter(b => b.status === 'cancelled').length;
+      
+      // ✅ NEW: Separate custom and advanced booking stats
+      const customBookings = customerBookings.filter(b => b.isCustomBooking).length;
+      const advancedBookings = customerBookings.filter(b => !b.isCustomBooking).length;
       
       // Find most recent booking for last visit
       const mostRecentBooking = customerBookings
@@ -218,6 +276,9 @@ export default function OptimizedThemedCustomersPage() {
         totalBookings,
         completedBookings,
         activeBookings,
+        cancelledBookings,
+        customBookings,
+        advancedBookings,
         totalRevenue,
         lastVisit,
         // Additional calculated fields
@@ -472,7 +533,7 @@ export default function OptimizedThemedCustomersPage() {
         </div>
       </ThemedLayout>
     );
-  }
+  };
 
   return (
     <ThemedLayout>
@@ -483,7 +544,7 @@ export default function OptimizedThemedCustomersPage() {
             Customer <span className={theme.typography.gradient}>Database</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Complete customer relationship management with real booking analytics
+            Complete customer relationship management with accurate dual pricing analytics
           </p>
         </div>
 
@@ -613,7 +674,7 @@ export default function OptimizedThemedCustomersPage() {
         </ThemedCard>
 
         {/* Customers Table */}
-        <ThemedCard title="Customer Database" description="Complete customer records with real booking analytics">
+        <ThemedCard title="Customer Database" description="Complete customer records with accurate dual pricing analytics">
           {filteredCustomers.length === 0 ? (
             <div className="text-center p-12">
               <div className="w-24 h-24 bg-gradient-to-r from-gray-600 to-gray-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -736,12 +797,23 @@ export default function OptimizedThemedCustomersPage() {
                         <td className="px-4 py-3">
                           <div className="text-center">
                             <div className="text-2xl font-bold text-white">{customer.totalBookings}</div>
-                            <div className="text-gray-400 text-xs">
+                            {/* ✅ ENHANCED: Show booking type breakdown */}
+                            <div className="text-gray-400 text-xs space-y-1">
                               {customer.activeBookings > 0 && (
-                                <span className="text-orange-400">{customer.activeBookings} active</span>
+                                <div className="text-orange-400">{customer.activeBookings} active</div>
                               )}
                               {customer.completedBookings > 0 && (
-                                <span className="text-green-400">{customer.completedBookings} completed</span>
+                                <div className="text-green-400">{customer.completedBookings} completed</div>
+                              )}
+                              {customer.totalBookings > 0 && (
+                                <div className="flex gap-1 text-xs">
+                                  {customer.advancedBookings > 0 && (
+                                    <span className="text-cyan-400">⚡{customer.advancedBookings}</span>
+                                  )}
+                                  {customer.customBookings > 0 && (
+                                    <span className="text-purple-400">📦{customer.customBookings}</span>
+                                  )}
+                                </div>
                               )}
                               {customer.totalBookings === 0 && "No bookings"}
                             </div>
@@ -758,6 +830,18 @@ export default function OptimizedThemedCustomersPage() {
                                 'No revenue'
                               }
                             </div>
+                            {/* ✅ NEW: Show pricing mix indicator */}
+                            {customer.totalBookings > 0 && (
+                              <div className="text-xs mt-1">
+                                {customer.customBookings > 0 && customer.advancedBookings > 0 ? (
+                                  <span className="text-gray-500">⚡📦 Mixed</span>
+                                ) : customer.customBookings > 0 ? (
+                                  <span className="text-purple-400">📦 Packages</span>
+                                ) : (
+                                  <span className="text-cyan-400">⚡ Advanced</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3">
