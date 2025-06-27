@@ -84,8 +84,31 @@ export default function ThemedBookingDetailsPage() {
       return;
     }
   
+    // ✅ NEW: Handle Custom Bookings with Fixed Pricing
+    if (booking.isCustomBooking) {
+      const duration = calculateDuration(booking.startTime, 
+        booking.status === 'active' ? currentTime : 
+        (booking.endTime ? new Date(booking.endTime) : new Date()), 
+        booking.status
+      );
+      
+      setAdvancedPricing({
+        totalAmount: booking.finalAmount || 0,
+        breakdown: [{
+          period: `${booking.customBookingLabel || booking.customBookingType} Package`,
+          minutes: duration.totalMinutes,
+          rate: booking.finalAmount || 0,
+          isCustomPackage: true,
+          description: `Fixed rate package - ${booking.customBookingType}`
+        }],
+        totalMinutes: duration.totalMinutes,
+        summary: `${booking.customBookingLabel || booking.customBookingType} - Fixed Rate Package`
+      });
+      return;
+    }
+  
     try {
-      // For active bookings, use the live API
+      // For regular bookings, use the existing advanced pricing logic
       if (booking.status === 'active') {
         const response = await fetch(`/api/bookings/current-amount/${booking._id}`);
         const data = await response.json();
@@ -370,51 +393,66 @@ const isCancelled = booking.status === 'cancelled';
           </div>
         </ThemedCard>
 
-        {/* Real-time Stats Dashboard */}
-        <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg p-8 mb-8">
-          <div className="text-center mb-6">
-            <h3 className="text-3xl font-bold mb-2">
-              {isActive ? 'Live Rental Status' : 'Completed Rental Summary'}
-            </h3>
-            <p className="text-blue-100">{booking.vehicleId.model} - {booking.vehicleId.plateNumber}</p>
-          </div>
-          <div className={theme.layout.grid.stats}>
-            <div className="text-center">
-              <div className="text-4xl font-bold mb-2">
-                {duration.hours}h {duration.minutes}m
-              </div>
-              <div className="text-blue-100">{isActive ? 'Current Duration' : 'Total Duration'}</div>
-              <div className="text-xs text-blue-200 mt-1">
-                {duration.totalMinutes.toLocaleString()} minutes total
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl font-bold mb-2">
-                ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
-              </div>
-              <div className="text-blue-100">Advanced Pricing</div>
-              <div className="text-xs text-blue-200 mt-1">
-                {isActive ? 'Live calculated' : 'Final amount'}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl font-bold mb-2">₹80</div>
-              <div className="text-blue-100">Base Rate</div>
-              <div className="text-xs text-blue-200 mt-1">First hour + grace</div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl font-bold mb-2">
-                {isActive ? currentTime.toLocaleTimeString('en-IN', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: true
-                }) : formatDateTime(booking.endTime || booking.createdAt).split(',')[1]}
-              </div>
-              <div className="text-blue-100">{isActive ? 'Current Time' : 'End Time'}</div>
-              <div className="text-xs text-blue-200 mt-1">{isActive ? 'Live clock' : 'Completed'}</div>
-            </div>
-          </div>
-        </div>
+        {/* Updated Real-time Stats Dashboard - Handles both pricing types */}
+<div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg p-8 mb-8">
+  <div className="text-center mb-6">
+    <h3 className="text-3xl font-bold mb-2">
+      {isActive ? 'Live Rental Status' : 'Completed Rental Summary'}
+    </h3>
+    <p className="text-blue-100">{booking.vehicleId.model} - {booking.vehicleId.plateNumber}</p>
+    {booking.isCustomBooking && (
+      <div className="mt-2">
+        <span className="bg-purple-500/20 text-purple-200 px-3 py-1 rounded-full text-sm">
+          📦 {booking.customBookingLabel || `${booking.customBookingType} Package`}
+        </span>
+      </div>
+    )}
+  </div>
+  <div className={theme.layout.grid.stats}>
+    <div className="text-center">
+      <div className="text-4xl font-bold mb-2">
+        {isCancelled ? 'CANCELLED' : `${duration.hours}h ${duration.minutes}m`}
+      </div>
+      <div className="text-blue-100">{isActive ? 'Current Duration' : 'Total Duration'}</div>
+      <div className="text-xs text-blue-200 mt-1">
+        {isCancelled ? 'No charge applied' : `${duration.totalMinutes.toLocaleString()} minutes total`}
+      </div>
+    </div>
+    <div className="text-center">
+      <div className="text-4xl font-bold mb-2">
+        ₹{isCancelled ? 0 : advancedPricing.totalAmount.toLocaleString('en-IN')}
+      </div>
+      <div className="text-blue-100">
+        {isCancelled ? 'No Charge' : booking.isCustomBooking ? 'Package Price' : 'Advanced Pricing'}
+      </div>
+      <div className="text-xs text-blue-200 mt-1">
+        {isCancelled ? 'Booking cancelled' : booking.isCustomBooking ? 'Fixed rate package' : isActive ? 'Live calculated' : 'Final amount'}
+      </div>
+    </div>
+    <div className="text-center">
+      <div className="text-4xl font-bold mb-2">
+        {booking.isCustomBooking ? `₹${booking.finalAmount?.toLocaleString('en-IN')}` : '₹80'}
+      </div>
+      <div className="text-blue-100">
+        {booking.isCustomBooking ? 'Package Rate' : 'Base Rate'}
+      </div>
+      <div className="text-xs text-blue-200 mt-1">
+        {booking.isCustomBooking ? 'Total package cost' : 'First hour + grace'}
+      </div>
+    </div>
+    <div className="text-center">
+      <div className="text-4xl font-bold mb-2">
+        {isActive ? currentTime.toLocaleTimeString('en-IN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        }) : formatDateTime(booking.endTime || booking.createdAt).split(',')[1]}
+      </div>
+      <div className="text-blue-100">{isActive ? 'Current Time' : 'End Time'}</div>
+      <div className="text-xs text-blue-200 mt-1">{isActive ? 'Live clock' : 'Completed'}</div>
+    </div>
+  </div>
+</div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Customer Information */}
@@ -501,39 +539,104 @@ const isCancelled = booking.status === 'cancelled';
 
         {/* Advanced Pricing Breakdown */}
         {advancedPricing.breakdown && advancedPricing.breakdown.length > 0 && (
-          <ThemedCard title="Advanced Pricing Breakdown" description="Detailed billing calculation" className="mb-8">
-            <div className="bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-700/50 rounded-lg p-6">
-              <h4 className="text-xl font-bold text-blue-200 mb-4 text-center">
-                📊 Pricing Calculation Details
-              </h4>
-              
-              <div className="space-y-3 mb-6">
-                {advancedPricing.breakdown.map((block, index) => (
-                  <div key={index} className="flex justify-between items-center p-3 bg-blue-800/30 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-blue-300 font-medium">{block.period}</span>
-                      <span className="text-blue-100 text-sm">({block.minutes} minutes)</span>
-                      {block.isNightCharge && (
-                        <span className="text-orange-300 text-sm">🌙 Night Rate</span>
-                      )}
-                    </div>
-                    <span className="text-white font-bold">₹{block.rate}</span>
-                  </div>
-                ))}
-              </div>
-              
-              <div className="border-t border-blue-600/30 pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-blue-200 font-medium">Total Amount:</span>
-                  <span className="text-2xl font-bold text-white">₹{advancedPricing.totalAmount.toLocaleString('en-IN')}</span>
+  <ThemedCard 
+    title={booking.isCustomBooking ? "Custom Package Details" : "Advanced Pricing Breakdown"} 
+    description={booking.isCustomBooking ? "Fixed rate package information" : "Detailed billing calculation"} 
+    className="mb-8"
+  >
+    <div className={cn(
+      "border border-opacity-50 rounded-lg p-6",
+      booking.isCustomBooking 
+        ? "bg-gradient-to-r from-purple-900/50 to-purple-800/50 border-purple-700/50"
+        : "bg-gradient-to-r from-blue-900/50 to-blue-800/50 border-blue-700/50"
+    )}>
+      <h4 className={cn(
+        "text-xl font-bold mb-4 text-center",
+        booking.isCustomBooking ? "text-purple-200" : "text-blue-200"
+      )}>
+        {booking.isCustomBooking ? "📦 Custom Package Information" : "📊 Pricing Calculation Details"}
+      </h4>
+      
+      {booking.isCustomBooking ? (
+        /* Custom Package Display */
+        <div className="space-y-4">
+          <div className="text-center p-6 bg-purple-800/30 rounded-lg">
+            <div className="text-3xl font-bold text-purple-300 mb-2">
+              {booking.customBookingLabel || `${booking.customBookingType} Package`}
+            </div>
+            <div className="text-purple-100 text-lg mb-4">
+              Fixed Rate: ₹{booking.finalAmount?.toLocaleString('en-IN')}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div className="bg-purple-700/30 p-3 rounded">
+                <div className="text-purple-200">Package Type</div>
+                <div className="text-white font-semibold capitalize">
+                  {booking.customBookingType}
                 </div>
-                <div className="text-center mt-2">
-                  <span className="text-blue-300 text-sm">📈 {advancedPricing.summary}</span>
+              </div>
+              <div className="bg-purple-700/30 p-3 rounded">
+                <div className="text-purple-200">Duration Used</div>
+                <div className="text-white font-semibold">
+                  {duration.hours}h {duration.minutes}m
+                </div>
+              </div>
+              <div className="bg-purple-700/30 p-3 rounded">
+                <div className="text-purple-200">Total Minutes</div>
+                <div className="text-white font-semibold">
+                  {duration.totalMinutes.toLocaleString()}
                 </div>
               </div>
             </div>
-          </ThemedCard>
-        )}
+          </div>
+          
+          <div className="border-t border-purple-600/30 pt-4">
+            <div className="flex justify-between items-center">
+              <span className="text-purple-200 font-medium">Package Total:</span>
+              <span className="text-2xl font-bold text-white">
+                ₹{booking.finalAmount?.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="text-center mt-2">
+              <span className="text-purple-300 text-sm">
+                📦 {advancedPricing.summary}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Advanced Pricing Display */
+        <>
+          <div className="space-y-3 mb-6">
+            {advancedPricing.breakdown.map((block, index) => (
+              <div key={index} className="flex justify-between items-center p-3 bg-blue-800/30 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <span className="text-blue-300 font-medium">{block.period}</span>
+                  <span className="text-blue-100 text-sm">({block.minutes} minutes)</span>
+                  {block.isNightCharge && (
+                    <span className="text-orange-300 text-sm">🌙 Night Rate</span>
+                  )}
+                </div>
+                <span className="text-white font-bold">₹{block.rate}</span>
+              </div>
+            ))}
+          </div>
+          
+          <div className="border-t border-blue-600/30 pt-4">
+            <div className="flex justify-between items-center">
+              <span className="text-blue-200 font-medium">Total Amount:</span>
+              <span className="text-2xl font-bold text-white">
+                ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="text-center mt-2">
+              <span className="text-blue-300 text-sm">📈 {advancedPricing.summary}</span>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  </ThemedCard>
+)}
 
         {/* Pre-Rental Checklist */}
         <ThemedCard title="Pre-Rental Checklist" description="Safety and compliance verification" className="mb-8">
@@ -601,32 +704,73 @@ const isCancelled = booking.status === 'cancelled';
           )}
         </ThemedCard>
 
-        {/* Payment Information */}
-        <ThemedCard title="Payment Information" description="Billing and payment details" className="mb-8">
-          <div className="bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-700/50 rounded-lg p-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center mb-6">
-              <div>
-                <div className="text-2xl font-bold text-blue-400 mb-2">₹80</div>
-                <div className="text-blue-200 text-sm">Base Rate</div>
-                <div className="text-xs text-blue-300 mt-1">First hour + grace</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-blue-400 mb-2">{duration.totalHours}</div>
-                <div className="text-blue-200 text-sm">Billable Hours</div>
-                <div className="text-xs text-blue-300 mt-1">Rounded up</div>
-              </div>
-              <div>
-                <div className="text-3xl font-bold text-white mb-2">
-                  ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
-                </div>
-                <div className="text-blue-200 text-sm">Advanced Total</div>
-                <div className="text-xs text-blue-300 mt-1">
-                  {isActive ? 'Live calculated' : 'Final calculated'}
-                </div>
-              </div>
-            </div>
+       {/* Updated Payment Information - Handles both pricing types */}
+<ThemedCard title="Payment Information" description="Billing and payment details" className="mb-8">
+  <div className={cn(
+    "border border-opacity-50 rounded-lg p-8",
+    booking.isCustomBooking 
+      ? "bg-gradient-to-r from-purple-900/50 to-purple-800/50 border-purple-700/50"
+      : "bg-gradient-to-r from-blue-900/50 to-blue-800/50 border-blue-700/50"
+  )}>
+    {booking.isCustomBooking ? (
+      /* Custom Package Payment Display */
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-center mb-6">
+        <div>
+          <div className="text-2xl font-bold text-purple-400 mb-2">
+            {booking.customBookingLabel || `${booking.customBookingType} Package`}
           </div>
-        </ThemedCard>
+          <div className="text-purple-200 text-sm">Package Type</div>
+          <div className="text-xs text-purple-300 mt-1">Fixed rate booking</div>
+        </div>
+        <div>
+          <div className="text-3xl font-bold text-white mb-2">
+            ₹{booking.finalAmount?.toLocaleString('en-IN')}
+          </div>
+          <div className="text-purple-200 text-sm">Total Package Cost</div>
+          <div className="text-xs text-purple-300 mt-1">
+            No additional charges
+          </div>
+        </div>
+      </div>
+    ) : (
+      /* Advanced Pricing Payment Display */
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center mb-6">
+        <div>
+          <div className="text-2xl font-bold text-blue-400 mb-2">₹80</div>
+          <div className="text-blue-200 text-sm">Base Rate</div>
+          <div className="text-xs text-blue-300 mt-1">First hour + grace</div>
+        </div>
+        <div>
+          <div className="text-2xl font-bold text-blue-400 mb-2">{duration.totalHours}</div>
+          <div className="text-blue-200 text-sm">Billable Hours</div>
+          <div className="text-xs text-blue-300 mt-1">Rounded up</div>
+        </div>
+        <div>
+          <div className="text-3xl font-bold text-white mb-2">
+            ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
+          </div>
+          <div className="text-blue-200 text-sm">Advanced Total</div>
+          <div className="text-xs text-blue-300 mt-1">
+            {isActive ? 'Live calculated' : 'Final calculated'}
+          </div>
+        </div>
+      </div>
+    )}
+    
+    {/* Payment Status Indicator */}
+    <div className="text-center">
+      <div className={cn(
+        "inline-flex items-center px-4 py-2 rounded-full text-sm font-medium",
+        booking.isCustomBooking 
+          ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+          : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+      )}>
+        {booking.isCustomBooking ? '📦 Custom Package' : '⚡ Advanced Pricing'}
+        {isActive && ' - Live Calculation'}
+      </div>
+    </div>
+  </div>
+</ThemedCard>
 
         {/* Action Buttons */}
         <div className="flex flex-col md:flex-row gap-4">

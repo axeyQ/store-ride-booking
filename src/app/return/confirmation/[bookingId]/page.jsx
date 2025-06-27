@@ -22,9 +22,10 @@ export default function ReturnConfirmationPage() {
     }
   }, [bookingId]);
 
-  // ✅ NEW: Calculate advanced pricing when booking is loaded
+  // ✅ UPDATED: useEffect to handle both custom packages and regular bookings
   useEffect(() => {
     if (booking && booking.startTime && booking.endTime) {
+      // ✅ Always call the pricing function, but it will handle custom packages internally
       calculateRealTimeAdvancedPricing();
     }
   }, [booking]);
@@ -49,13 +50,48 @@ export default function ReturnConfirmationPage() {
     }
   };
 
-  // ✅ NEW: Calculate real-time advanced pricing
+  // ✅ FIXED: Calculate pricing with Custom Booking support
   const calculateRealTimeAdvancedPricing = async () => {
     setPricingCalculating(true);
     setPricingError(null);
     
     try {
-      console.log('🧮 Calculating real-time advanced pricing for return confirmation...');
+      console.log('🧮 Calculating pricing for return confirmation...');
+      
+      // ✅ NEW: Handle Custom Bookings with Fixed Pricing
+      if (booking.isCustomBooking) {
+        console.log('📦 Custom booking detected - using fixed package pricing');
+        
+        const startTime = new Date(booking.startTime);
+        const endTime = new Date(booking.endTime);
+        const totalMinutes = Math.floor((endTime - startTime) / (1000 * 60));
+        const duration = calculateDuration(booking.startTime, booking.endTime);
+        
+        setAdvancedPricing({
+          totalAmount: booking.finalAmount || 0,
+          breakdown: [{
+            period: `${booking.customBookingLabel || booking.customBookingType} Package`,
+            startTime: startTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+            endTime: endTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+            minutes: totalMinutes,
+            rate: booking.finalAmount || 0,
+            isCustomPackage: true,
+            description: `Fixed rate package - ${booking.customBookingType}`
+          }],
+          totalMinutes: totalMinutes,
+          summary: `${booking.customBookingLabel || booking.customBookingType} - Fixed Rate Package (${duration.hours}h ${duration.minutes}m used)`,
+          isCustomPackage: true
+        });
+        
+        console.log('✅ Custom package pricing set:', {
+          amount: booking.finalAmount,
+          type: booking.customBookingType
+        });
+        return;
+      }
+      
+      // For regular bookings, use advanced pricing calculation
+      console.log('⚡ Regular booking detected - calculating advanced pricing');
       
       const startTime = new Date(booking.startTime);
       const endTime = new Date(booking.endTime);
@@ -64,19 +100,28 @@ export default function ReturnConfirmationPage() {
       const pricingResult = await calculateAdvancedPricing(startTime, endTime);
       
       console.log('✅ Advanced pricing calculated:', pricingResult);
-      setAdvancedPricing(pricingResult);
+      setAdvancedPricing({
+        ...pricingResult,
+        isCustomPackage: false
+      });
       
     } catch (error) {
-      console.error('❌ Error calculating advanced pricing:', error);
-      setPricingError('Failed to calculate advanced pricing');
+      console.error('❌ Error calculating pricing:', error);
+      setPricingError('Failed to calculate pricing');
       
-      // Fallback to simple calculation
+      // Fallback calculation
       const duration = calculateDuration(booking.startTime, booking.endTime);
-      const fallbackAmount = Math.max(duration.hours * 80, 80);
+      const fallbackAmount = booking.isCustomBooking 
+        ? booking.finalAmount || 0
+        : Math.max(duration.hours * 80, 80);
+        
       setAdvancedPricing({
         totalAmount: fallbackAmount,
         breakdown: [],
-        summary: `${duration.hours}h ${duration.minutes}m (fallback calculation)`
+        summary: booking.isCustomBooking 
+          ? `${booking.customBookingType} package (fallback)`
+          : `${duration.hours}h ${duration.minutes}m (fallback calculation)`,
+        isCustomPackage: booking.isCustomBooking || false
       });
     } finally {
       setPricingCalculating(false);
@@ -133,13 +178,13 @@ export default function ReturnConfirmationPage() {
     return { hours, minutes };
   };
 
-  // ✅ UPDATED: Enhanced pricing breakdown using real-time calculations
+  // ✅ UPDATED: Enhanced pricing breakdown with Custom Package support
   const renderAdvancedPricingBreakdown = () => {
     if (pricingCalculating) {
       return (
         <div className="text-center py-4">
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <div className="text-sm text-gray-600">🧮 Calculating advanced pricing...</div>
+          <div className="text-sm text-gray-600">🧮 Calculating pricing...</div>
         </div>
       );
     }
@@ -167,7 +212,71 @@ export default function ReturnConfirmationPage() {
       return renderSimplePricingFallback();
     }
 
-    // ✅ Render real-time advanced pricing breakdown
+    // ✅ NEW: Handle Custom Package Display
+    if (advancedPricing.isCustomPackage || booking.isCustomBooking) {
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-medium text-gray-800">📦 Custom Package Details:</div>
+            <div className="text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded">
+              Fixed Rate Package
+            </div>
+          </div>
+          
+          {/* Package Information */}
+          <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="font-medium text-purple-800">
+                  {booking.customBookingLabel || `${booking.customBookingType} Package`}
+                </span>
+                <span className="font-bold text-purple-900">₹{booking.finalAmount?.toLocaleString('en-IN')}</span>
+              </div>
+              
+              <div className="text-sm text-purple-700 space-y-2">
+                <div className="flex justify-between">
+                  <span>Package Type:</span>
+                  <span className="font-medium capitalize">{booking.customBookingType}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Start Time:</span>
+                  <span>{formatDateTime(booking.startTime).split(',')[1]}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>End Time:</span>
+                  <span>{formatDateTime(booking.endTime).split(',')[1]}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Duration Used:</span>
+                  <span>{advancedPricing.breakdown?.[0]?.minutes || 'N/A'} minutes</span>
+                </div>
+              </div>
+              
+              <div className="mt-3 pt-2 border-t border-purple-300">
+                <div className="text-xs text-purple-600 italic">
+                  📦 Fixed rate package - no additional time-based charges
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Package Summary */}
+          <div className="border-t pt-3 mt-4">
+            <div className="flex justify-between text-sm text-gray-600">
+              <span>Package Duration:</span>
+              <span>{calculateDuration(booking.startTime, booking.endTime).hours}h {calculateDuration(booking.startTime, booking.endTime).minutes}m</span>
+            </div>
+            {advancedPricing.summary && (
+              <div className="text-xs text-purple-600 mt-2 italic">
+                📦 {advancedPricing.summary}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ✅ Regular Advanced Pricing Display (unchanged for regular bookings)
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between mb-3">
@@ -238,15 +347,24 @@ export default function ReturnConfirmationPage() {
           </div>
         )}
         
-        {/* ✅ NEW: Comparison with stored amount */}
+        {/* ✅ Comparison with stored amount (only for regular bookings) */}
         {renderPricingComparison()}
       </div>
     );
   };
 
-  // ✅ NEW: Compare calculated vs stored pricing
+  // ✅ UPDATED: Compare calculated vs stored pricing (skip for custom packages)
   const renderPricingComparison = () => {
     if (!advancedPricing || !booking.finalAmount) return null;
+    
+    // ✅ NEW: Skip comparison for custom packages (they have fixed rates)
+    if (advancedPricing.isCustomPackage || booking.isCustomBooking) {
+      return (
+        <div className="mt-3 p-2 bg-purple-50 border border-purple-200 rounded text-sm">
+          <span className="text-purple-700">📦 Fixed rate package - no pricing variations</span>
+        </div>
+      );
+    }
     
     const difference = advancedPricing.totalAmount - booking.finalAmount;
     
@@ -388,8 +506,11 @@ export default function ReturnConfirmationPage() {
   const duration = calculateDuration(booking.startTime, booking.endTime);
   const conditionDisplay = getVehicleConditionDisplay(booking.vehicleCondition);
 
-  // ✅ Calculate displayed amounts
-  const displayedAmount = advancedPricing?.totalAmount || booking.finalAmount;
+  // ✅ UPDATED: Calculate displayed amounts with custom package support
+  const displayedAmount = booking.isCustomBooking 
+    ? booking.finalAmount || 0  // Use fixed package price for custom bookings
+    : (advancedPricing?.totalAmount || booking.finalAmount);  // Use calculated or stored amount for regular bookings
+
   const finalAmountAfterAdjustments = displayedAmount - (booking.discountAmount || 0) + (booking.additionalCharges || 0);
 
   return (
@@ -406,15 +527,23 @@ export default function ReturnConfirmationPage() {
               </Link>
               <h1 className="text-3xl font-bold text-gray-900">Return Completed</h1>
             </div>
+            {/* Updated Header Buttons - Handle custom packages appropriately */}
             <div className="flex gap-3">
-              {/* ✅ NEW: Recalculate button */}
-              <button
-                onClick={handleRecalculatePricing}
-                disabled={pricingCalculating}
-                className="bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium text-sm"
-              >
-                {pricingCalculating ? '⏳ Calculating...' : '🧮 Recalculate Pricing'}
-              </button>
+              {/* ✅ Updated: Recalculate button - different behavior for custom packages */}
+              {booking.isCustomBooking ? (
+                <div className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg font-medium text-sm flex items-center">
+                  📦 Fixed Package Rate
+                </div>
+              ) : (
+                <button
+                  onClick={handleRecalculatePricing}
+                  disabled={pricingCalculating}
+                  className="bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium text-sm"
+                >
+                  {pricingCalculating ? '⏳ Calculating...' : '🧮 Recalculate Pricing'}
+                </button>
+              )}
+              
               <button
                 onClick={handlePrint}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold"
@@ -427,7 +556,7 @@ export default function ReturnConfirmationPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        {/* Success Message - No Print */}
+        {/* Updated Success Message - Handles both pricing types */}
         <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-8 no-print">
           <div className="flex items-center">
             <div className="text-green-600 text-4xl mr-4">✅</div>
@@ -436,10 +565,16 @@ export default function ReturnConfirmationPage() {
               <p className="text-green-700 text-lg">
                 Payment of ₹{finalAmountAfterAdjustments.toLocaleString('en-IN')} has been collected. Vehicle is now available for new bookings.
               </p>
-              {advancedPricing && (
-                <p className="text-green-600 text-sm mt-1">
-                  🧮 Amount calculated using advanced pricing with grace periods, block rates & night charges
+              {booking.isCustomBooking ? (
+                <p className="text-purple-600 text-sm mt-1">
+                  📦 {booking.customBookingLabel || booking.customBookingType} package completed - Fixed rate pricing applied
                 </p>
+              ) : (
+                advancedPricing && (
+                  <p className="text-green-600 text-sm mt-1">
+                    🧮 Amount calculated using advanced pricing with grace periods, block rates & night charges
+                  </p>
+                )
               )}
             </div>
           </div>
@@ -487,6 +622,14 @@ export default function ReturnConfirmationPage() {
                     COMPLETED
                   </span>
                 </div>
+                {booking.isCustomBooking && (
+                  <div>
+                    <span className="font-medium text-gray-700">Package Type:</span>
+                    <span className="ml-2 bg-purple-100 text-purple-800 px-2 py-1 rounded text-sm font-medium">
+                      📦 {booking.customBookingLabel || booking.customBookingType}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -543,12 +686,12 @@ export default function ReturnConfirmationPage() {
             </div>
           </div>
 
-          {/* ✅ ENHANCED: Advanced Payment Details with Real-Time Calculation */}
+          {/* ✅ UPDATED: Payment Information section with Custom Package support */}
           <div className="border-t pt-6 mb-8">
             <h3 className="text-xl font-bold text-gray-900 mb-4">Payment Information</h3>
             <div className="bg-gray-50 rounded-lg p-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* ✅ Left: Real-Time Advanced Pricing Breakdown */}
+                {/* ✅ Left: Pricing Details (Custom Package or Advanced Pricing) */}
                 <div className="space-y-2">
                   {renderAdvancedPricingBreakdown()}
                 </div>
@@ -556,16 +699,25 @@ export default function ReturnConfirmationPage() {
                 {/* ✅ Right: Adjustments and Final Payment */}
                 <div className="space-y-4">
                   {/* Subtotal */}
-                  <div className="bg-blue-50 rounded-lg p-4">
+                  <div className={`rounded-lg p-4 ${
+                    booking.isCustomBooking 
+                      ? 'bg-purple-50 border border-purple-200' 
+                      : 'bg-blue-50 border border-blue-200'
+                  }`}>
                     <div className="flex justify-between font-medium">
-                      <span>Pricing Subtotal:</span>
+                      <span>
+                        {booking.isCustomBooking ? 'Package Price:' : 'Pricing Subtotal:'}
+                      </span>
                       <span>₹{displayedAmount.toLocaleString('en-IN')}</span>
                     </div>
-                    {advancedPricing && (
-                      <div className="text-xs text-blue-600 mt-1">
-                        🧮 Advanced pricing applied
-                      </div>
-                    )}
+                    <div className={`text-xs mt-1 ${
+                      booking.isCustomBooking ? 'text-purple-600' : 'text-blue-600'
+                    }`}>
+                      {booking.isCustomBooking 
+                        ? `📦 ${booking.customBookingType} package - fixed rate`
+                        : '🧮 Advanced pricing applied'
+                      }
+                    </div>
                   </div>
 
                   {/* Adjustments */}
@@ -633,12 +785,18 @@ export default function ReturnConfirmationPage() {
             </div>
           )}
 
-          {/* Footer */}
+          {/* Updated Footer - Shows appropriate message for booking type */}
           <div className="border-t pt-6 mt-6 text-center text-sm text-gray-500">
             <p>Thank you for choosing MR Travels!</p>
             <p>Vehicle returned on: {formatDateTime(booking.endTime)} | Return processed by: MR Travels Staff</p>
-            {advancedPricing && (
-              <p className="mt-2 text-blue-600">⚡ Powered by Advanced Pricing Engine - Real-time calculation</p>
+            {booking.isCustomBooking ? (
+              <p className="mt-2 text-purple-600">
+                📦 {booking.customBookingLabel || booking.customBookingType} Package - Fixed Rate Pricing
+              </p>
+            ) : (
+              advancedPricing && (
+                <p className="mt-2 text-blue-600">⚡ Powered by Advanced Pricing Engine - Real-time calculation</p>
+              )
             )}
           </div>
         </div>
