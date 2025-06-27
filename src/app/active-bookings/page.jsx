@@ -60,6 +60,14 @@ export default function EnhancedActiveBookingsPage() {
     booking: null
   });
 
+  // 📞 NEW: Call functionality state
+  const [callModal, setCallModal] = useState({
+    isOpen: false,
+    booking: null
+  });
+
+  const [lastCalled, setLastCalled] = useState({}); // Track last call time per booking
+
   useEffect(() => {
     fetchActiveBookings();
     const timeInterval = setInterval(() => {
@@ -96,6 +104,163 @@ export default function EnhancedActiveBookingsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 📞 NEW: Call handling functions
+  const handleQuickCall = (booking, reason = 'follow_up') => {
+    const phoneNumber = booking.customer?.phone || booking.customerId?.phone;
+    if (!phoneNumber) {
+      alert('Phone number not available for this customer');
+      return;
+    }
+
+    // Track the call time
+    setLastCalled(prev => ({
+      ...prev,
+      [booking._id]: {
+        time: new Date(),
+        reason: reason,
+        phone: phoneNumber
+      }
+    }));
+
+    // Open phone dialer
+    window.location.href = `tel:${phoneNumber}`;
+  };
+
+  const handleOpenCallModal = (booking) => {
+    setCallModal({
+      isOpen: true,
+      booking: booking
+    });
+  };
+
+  const handleCloseCallModal = () => {
+    setCallModal({
+      isOpen: false,
+      booking: null
+    });
+  };
+
+  const formatLastCallTime = (bookingId) => {
+    const lastCall = lastCalled[bookingId];
+    if (!lastCall) return null;
+    
+    const now = new Date();
+    const callTime = new Date(lastCall.time);
+    const diffMinutes = Math.floor((now - callTime) / (1000 * 60));
+    
+    if (diffMinutes < 1) return 'Just called';
+    if (diffMinutes < 60) return `Called ${diffMinutes}m ago`;
+    
+    const diffHours = Math.floor(diffMinutes / 60);
+    return `Called ${diffHours}h ago`;
+  };
+
+  // 📞 NEW: Call Modal Component
+  const CallModal = ({ isOpen, onClose, booking }) => {
+    if (!isOpen || !booking) return null;
+
+    const callReasons = [
+      { 
+        id: 'follow_up', 
+        label: 'Follow-up: When will you return?', 
+        icon: '🕐',
+        description: 'Check expected return time'
+      },
+      { 
+        id: 'location_check', 
+        label: 'Location check', 
+        icon: '📍',
+        description: 'Verify current location'
+      },
+      { 
+        id: 'vehicle_status', 
+        label: 'Vehicle condition check', 
+        icon: '🔧',
+        description: 'Ask about vehicle status'
+      },
+      { 
+        id: 'extension_request', 
+        label: 'Extension discussion', 
+        icon: '⏱️',
+        description: 'Discuss rental extension'
+      },
+      { 
+        id: 'overdue_reminder', 
+        label: 'Overdue reminder', 
+        icon: '⚠️',
+        description: 'Package time expired'
+      },
+      { 
+        id: 'general_inquiry', 
+        label: 'General inquiry', 
+        icon: '💬',
+        description: 'General customer service'
+      }
+    ];
+
+    const handleCallWithReason = (reason) => {
+      handleQuickCall(booking, reason.id);
+      onClose();
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-gray-800 rounded-lg max-w-md w-full max-h-96 overflow-y-auto">
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">Call Customer</h3>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Customer Info */}
+            <div className="bg-gray-700 rounded-lg p-4 mb-6">
+              <div className="text-white font-medium">{booking.customerId?.name || booking.customer?.name}</div>
+              <div className="text-gray-300">{booking.customerId?.phone || booking.customer?.phone}</div>
+              <div className="text-sm text-gray-400">
+                Booking: {booking.bookingId} • {booking.vehicleId?.model} ({booking.vehicleId?.plateNumber})
+              </div>
+            </div>
+
+            {/* Call Reasons */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-gray-300 mb-3">Select call purpose:</h4>
+              {callReasons.map((reason) => (
+                <button
+                  key={reason.id}
+                  onClick={() => handleCallWithReason(reason)}
+                  className="w-full text-left p-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl">{reason.icon}</span>
+                    <div>
+                      <div className="text-white font-medium">{reason.label}</div>
+                      <div className="text-sm text-gray-400">{reason.description}</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Quick Call Button */}
+            <div className="mt-6 pt-4 border-t border-gray-600">
+              <button
+                onClick={() => handleCallWithReason({ id: 'quick_call', label: 'Quick Call' })}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                📞 Call Now (Quick)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // ✅ ENHANCED: Calculate end time for custom bookings
@@ -340,14 +505,30 @@ export default function EnhancedActiveBookingsPage() {
     return (
       <ThemedCard className={cardClassName}>
         <div className="p-6">
-          {/* Enhanced Header with Booking Type */}
+          {/* 📞 ENHANCED Header with Call Functionality */}
           <div className="flex justify-between items-start mb-6">
             <div>
               <h3 className="text-xl font-bold text-white">
                 {booking.customerId.name}
               </h3>
-              <p className="text-gray-400">{booking.customerId.phone}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-gray-400">{booking.customerId.phone}</p>
+                {/* 📞 NEW: Quick call button */}
+                <button
+                  onClick={() => handleQuickCall(booking, 'quick_call')}
+                  className="text-green-400 hover:text-green-300 transition-colors"
+                  title="Quick call"
+                >
+                  📞
+                </button>
+              </div>
               <p className="text-sm text-gray-500 font-mono">ID: {booking.bookingId}</p>
+              {/* 📞 NEW: Last call status */}
+              {lastCalled[booking._id] && (
+                <p className="text-xs text-blue-400 mt-1">
+                  📞 {formatLastCallTime(booking._id)}
+                </p>
+              )}
             </div>
             <div className="flex flex-col items-end gap-2">
               <ThemedBadge status="active">
@@ -430,6 +611,26 @@ export default function EnhancedActiveBookingsPage() {
                   <div className="text-xs text-orange-300 mt-1">
                     Until {progress.endTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                   </div>
+                </div>
+              )}
+
+              {/* 📞 NEW: Overdue Alert with Call Button */}
+              {progress && progress.isOvertime && (
+                <div className="bg-red-900/20 border border-red-700/30 rounded-lg p-3 mb-6">
+                  <div className="text-center mb-3">
+                    <div className="text-lg font-bold text-red-400">
+                      ⚠️ OVERDUE
+                    </div>
+                    <div className="text-red-200 text-sm">
+                      {progress.overtimeHours}h {progress.overtimeMinutes}m past deadline
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleQuickCall(booking, 'overdue_reminder')}
+                    className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    📞 Call Customer (Overdue)
+                  </button>
                 </div>
               )}
 
@@ -516,10 +717,11 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* 📞 ENHANCED Action Buttons with Call Features */}
           {renderActionButtons(booking, {
             openVehicleChange: handleOpenVehicleChange,
-            openCancellation: handleOpenCancellation
+            openCancellation: handleOpenCancellation,
+            openCall: handleOpenCallModal
           })}
         </div>
       </ThemedCard>
@@ -706,12 +908,30 @@ export default function EnhancedActiveBookingsPage() {
     );
   };
 
+  // 📞 ENHANCED: Action buttons with calling functionality
   const renderActionButtons = (booking, handlers) => {
     const eligibility = getChangeEligibilityReason(booking);
     const cancellationEligibility = isWithinCancellationWindow(booking);
     
     return (
       <div className="space-y-3">
+        {/* 📞 NEW: Call Actions Row */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleOpenCallModal(booking)}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+          >
+            📞 Call Customer
+          </button>
+          <button
+            onClick={() => handleQuickCall(booking, 'follow_up')}
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+            title="Quick follow-up call: When will you return?"
+          >
+            🕐 Return Time?
+          </button>
+        </div>
+
         <div className="flex gap-3">
           <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
             <ThemedButton variant="secondary" className="w-full">
@@ -878,7 +1098,7 @@ export default function EnhancedActiveBookingsPage() {
             Active <span className={theme.typography.gradient}>Bookings</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Real-time monitoring with advanced pricing + custom packages
+            Real-time monitoring with advanced pricing + custom packages + customer calling
           </p>
         </div>
 
@@ -929,7 +1149,7 @@ export default function EnhancedActiveBookingsPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">Enhanced Live Dashboard</h3>
-                <p className="text-gray-400">Dual pricing monitoring with package progress tracking</p>
+                <p className="text-gray-400">Dual pricing monitoring with package progress tracking + customer calling</p>
               </div>
             </div>
             <div className="text-right">
@@ -981,7 +1201,7 @@ export default function EnhancedActiveBookingsPage() {
           </div>
         </ThemedCard>
 
-        {/* ✅ ENHANCED: Active Bookings with custom package support */}
+        {/* ✅ ENHANCED: Active Bookings with custom package support + calling */}
         {filteredBookings.length === 0 ? (
           <ThemedCard className="text-center p-12">
             <div className="mb-6">
@@ -1058,7 +1278,7 @@ export default function EnhancedActiveBookingsPage() {
         </div>
       </div>
 
-      {/* Modals */}
+      {/* 📞 ENHANCED: Modals with Call Modal */}
       <VehicleChangeModal
         isOpen={vehicleChangeModal.isOpen}
         onClose={handleCloseVehicleChange}
@@ -1071,6 +1291,13 @@ export default function EnhancedActiveBookingsPage() {
         onClose={handleCloseCancellation}
         booking={cancellationModal.booking}
         onCancel={handleBookingCancelled}
+      />
+
+      {/* 📞 NEW: Call Modal */}
+      <CallModal
+        isOpen={callModal.isOpen}
+        onClose={handleCloseCallModal}
+        booking={callModal.booking}
       />
     </ThemedLayout>
   );
