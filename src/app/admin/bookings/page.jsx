@@ -122,7 +122,7 @@ export default function ThemedAllBookingsPage() {
     }
   };
 
-  // ✅ FIXED: Handle both custom and advanced pricing bookings
+  // ✅ SUPER AGGRESSIVE FIX: Handle both custom and advanced pricing bookings
   const fetchPricingForBooking = async (bookingId) => {
     try {
       setPricingLoading(prev => ({ ...prev, [bookingId]: true }));
@@ -145,38 +145,58 @@ export default function ThemedAllBookingsPage() {
         return;
       }
 
-      // ✅ NEW: Handle custom bookings with fixed package rates
-      if (booking.isCustomBooking) {
-        const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
+      // ✅ SUPER AGGRESSIVE: Detect custom bookings by ANY indicator
+      const hasCustomType = booking.customBookingType && ['half_day', 'full_day', 'night'].includes(booking.customBookingType);
+      const hasCustomFlag = booking.isCustomBooking === true;
+      const hasCustomLabel = booking.customBookingLabel && (booking.customBookingLabel.includes('Day') || booking.customBookingLabel.includes('Package'));
+      
+      // ✅ DEBUG: Log detection details
+      console.log(`🔍 Booking ${booking.bookingId}:`, {
+        hasCustomType,
+        hasCustomFlag,
+        hasCustomLabel,
+        customBookingType: booking.customBookingType,
+        finalAmount: booking.finalAmount,
+        isDetectedAsCustom: hasCustomType || hasCustomFlag || hasCustomLabel
+      });
+
+      // ✅ FORCE PACKAGE RATES: If ANY custom indicator exists
+      if (hasCustomType || hasCustomFlag || hasCustomLabel) {
+        const packageType = booking.customBookingType || 'half_day'; // Default to half_day if type missing
+        const packageInfo = CUSTOM_PACKAGES[packageType];
+        
         if (packageInfo) {
-          // For custom bookings, use fixed package price + any final amount adjustments
-          const basePrice = packageInfo.price;
-          const finalAmount = booking.finalAmount || basePrice;
+          // ✅ FORCE PACKAGE RATE - COMPLETELY IGNORE finalAmount
+          const forcedPackageRate = packageInfo.price;
+          
+          console.log(`✅ FORCED PACKAGE RATE: ${booking.bookingId} from ₹${booking.finalAmount} to ₹${forcedPackageRate}`);
           
           setAdvancedPricing(prev => ({
             ...prev,
             [bookingId]: {
-              totalAmount: finalAmount,
+              totalAmount: forcedPackageRate, // ✅ Always use package rate
               breakdown: [{
                 period: `${packageInfo.icon} ${packageInfo.label}`,
                 minutes: packageInfo.maxHours * 60,
-                rate: basePrice,
+                rate: forcedPackageRate,
                 isNightCharge: false,
-                description: `Fixed package rate for ${packageInfo.label}`
+                description: `FORCED: Fixed package rate for ${packageInfo.label}`
               }],
               totalMinutes: packageInfo.maxHours * 60,
-              summary: `${packageInfo.label} - Fixed Rate`,
+              summary: `${packageInfo.label} - CORRECTED Rate`,
               isCustomBooking: true,
-              packageType: booking.customBookingType,
-              packageInfo: packageInfo
+              packageType: packageType,
+              packageInfo: packageInfo,
+              correctedFrom: booking.finalAmount
             }
           }));
         } else {
           // Fallback for unknown custom booking types
+          console.log(`❌ Unknown custom package type: ${booking.customBookingType}`);
           setAdvancedPricing(prev => ({
             ...prev,
             [bookingId]: {
-              totalAmount: booking.finalAmount || 0,
+              totalAmount: 0,
               breakdown: [],
               totalMinutes: 0,
               summary: 'Custom booking - Unknown type',
