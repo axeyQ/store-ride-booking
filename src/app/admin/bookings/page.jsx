@@ -52,10 +52,24 @@ export default function ThemedAllBookingsPage() {
   const [selectedSignature, setSelectedSignature] = useState(null);
   const [advancedPricing, setAdvancedPricing] = useState({});
   const [pricingLoading, setPricingLoading] = useState({});
+  
+  // ✅ NEW: Separate state for total stats (all bookings matching filters)
+  const [totalStats, setTotalStats] = useState({
+    totalBookings: 0,
+    activeRentals: 0,
+    completed: 0,
+    cancelled: 0,
+    totalRevenue: 0,
+    customBookings: 0,
+    advancedBookings: 0
+  });
+  const [statsLoading, setStatsLoading] = useState(false);
+  
   const itemsPerPage = 20;
 
   useEffect(() => {
     fetchBookings();
+    fetchTotalStats(); // ✅ NEW: Fetch total stats separately
   }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm]);
 
   // Fetch pricing for all bookings (both advanced and custom)
@@ -98,6 +112,36 @@ export default function ThemedAllBookingsPage() {
       console.error('Error fetching bookings:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ NEW: Fetch total stats for all bookings matching current filters
+  const fetchTotalStats = async () => {
+    try {
+      setStatsLoading(true);
+      const params = new URLSearchParams({
+        search: searchTerm,
+        status: statusFilter,
+        dateFilter: dateFilter,
+        statsOnly: 'true' // ✅ NEW: Tell API we only want stats
+      });
+
+      const response = await fetch(`/api/admin/all-bookings-stats?${params}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setTotalStats(data.stats);
+      } else {
+        console.error('Error fetching total stats:', data.error);
+        // Fallback: calculate stats from current page only
+        setTotalStats(calculatePageStats());
+      }
+    } catch (error) {
+      console.error('Error fetching total stats:', error);
+      // Fallback: calculate stats from current page only
+      setTotalStats(calculatePageStats());
+    } finally {
+      setStatsLoading(false);
     }
   };
 
@@ -207,8 +251,9 @@ export default function ThemedAllBookingsPage() {
         return;
       }
 
-      // ✅ For advanced pricing bookings, use existing logic
+      // ✅ FIXED: For advanced pricing bookings, always use the calculator
       if (booking.status === 'active') {
+        // For active bookings, use live API
         const response = await fetch(`/api/bookings/current-amount/${bookingId}`);
         const data = await response.json();
 
@@ -238,12 +283,25 @@ export default function ThemedAllBookingsPage() {
           }));
         }
       } else if (booking.status === 'completed') {
-        // For completed bookings, calculate advanced pricing directly
+        // ✅ For completed bookings, use advanced pricing calculator
         const advancedAmount = calculateAdvancedPricingForCompleted(booking);
         advancedAmount.isCustomBooking = false;
         setAdvancedPricing(prev => ({
           ...prev,
           [bookingId]: advancedAmount
+        }));
+      } else {
+        // For other statuses, use fallback calculation
+        const fallbackAmount = calculateSimpleAmount(booking);
+        setAdvancedPricing(prev => ({
+          ...prev,
+          [bookingId]: {
+            totalAmount: fallbackAmount,
+            breakdown: [],
+            totalMinutes: 0,
+            summary: 'Fallback calculation',
+            isCustomBooking: false
+          }
         }));
       }
     } catch (error) {
@@ -476,8 +534,8 @@ export default function ThemedAllBookingsPage() {
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  // ✅ FIXED: Calculate stats with separate handling for custom/advanced bookings
-  const calculateStats = () => {
+  // ✅ FIXED: Fallback page stats calculation (only used if API fails)
+  const calculatePageStats = () => {
     // Filter out cancelled bookings from revenue calculation
     const revenueBookings = bookings.filter(booking => booking.status !== 'cancelled');
     
@@ -501,7 +559,8 @@ export default function ThemedAllBookingsPage() {
     };
   };
 
-  const stats = calculateStats();
+  // ✅ NEW: Use totalStats from API instead of calculating from current page
+  const stats = totalStats;
 
   // Signature Modal Component - Themed Style
   const SignatureModal = ({ signature, onClose }) => {
@@ -564,19 +623,19 @@ export default function ThemedAllBookingsPage() {
           </p>
         </div>
 
-        {/* ✅ ENHANCED: Updated Stats Row with booking type breakdown */}
+        {/* ✅ ENHANCED: Updated Stats Row with total stats from API */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <ThemedStatsCard
             title="Total Bookings"
-            value={stats.totalBookings}
-            subtitle={`${stats.advancedBookings} Advanced + ${stats.customBookings} Custom`}
+            value={statsLoading ? "..." : stats.totalBookings}
+            subtitle={statsLoading ? "Loading..." : `${stats.advancedBookings} Advanced + ${stats.customBookings} Custom`}
             colorScheme="bookings"
             icon={<div className="text-4xl mb-2">📋</div>}
           />
           
           <ThemedStatsCard
             title="Active Rentals"
-            value={stats.activeRentals}
+            value={statsLoading ? "..." : stats.activeRentals}
             subtitle="Currently out"
             colorScheme="revenue"
             icon={<div className="text-4xl mb-2">🚴</div>}
@@ -584,7 +643,7 @@ export default function ThemedAllBookingsPage() {
           
           <ThemedStatsCard
             title="Completed"
-            value={stats.completed}
+            value={statsLoading ? "..." : stats.completed}
             subtitle="Successfully returned"
             colorScheme="customers"
             icon={<div className="text-4xl mb-2">✅</div>}
@@ -592,7 +651,7 @@ export default function ThemedAllBookingsPage() {
 
           <ThemedStatsCard
             title="Total Revenue"
-            value={`₹${stats.totalRevenue.toLocaleString('en-IN')}`}
+            value={statsLoading ? "..." : `₹${stats.totalRevenue.toLocaleString('en-IN')}`}
             subtitle="Both pricing systems"
             colorScheme="revenue"
             icon={<div className="text-4xl mb-2">💰</div>}
@@ -659,7 +718,7 @@ export default function ThemedAllBookingsPage() {
             >
               Clear Filters
             </ThemedButton>
-            <ThemedButton variant="primary" onClick={fetchBookings}>
+            <ThemedButton variant="primary" onClick={() => { fetchBookings(); fetchTotalStats(); }}>
               🔄 Refresh
             </ThemedButton>
           </div>

@@ -28,12 +28,44 @@ import {
 
 import { calculateCurrentAmount } from '@/lib/pricing';
 
-// ✅ ENHANCED: Helper function to calculate booking revenue (both types)
 const calculateBookingRevenue = async (booking) => {
   try {
-    // If it's a custom booking, use the stored finalAmount directly
+    // ✅ FIXED: For custom bookings, use fixed package rates instead of finalAmount
     if (booking.isCustomBooking) {
-      return booking.finalAmount || 0;
+      const CUSTOM_PACKAGES = {
+        half_day: { 
+          label: 'Half Day', 
+          price: 800, 
+          maxHours: 12, 
+          icon: '🌅',
+          color: 'orange'
+        },
+        full_day: { 
+          label: 'Full Day', 
+          price: 1200, 
+          maxHours: 24, 
+          icon: '☀️',
+          color: 'yellow'
+        },
+        night: { 
+          label: 'Night Package', 
+          price: 600, 
+          maxHours: 11, 
+          icon: '🌙',
+          color: 'purple'
+        }
+      };
+
+      const packageType = booking.customBookingType || 'half_day';
+      const packageInfo = CUSTOM_PACKAGES[packageType];
+      
+      if (packageInfo) {
+        console.log(`📦 Custom booking ${booking.bookingId}: ${packageType} = ₹${packageInfo.price} (FIXED RATE)`);
+        return packageInfo.price;
+      } else {
+        console.log(`❌ Unknown custom package type: ${booking.customBookingType}`);
+        return 0;
+      }
     }
     
     // For advanced pricing bookings, use the complex calculation
