@@ -134,6 +134,14 @@ const bookingSchema = new mongoose.Schema({
     required: true,
     default: Date.now
   },
+  estimatedReturnTime: {
+  type: Date,
+  required: true,
+  default: function() {
+    // Default to 2 hours from start time for new bookings
+    return new Date(this.startTime.getTime() + (2 * 60 * 60 * 1000));
+  }
+},
   endTime: {
     type: Date
   },

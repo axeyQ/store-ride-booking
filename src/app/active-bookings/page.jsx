@@ -50,6 +50,10 @@ export default function EnhancedActiveBookingsPage() {
   const [currentAmounts, setCurrentAmounts] = useState({});
   const [extraCharges, setExtraCharges] = useState({}); // ✅ NEW: Extra charges state
 
+  // NEW: Fleet forecast state
+  const [forecastData, setForecastData] = useState([]);
+  const [forecastLoading, setForecastLoading] = useState(false);
+
   const [vehicleChangeModal, setVehicleChangeModal] = useState({
     isOpen: false,
     booking: null
@@ -70,10 +74,18 @@ export default function EnhancedActiveBookingsPage() {
 
   useEffect(() => {
     fetchActiveBookings();
+    fetchFleetForecast(); // NEW: Fetch forecast data
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
-    return () => clearInterval(timeInterval);
+    
+    // NEW: Update forecast every 5 minutes
+    const forecastInterval = setInterval(fetchFleetForecast, 5 * 60 * 1000);
+    
+    return () => {
+      clearInterval(timeInterval);
+      clearInterval(forecastInterval);
+    };
   }, []);
 
   useEffect(() => {
@@ -83,6 +95,22 @@ export default function EnhancedActiveBookingsPage() {
       return () => clearInterval(amountInterval);
     }
   }, [bookings]);
+
+  // NEW: Fleet forecast API call
+  const fetchFleetForecast = async () => {
+    try {
+      setForecastLoading(true);
+      const response = await fetch('/api/analytics/fleet-forecast');
+      const data = await response.json();
+      if (data.success) {
+        setForecastData(data.forecast || []);
+      }
+    } catch (error) {
+      console.error('Error fetching fleet forecast:', error);
+    } finally {
+      setForecastLoading(false);
+    }
+  };
 
   const fetchActiveBookings = async () => {
     try {
@@ -104,6 +132,100 @@ export default function EnhancedActiveBookingsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // NEW: Estimated Return Status Component
+  const EstimatedReturnStatus = ({ booking, currentTime }) => {
+    if (!booking.estimatedReturnTime) {
+      return (
+        <div className="text-gray-500 text-sm">
+          📅 No estimate set
+        </div>
+      );
+    }
+
+    const estimatedTime = new Date(booking.estimatedReturnTime);
+    const current = new Date(currentTime);
+    const diffMinutes = Math.floor((estimatedTime - current) / (1000 * 60));
+    
+    if (diffMinutes > 60) {
+      const hours = Math.floor(diffMinutes / 60);
+      return (
+        <div className="text-green-400 text-sm">
+          ✅ {hours}h remaining
+        </div>
+      );
+    } else if (diffMinutes > 30) {
+      return (
+        <div className="text-yellow-400 text-sm">
+          ⏳ {diffMinutes}m remaining
+        </div>
+      );
+    } else if (diffMinutes > 0) {
+      return (
+        <div className="text-amber-400 text-sm animate-pulse font-medium">
+          ⏰ Due in {diffMinutes}m
+        </div>
+      );
+    } else {
+      const overdueMinutes = Math.abs(diffMinutes);
+      const overdueHours = Math.floor(overdueMinutes / 60);
+      const remainingMinutes = overdueMinutes % 60;
+      
+      return (
+        <div className="text-red-400 text-sm font-bold animate-pulse">
+          🔴 {overdueHours > 0 ? `${overdueHours}h ${remainingMinutes}m` : `${overdueMinutes}m`} overdue
+        </div>
+      );
+    }
+  };
+
+  // NEW: Fleet Forecast Widget Component
+  const FleetForecastWidget = () => {
+    if (forecastLoading) {
+      return (
+        <ThemedCard title="🔮 Fleet Availability Forecast" className="mb-8">
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mr-3"></div>
+            <span className="text-white">Loading forecast...</span>
+          </div>
+        </ThemedCard>
+      );
+    }
+
+    return (
+      <ThemedCard title="🔮 Fleet Availability Forecast" className="mb-8">
+        <div className="space-y-3">
+          {forecastData.length === 0 ? (
+            <div className="text-center text-gray-400 py-6">
+              <div className="text-3xl mb-2">📊</div>
+              <p>No upcoming returns estimated</p>
+            </div>
+          ) : (
+            forecastData.map((slot, index) => (
+              <div key={index} className="flex justify-between items-center p-4 bg-blue-900/20 rounded-lg border border-blue-700/30">
+                <div>
+                  <div className="text-blue-200 font-medium">{slot.hour}</div>
+                  <div className="text-blue-400 text-sm">
+                    {slot.expectedReturns} vehicle{slot.expectedReturns !== 1 ? 's' : ''} expected
+                  </div>
+                  {slot.vehicles && slot.vehicles.length > 0 && (
+                    <div className="text-blue-300 text-xs mt-1">
+                      {slot.vehicles.slice(0, 2).join(', ')}
+                      {slot.vehicles.length > 2 && ` +${slot.vehicles.length - 2} more`}
+                    </div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-blue-400 font-bold text-lg">+{slot.expectedReturns}</div>
+                  <div className="text-blue-300 text-xs">available</div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </ThemedCard>
+    );
   };
 
   // 📞 NEW: Call handling functions
@@ -169,6 +291,12 @@ export default function EnhancedActiveBookingsPage() {
         description: 'Check expected return time'
       },
       { 
+        id: 'estimated_return_check', 
+        label: 'Estimated return time check', 
+        icon: '📅',
+        description: 'Verify if still on schedule'
+      },
+      { 
         id: 'location_check', 
         label: 'Location check', 
         icon: '📍',
@@ -190,7 +318,7 @@ export default function EnhancedActiveBookingsPage() {
         id: 'overdue_reminder', 
         label: 'Overdue reminder', 
         icon: '⚠️',
-        description: 'Package time expired'
+        description: 'Past estimated return time'
       },
       { 
         id: 'general_inquiry', 
@@ -226,6 +354,17 @@ export default function EnhancedActiveBookingsPage() {
               <div className="text-sm text-gray-400">
                 Booking: {booking.bookingId} • {booking.vehicleId?.model} ({booking.vehicleId?.plateNumber})
               </div>
+              {/* NEW: Show estimated return status in call modal */}
+              {booking.estimatedReturnTime && (
+                <div className="text-sm text-amber-300 mt-1">
+                  Estimated return: {new Date(booking.estimatedReturnTime).toLocaleString('en-IN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    day: 'numeric',
+                    month: 'short'
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Call Reasons */}
@@ -484,7 +623,7 @@ export default function EnhancedActiveBookingsPage() {
     );
   };
 
-  // ✅ ENHANCED: Booking card with custom package support
+  // ✅ ENHANCED: Booking card with estimated return time and custom package support
   const EnhancedBookingCard = ({ booking }) => {
     const duration = calculateDuration(booking.startTime);
     const currentAmount = currentAmounts[booking._id] || 0;
@@ -565,6 +704,64 @@ export default function EnhancedActiveBookingsPage() {
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* NEW: Estimated Return Time Section */}
+          <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-4 mb-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-amber-200 text-sm font-medium mb-1">📅 Estimated Return</div>
+                <div className="text-amber-400 font-bold">
+                  {booking.estimatedReturnTime 
+                    ? new Date(booking.estimatedReturnTime).toLocaleString('en-IN', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })
+                    : 'Not set'
+                  }
+                </div>
+                {booking.isCustomBooking && (
+                  <div className="text-amber-300 text-xs mt-1">
+                    📦 Package end time
+                  </div>
+                )}
+              </div>
+              
+              <div className="text-right">
+                <EstimatedReturnStatus booking={booking} currentTime={currentTime} />
+                
+                {/* Call Button - Enhanced for estimated return context */}
+                <div className="mt-2">
+                  <button
+                    onClick={() => handleOpenCallModal(booking)}
+                    className="inline-flex items-center px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+                  >
+                    📞 Call
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Progress Bar for Custom Bookings */}
+            {booking.isCustomBooking && booking.estimatedReturnTime && (
+              <div className="mt-3">
+                <div className="flex justify-between text-xs text-amber-300 mb-1">
+                  <span>Package Progress</span>
+                  <span>{calculatePackageProgress(booking) ? Math.round(calculatePackageProgress(booking).progressPercentage) : 0}%</span>
+                </div>
+                <div className="w-full bg-amber-900/30 rounded-full h-2">
+                  <div 
+                    className="bg-amber-400 h-2 rounded-full transition-all duration-300"
+                    style={{ 
+                      width: `${Math.min(calculatePackageProgress(booking)?.progressPercentage || 0, 100)}%` 
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ✅ ENHANCED: Dual metrics for different booking types */}
@@ -1098,9 +1295,12 @@ export default function EnhancedActiveBookingsPage() {
             Active <span className={theme.typography.gradient}>Bookings</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Real-time monitoring with advanced pricing + custom packages + customer calling
+            Real-time monitoring with estimated return times + customer calling + fleet forecasting
           </p>
         </div>
+
+        {/* NEW: Fleet Forecast Widget */}
+        <FleetForecastWidget />
 
         {/* ✅ ENHANCED: Stats with booking type breakdown */}
         <div className={theme.layout.grid.stats + " mb-8"}>
@@ -1149,7 +1349,7 @@ export default function EnhancedActiveBookingsPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">Enhanced Live Dashboard</h3>
-                <p className="text-gray-400">Dual pricing monitoring with package progress tracking + customer calling</p>
+                <p className="text-gray-400">Estimated return times + customer calling + fleet intelligence</p>
               </div>
             </div>
             <div className="text-right">
@@ -1201,7 +1401,7 @@ export default function EnhancedActiveBookingsPage() {
           </div>
         </ThemedCard>
 
-        {/* ✅ ENHANCED: Active Bookings with custom package support + calling */}
+        {/* ✅ ENHANCED: Active Bookings with estimated return times + calling */}
         {filteredBookings.length === 0 ? (
           <ThemedCard className="text-center p-12">
             <div className="mb-6">

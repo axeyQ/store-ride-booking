@@ -120,6 +120,25 @@ export async function POST(request) {
       hasSignature: !!body.signature,
       hasMultipleDriver: body.actualDriver && !body.actualDriver.isSameAsLicenseHolder
     });
+
+        // ADD VALIDATION FOR ESTIMATED RETURN TIME
+        if (!body.estimatedReturnTime) {
+          return NextResponse.json(
+            { success: false, error: 'Estimated return time is required' },
+            { status: 400 }
+          );
+        }
+    
+        // Validate estimated return time
+        const startTime = new Date(body.startTime || new Date());
+        const estimatedReturn = new Date(body.estimatedReturnTime);
+        
+        if (estimatedReturn <= startTime) {
+          return NextResponse.json(
+            { success: false, error: 'Estimated return time must be after start time' },
+            { status: 400 }
+          );
+        }
     
     // Validate only essential required fields
     if (!body.vehicleId || !body.customer || !body.signature) {
@@ -349,6 +368,7 @@ export async function POST(request) {
       securityDepositCollected: body.securityDepositCollected || false,
       securityDepositAmount: body.securityDepositAmount || 0,
       startTime: rentalStartTime,
+      estimatedReturnTime: estimatedReturn,
       createdAt: new Date(),
       
       // NEW: Multiple driver information
@@ -498,17 +518,16 @@ export async function POST(request) {
     
     console.log('✅ Booking creation completed successfully');
     
-    // NEW: Prepare comprehensive response
     const response = {
       success: true,
       booking: populatedBooking,
       warning: warningInfo,
       multipleDriverInfo: multipleDriverInfo,
       rentalStartTime: rentalStartTime.toISOString(),
+      estimatedReturnTime: estimatedReturn.toISOString(),
       message: `Booking created successfully. Rental starts at ${rentalStartTime.toLocaleString('en-IN')}`
     };
     
-    // Add enhanced security confirmation if applicable
     if (enhancedSecurity.isRequired) {
       response.securityInfo = {
         enhancedSecurityRequired: true,

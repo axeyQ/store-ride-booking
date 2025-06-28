@@ -83,6 +83,7 @@ export async function POST(request) {
       signature: body.signature,
       startTime: new Date(body.startTime),
       endTime: body.endTime ? new Date(body.endTime) : null,
+      estimatedReturnTime: endTime,
       finalAmount: body.finalAmount,
       paymentMethod: body.paymentMethod || 'cash',
       status: 'active',
@@ -137,6 +138,7 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       booking: populatedBooking,
+      estimatedReturnTime: endTime.toISOString(),
       message: `Custom booking created successfully with fixed rate of ₹${body.finalAmount}`
     });
 

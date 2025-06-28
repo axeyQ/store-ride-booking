@@ -35,6 +35,9 @@ export default function EnhancedBookingClientPage() {
   const [calculatedStartTime, setCalculatedStartTime] = useState(null);
   const [startTimeTimer, setStartTimeTimer] = useState(null);
 
+  // NEW: Estimated return time state
+  const [estimatedReturnTime, setEstimatedReturnTime] = useState('');
+
   // Customer autocomplete state
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -72,6 +75,14 @@ export default function EnhancedBookingClientPage() {
     additionalNotes: ''
   });
 
+  // NEW: Function to calculate suggested return time
+  const calculateSuggestedReturnTime = (startTime) => {
+    if (!startTime) return '';
+    const start = new Date(startTime);
+    const suggested = new Date(start.getTime() + (2 * 60 * 60 * 1000)); // 2 hours later
+    return suggested.toISOString().slice(0, 16); // Format for datetime-local input
+  };
+
   // NEW: Function to calculate and display start time
   const calculateStartTime = () => {
     const now = new Date();
@@ -95,6 +106,24 @@ export default function EnhancedBookingClientPage() {
     }
     
     setCalculatedStartTime(startTime);
+    
+    // Auto-set estimated return time if not already set
+    if (!estimatedReturnTime) {
+      const suggestedReturn = calculateSuggestedReturnTime(startTime.toISOString());
+      setEstimatedReturnTime(suggestedReturn);
+    }
+  };
+
+  // NEW: Duration calculation helper function
+  const calculateDuration = (start, end) => {
+    if (!start || !end) return '';
+    const diffMs = end - start;
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (diffHours === 0) return `${diffMinutes} minutes`;
+    if (diffMinutes === 0) return `${diffHours} hours`;
+    return `${diffHours}h ${diffMinutes}m`;
   };
 
   // NEW: Calculate required security deposit based on multiple driver scenario
@@ -303,19 +332,21 @@ export default function EnhancedBookingClientPage() {
   };
 
   const handleNext = () => {
-    setCurrentStep(prev => Math.min(prev + 1, 4));
+    setCurrentStep(prev => Math.min(prev + 1, 5)); // Updated to 5 steps
   };
 
   const handlePrevious = () => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
 
-  // UPDATED: Enhanced validation including multiple driver support
+  // UPDATED: Enhanced validation including estimated return time
   const canProceedFromStep = (step) => {
     switch (step) {
       case 1:
         return bookingData.vehicleId;
       case 2:
+        return estimatedReturnTime && new Date(estimatedReturnTime) > (calculatedStartTime || new Date());
+      case 3:
         const basicValidation = bookingData.customer.name.trim() &&
                validatePhoneNumber(bookingData.customer.phone) &&
                validateDrivingLicense(bookingData.customer.driverLicense);
@@ -330,20 +361,21 @@ export default function EnhancedBookingClientPage() {
                  actualDriver.alternateId.trim();
         }
         return basicValidation;
-      case 3:
+      case 4:
         const aadharOrDeposit = bookingData.checklist.aadharCardCollected || 
         bookingData.checklist.securityDepositCollected;
 
         return bookingData.checklist.vehicleInspected && aadharOrDeposit;
-      case 4:
+      case 5:
         return bookingData.signature && bookingData.termsAccepted;
       default:
         return true;
     }
   };
 
+  // UPDATED: Include estimated return time in booking submission
   const handleCompleteBooking = async () => {
-    if (!canProceedFromStep(4)) return;
+    if (!canProceedFromStep(5)) return;
     
     setSubmitting(true);
     try {
@@ -354,6 +386,8 @@ export default function EnhancedBookingClientPage() {
           vehicleId: bookingData.vehicleId,
           customer: bookingData.customer,
           signature: bookingData.signature,
+          startTime: calculatedStartTime?.toISOString(),
+          estimatedReturnTime: estimatedReturnTime, // NEW: Include estimated return time
           helmetProvided: bookingData.checklist.helmetProvided,
           aadharCardCollected: bookingData.checklist.aadharCardCollected,
           vehicleInspected: bookingData.checklist.vehicleInspected,
@@ -384,13 +418,14 @@ export default function EnhancedBookingClientPage() {
     }
   };
   
-
+  // UPDATED: Step titles for 5 steps
   const getStepTitle = (step) => {
     switch (step) {
       case 1: return 'Select Vehicle';
-      case 2: return 'Customer Information';
-      case 3: return 'Pre-Rental Checklist';
-      case 4: return 'Terms & Digital Signature';
+      case 2: return 'Estimated Return Time';
+      case 3: return 'Customer Information';
+      case 4: return 'Pre-Rental Checklist';
+      case 5: return 'Terms & Digital Signature';
       default: return 'Booking';
     }
   };
@@ -429,7 +464,7 @@ export default function EnhancedBookingClientPage() {
           <div className="flex justify-between items-center p-6">
             <div>
               <h1 className={theme.typography.title}>New Booking</h1>
-              <p className="text-gray-400">Step {currentStep} of 4 - {getStepTitle(currentStep)}</p>
+              <p className="text-gray-400">Step {currentStep} of 5 - {getStepTitle(currentStep)}</p>
               {/* NEW: Display calculated start time */}
               {calculatedStartTime && (
                 <div className="mt-2 flex items-center space-x-2">
@@ -447,14 +482,14 @@ export default function EnhancedBookingClientPage() {
               )}
             </div>
             <ThemedBadge color="cyan">
-              {currentStep}/4 Complete
+              {currentStep}/5 Complete
             </ThemedBadge>
           </div>
           
-          {/* Progress Bar */}
+          {/* Progress Bar - Updated to 5 steps */}
           <div className="px-6 pb-6">
             <div className="flex items-center">
-              {[1, 2, 3, 4].map((step) => (
+              {[1, 2, 3, 4, 5].map((step) => (
                 <div key={step} className="flex items-center flex-1">
                   <div className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all",
@@ -464,7 +499,7 @@ export default function EnhancedBookingClientPage() {
                   )}>
                     {step}
                   </div>
-                  {step < 4 && (
+                  {step < 5 && (
                     <div className={cn(
                       "flex-1 h-2 mx-3 rounded-full transition-all",
                       step < currentStep 
@@ -536,8 +571,107 @@ export default function EnhancedBookingClientPage() {
           </ThemedCard>
         )}
 
-        {/* Step 2: Customer Information with Smart Autocomplete + Multiple Driver Support */}
+        {/* NEW Step 2: Estimated Return Time */}
         {currentStep === 2 && (
+          <ThemedCard title="📅 Estimated Return Time">
+            <div className="space-y-6">
+              <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="text-3xl">⏰</div>
+                  <div>
+                    <h3 className="text-xl font-bold text-amber-200">When do you plan to return?</h3>
+                    <p className="text-amber-300">This helps us manage our fleet better and provide better service</p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Current Start Time Display */}
+                  <div className="space-y-2">
+                    <label className="text-green-200 font-medium">Rental Start Time</label>
+                    <div className="bg-green-900/30 border border-green-700/50 rounded-lg p-4">
+                      <div className="text-green-400 font-bold text-lg">
+                        {calculatedStartTime?.toLocaleString('en-IN', {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Estimated Return Time Input */}
+                  <div className="space-y-2">
+                    <label className="text-amber-200 font-medium">Estimated Return Time*</label>
+                    <input
+                      type="datetime-local"
+                      value={estimatedReturnTime}
+                      onChange={(e) => setEstimatedReturnTime(e.target.value)}
+                      min={calculatedStartTime?.toISOString().slice(0, 16)}
+                      required
+                      className="w-full bg-gray-800 border border-amber-500 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                    />
+                    {estimatedReturnTime && calculatedStartTime && (
+                      <div className="text-amber-300 text-sm">
+                        Duration: {calculateDuration(calculatedStartTime, new Date(estimatedReturnTime))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick Duration Buttons */}
+                <div className="mt-6">
+                  <div className="text-amber-200 font-medium mb-3">Quick Select:</div>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { label: '2 Hours', hours: 2 },
+                      { label: '4 Hours', hours: 4 },
+                      { label: '6 Hours', hours: 6 },
+                      { label: '8 Hours', hours: 8 },
+                      { label: 'Half Day (12h)', hours: 12 },
+                      { label: 'Full Day (24h)', hours: 24 }
+                    ].map((duration) => (
+                      <button
+                        key={duration.hours}
+                        type="button"
+                        onClick={() => {
+                          if (calculatedStartTime) {
+                            const returnTime = new Date(calculatedStartTime.getTime() + (duration.hours * 60 * 60 * 1000));
+                            setEstimatedReturnTime(returnTime.toISOString().slice(0, 16));
+                          }
+                        }}
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-medium transition-colors"
+                      >
+                        {duration.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Important Note */}
+                <div className="mt-6 bg-blue-900/20 border border-blue-700/30 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <div className="text-blue-400 text-xl">💡</div>
+                    <div className="text-blue-200 text-sm">
+                      <div className="font-medium mb-1">Important Notes:</div>
+                      <ul className="space-y-1 text-blue-300">
+                        <li>• This is an estimate - you can return earlier or later</li>
+                        <li>• Billing is calculated based on actual return time</li>
+                        <li>• We'll use this to better plan vehicle availability</li>
+                        <li>• Store closes at 10:30 PM - late returns incur additional charges</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ThemedCard>
+        )}
+
+        {/* Step 3: Customer Information with Smart Autocomplete + Multiple Driver Support */}
+        {currentStep === 3 && (
           <div className="space-y-8">
             <ThemedCard title="License Holder Information">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -767,8 +901,8 @@ export default function EnhancedBookingClientPage() {
           </div>
         )}
 
-        {/* Step 3: Pre-Rental Checklist - UPDATED for Multiple Driver */}
-        {currentStep === 3 && (
+        {/* Step 4: Pre-Rental Checklist - UPDATED for Multiple Driver */}
+        {currentStep === 4 && (
           <ThemedCard title="Pre-Rental Checklist">
             <div className="space-y-6">
               
@@ -975,12 +1109,12 @@ export default function EnhancedBookingClientPage() {
           </ThemedCard>
         )}
 
-        {/* Step 4: Terms & Digital Signature - UPDATED for Multiple Driver */}
-        {currentStep === 4 && (
+        {/* Step 5: Terms & Digital Signature - UPDATED for Multiple Driver */}
+        {currentStep === 5 && (
           <ThemedCard title="Terms & Digital Signature">
             <div className="space-y-8">
               
-              {/* Final Booking Summary - UPDATED */}
+              {/* Final Booking Summary - UPDATED with estimated return time */}
               <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-6`}>
                 <h3 className="text-xl font-bold text-green-200 mb-4">Booking Summary</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1021,6 +1155,19 @@ export default function EnhancedBookingClientPage() {
                     {calculatedStartTime && (
                       <p className="text-green-200">
                         <span className="font-medium">Rental Starts:</span> {calculatedStartTime.toLocaleString('en-IN', {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    )}
+                    {/* NEW: Show estimated return time */}
+                    {estimatedReturnTime && (
+                      <p className="text-amber-200">
+                        <span className="font-medium">Estimated Return:</span> {new Date(estimatedReturnTime).toLocaleString('en-IN', {
                           weekday: 'short',
                           year: 'numeric',
                           month: 'short',
@@ -1165,7 +1312,7 @@ export default function EnhancedBookingClientPage() {
           }}
         />
 
-        {/* Navigation Buttons */}
+        {/* Navigation Buttons - Updated for 5 steps */}
         <div className="flex justify-between mt-8 gap-4">
           <ThemedButton
             variant="secondary"
@@ -1176,7 +1323,7 @@ export default function EnhancedBookingClientPage() {
             ← Previous
           </ThemedButton>
 
-          {currentStep < 4 ? (
+          {currentStep < 5 ? (
             <ThemedButton
               variant="primary"
               onClick={handleNext}
@@ -1189,8 +1336,8 @@ export default function EnhancedBookingClientPage() {
             <ThemedButton
               variant="success"
               onClick={handleCompleteBooking}
-              disabled={!canProceedFromStep(4) || submitting}
-              className={(!canProceedFromStep(4) || submitting) ? 'opacity-50 cursor-not-allowed' : ''}
+              disabled={!canProceedFromStep(5) || submitting}
+              className={(!canProceedFromStep(5) || submitting) ? 'opacity-50 cursor-not-allowed' : ''}
             >
               {submitting ? (
                 <div className="flex items-center">
