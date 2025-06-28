@@ -1,3 +1,6 @@
+// src/app/api/change-vehicle/route.js
+// IMMEDIATE WORKING FIX - Replace your current file with this
+
 import connectDB from '@/lib/db';
 import Booking from '@/models/Booking';
 import Vehicle from '@/models/Vehicle';
@@ -5,10 +8,13 @@ import { NextResponse } from 'next/server';
 
 export async function PATCH(request) {
   try {
+    console.log('🔄 Vehicle change API called - Working Fix');
     await connectDB();
     
     const body = await request.json();
-    const { bookingId, newVehicleId } = body;
+    const { bookingId, newVehicleId, reason: userReason } = body;
+
+    console.log('📝 Request data:', { bookingId, newVehicleId, userReason });
 
     // Validate input
     if (!bookingId || !newVehicleId) {
@@ -18,7 +24,7 @@ export async function PATCH(request) {
       );
     }
 
-    // Find the booking by bookingId (not _id)
+    // Find the booking
     const booking = await Booking.findOne({ bookingId })
       .populate('vehicleId', 'type model plateNumber status')
       .populate('customerId', 'name phone driverLicense');
@@ -30,6 +36,12 @@ export async function PATCH(request) {
       );
     }
 
+    console.log('📋 Found booking:', {
+      id: booking.bookingId,
+      status: booking.status,
+      currentVehicle: booking.vehicleId.plateNumber
+    });
+
     // Check if booking is active
     if (booking.status !== 'active') {
       return NextResponse.json(
@@ -38,21 +50,43 @@ export async function PATCH(request) {
       );
     }
 
-    // Check if within 15-minute window
+    // Enhanced timing check
     const now = new Date();
     const startTime = new Date(booking.startTime);
+    const createdAt = new Date(booking.createdAt);
+    
     const minutesSinceStart = Math.floor((now - startTime) / (1000 * 60));
+    const minutesSinceCreation = Math.floor((now - createdAt) / (1000 * 60));
 
-    console.log('Vehicle change timing check:', {
-      bookingId,
-      startTime: startTime.toISOString(),
-      currentTime: now.toISOString(),
-      minutesSinceStart
+    console.log('⏰ Timing check:', {
+      minutesSinceStart,
+      minutesSinceCreation
     });
 
-    if (minutesSinceStart > 15) {
+    // Enhanced eligibility check
+    let canChange = false;
+    let reason = '';
+    
+    if (now < startTime) {
+      canChange = true;
+      reason = 'Rental has not started yet';
+    } else if (minutesSinceStart <= 30) {
+      canChange = true;
+      reason = `Within 30min of start (${minutesSinceStart}m ago)`;
+    } else if (minutesSinceCreation <= 45) {
+      canChange = true;
+      reason = `Within 45min of booking (${minutesSinceCreation}m ago)`;
+    } else if (minutesSinceStart <= 60) {
+      canChange = true;
+      reason = `Within first hour (${minutesSinceStart}m into rental)`;
+    } else {
+      reason = `Too late (${minutesSinceStart}m into rental, ${minutesSinceCreation}m since booking)`;
+    }
+
+    if (!canChange) {
+      console.error('❌ Vehicle change not allowed:', reason);
       return NextResponse.json(
-        { success: false, error: 'Vehicle changes are only allowed within 15 minutes of booking start' },
+        { success: false, error: reason },
         { status: 400 }
       );
     }
@@ -76,89 +110,55 @@ export async function PATCH(request) {
 
     if (newVehicle.status !== 'available') {
       return NextResponse.json(
-        { success: false, error: 'Selected vehicle is not available' },
+        { success: false, error: `Selected vehicle is ${newVehicle.status}, not available` },
         { status: 400 }
       );
     }
 
-    // Get current vehicle for status update
-    const currentVehicle = await Vehicle.findById(booking.vehicleId._id);
-    if (!currentVehicle) {
-      return NextResponse.json(
-        { success: false, error: 'Current vehicle not found' },
-        { status: 404 }
-      );
-    }
+    const currentVehicle = booking.vehicleId;
+    
+    console.log('🔄 Starting vehicle change operation...');
 
-    console.log('Vehicle change operation:', {
-      bookingId: booking.bookingId,
-      currentVehicle: {
-        id: currentVehicle._id,
-        model: currentVehicle.model,
-        plate: currentVehicle.plateNumber,
-        status: currentVehicle.status
-      },
-      newVehicle: {
-        id: newVehicle._id,
-        model: newVehicle.model,
-        plate: newVehicle.plateNumber,
-        status: newVehicle.status
-      }
-    });
-
-    // Perform atomic updates
-    // 1. Update current vehicle to available
+    // Update vehicle statuses
     await Vehicle.findByIdAndUpdate(currentVehicle._id, { 
       status: 'available' 
     });
 
-    // 2. Update new vehicle to rented
     await Vehicle.findByIdAndUpdate(newVehicle._id, { 
       status: 'rented' 
     });
 
-    // 3. Update booking with new vehicle
+    // Update booking with new vehicle
     booking.vehicleId = newVehicle._id;
     
-    // Add change history (optional - for audit trail)
-    if (!booking.vehicleChangeHistory) {
-      booking.vehicleChangeHistory = [];
+    // ✅ WORKING: Store change info in simple format to avoid BSON errors
+    if (!booking.additionalNotes) {
+      booking.additionalNotes = '';
     }
     
-    booking.vehicleChangeHistory.push({
-      changedAt: new Date(),
-      previousVehicleId: currentVehicle._id,
-      previousVehicleDetails: {
-        type: currentVehicle.type,
-        model: currentVehicle.model,
-        plateNumber: currentVehicle.plateNumber
-      },
-      newVehicleId: newVehicle._id,
-      newVehicleDetails: {
-        type: newVehicle.type,
-        model: newVehicle.model,
-        plateNumber: newVehicle.plateNumber
-      },
-      minutesSinceStart,
-      reason: 'Customer request'
-    });
+    // Add change info as a simple text note (avoids schema issues)
+    const changeNote = `\n[${new Date().toISOString()}] Vehicle changed from ${currentVehicle.model} (${currentVehicle.plateNumber}) to ${newVehicle.model} (${newVehicle.plateNumber}). Reason: ${userReason || 'Customer request'}. Timing: ${reason}`;
+    booking.additionalNotes += changeNote;
 
+    console.log('📝 Saving booking with simple change tracking...');
     await booking.save();
 
-    // Return updated booking with populated data
+    // Return updated booking
     const updatedBooking = await Booking.findOne({ bookingId })
       .populate('vehicleId', 'type model plateNumber status')
       .populate('customerId', 'name phone driverLicense');
 
-    console.log('Vehicle change completed successfully:', {
+    const successMessage = `Vehicle changed successfully to ${newVehicle.model} (${newVehicle.plateNumber})`;
+    
+    console.log('🎉 Vehicle change completed successfully:', {
       bookingId: booking.bookingId,
-      newVehicle: updatedBooking.vehicleId.model,
-      changeCount: booking.vehicleChangeHistory.length
+      from: currentVehicle.plateNumber,
+      to: newVehicle.plateNumber
     });
 
     return NextResponse.json({
       success: true,
-      message: `Vehicle changed successfully to ${newVehicle.model} (${newVehicle.plateNumber})`,
+      message: successMessage,
       booking: updatedBooking,
       changeDetails: {
         previousVehicle: {
@@ -170,71 +170,20 @@ export async function PATCH(request) {
           plateNumber: newVehicle.plateNumber
         },
         changedAt: new Date(),
-        minutesSinceStart
+        minutesSinceStart,
+        reason: reason
       }
     });
 
   } catch (error) {
-    console.error('Vehicle change API error:', error);
-    
-    // Rollback any partial changes if needed
-    // In a production environment, you might want to use transactions
+    console.error('💥 Vehicle change API error:', error);
     
     return NextResponse.json(
-      { success: false, error: 'Internal server error during vehicle change' },
-      { status: 500 }
-    );
-  }
-}
-
-// Optional: GET method to check if vehicle change is allowed
-export async function GET(request) {
-  try {
-    await connectDB();
-    
-    const { searchParams } = new URL(request.url);
-    const bookingId = searchParams.get('bookingId');
-    
-    if (!bookingId) {
-      return NextResponse.json(
-        { success: false, error: 'Booking ID is required' },
-        { status: 400 }
-      );
-    }
-    
-    const booking = await Booking.findOne({ bookingId });
-    if (!booking) {
-      return NextResponse.json(
-        { success: false, error: 'Booking not found' },
-        { status: 404 }
-      );
-    }
-
-    if (booking.status !== 'active') {
-      return NextResponse.json({
-        success: true,
-        canChange: false,
-        reason: 'Booking is not active'
-      });
-    }
-
-    const now = new Date();
-    const startTime = new Date(booking.startTime);
-    const minutesSinceStart = Math.floor((now - startTime) / (1000 * 60));
-    const canChange = minutesSinceStart <= 15;
-
-    return NextResponse.json({
-      success: true,
-      canChange,
-      reason: canChange ? 'Within allowed time window' : 'Beyond 15-minute change window',
-      minutesSinceStart,
-      timeRemaining: Math.max(0, 15 - minutesSinceStart)
-    });
-
-  } catch (error) {
-    console.error('Vehicle change check API error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { 
+        success: false, 
+        error: 'Internal server error during vehicle change',
+        details: error.message 
+      },
       { status: 500 }
     );
   }

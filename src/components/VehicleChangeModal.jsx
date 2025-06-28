@@ -24,21 +24,29 @@ export function VehicleChangeModal({
   const fetchAvailableVehicles = async () => {
     setLoading(true);
     try {
-      console.log('Fetching available vehicles...');
-      const response = await fetch('/api/vehicles?status=available');
+      console.log('🔍 Fetching available vehicles for change...');
+      
+      // ✅ Now this will work correctly with cross-checking
+      const response = await fetch(
+        `/api/vehicles?status=available&forChange=true&excludeBookingId=${booking.bookingId}`
+      );
+      
       const data = await response.json();
+      
       if (data.success) {
-        // Filter out current vehicle
-        const otherVehicles = data.vehicles.filter(v => v._id !== booking.vehicleId._id);
-        console.log('Available vehicles:', otherVehicles.length);
+        // Additional filter for current vehicle (safety check)
+        const otherVehicles = data.vehicles.filter(v => 
+          v._id.toString() !== booking.vehicleId._id.toString()
+        );
+        
+        console.log(`✅ Available for change: ${otherVehicles.length} vehicles`);
         setAvailableVehicles(otherVehicles);
       } else {
-        console.error('Error fetching vehicles:', data.error);
-        alert('Error loading available vehicles: ' + data.error);
+        throw new Error(data.error);
       }
     } catch (error) {
-      console.error('Error fetching vehicles:', error);
-      alert('Error loading available vehicles. Please try again.');
+      console.error('❌ Error fetching vehicles:', error);
+      alert('Error loading available vehicles: ' + error.message);
     } finally {
       setLoading(false);
     }

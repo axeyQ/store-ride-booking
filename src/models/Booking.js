@@ -1,30 +1,69 @@
 import mongoose from 'mongoose';
 
 // Vehicle change history schema (existing)
-const vehicleChangeHistorySchema = new mongoose.Schema({
-  fromVehicle: {
+const vehicleInfoSchema = new mongoose.Schema({
+  vehicleId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vehicle',
     required: true
   },
-  toVehicle: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Vehicle',
-    required: true
-  },
-  reason: {
+  type: {
     type: String,
     required: true
   },
+  model: {
+    type: String,
+    required: true
+  },
+  plateNumber: {
+    type: String,
+    required: true
+  }
+}, { _id: false }); // Important: disable _id for subdocuments
+
+// ✅ FIXED: Vehicle Change History Schema with proper nesting
+const vehicleChangeHistorySchema = new mongoose.Schema({
   changedAt: {
     type: Date,
+    required: true,
     default: Date.now
   },
   changedBy: {
     type: String,
+    required: true,
+    default: 'System'
+  },
+  fromVehicle: {
+    type: vehicleInfoSchema,  // Use the defined schema
+    required: true
+  },
+  toVehicle: {
+    type: vehicleInfoSchema,  // Use the defined schema
+    required: true
+  },
+  minutesSinceStart: {
+    type: Number,
+    required: true
+  },
+  minutesSinceCreation: {
+    type: Number,
+    required: true,
+    default: 0
+  },
+  reason: {
+    type: String,
+    default: 'Customer request'
+  },
+  eligibilityReason: {
+    type: String,
+    required: true
+  },
+  timeframe: {
+    type: String,
+    enum: ['pre-start', 'early-rental', 'recent-booking', 'first-hour'],
     required: true
   }
-}, { _id: true });
+}, { _id: false });
 
 // NEW: Enhanced security schema for multiple drivers and special cases
 const enhancedSecuritySchema = new mongoose.Schema({

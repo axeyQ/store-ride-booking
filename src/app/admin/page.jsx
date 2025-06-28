@@ -360,7 +360,6 @@ function DailyRevenueBarChart() {
   const [exportLoading, setExportLoading] = useState(false);
   const [dataError, setDataError] = useState(null);
 
-  // Fetch daily revenue data from real bookings (both types)
   const fetchDailyRevenueData = useCallback(async () => {
     if (loading) return;
     
@@ -378,57 +377,73 @@ function DailyRevenueBarChart() {
         setChartData([]);
         return;
       }
-
+  
       console.log(`📊 Processing ${bookingsData.bookings.length} total bookings with both pricing types...`);
-
-      // Calculate date range based on filter
-      let endDate = new Date();
-      let startDate = new Date();
+  
+      // ✅ FIXED: Calculate date range based on filter with proper date handling
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Normalize to start of day
+      
+      let endDate = new Date(today);
+      let startDate = new Date(today);
       let days = 7;
-
+  
       if (timeFilter === 'custom' && customDateRange.start && customDateRange.end) {
         startDate = new Date(customDateRange.start);
         endDate = new Date(customDateRange.end);
-        days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
       } else {
         days = timeFilter === '7days' ? 7 : timeFilter === '30days' ? 30 : 90;
-        startDate.setDate(endDate.getDate() - days + 1);
+        // ✅ FIXED: Create proper start date without mutation
+        startDate = new Date(today.getTime() - ((days - 1) * 24 * 60 * 60 * 1000));
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
       }
-
+  
+      console.log(`📅 Date range: ${startDate.toLocaleDateString('en-IN')} to ${endDate.toLocaleDateString('en-IN')} (${days} days)`);
+  
       // Filter bookings by date range and exclude cancelled
       const filteredBookings = bookingsData.bookings.filter(booking => {
         const bookingDate = new Date(booking.createdAt);
         bookingDate.setHours(0, 0, 0, 0);
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        
-        return bookingDate >= start && bookingDate <= end && booking.status !== 'cancelled';
+        return bookingDate >= startDate && bookingDate <= endDate && booking.status !== 'cancelled';
       });
-
+  
+      console.log(`📋 Filtered bookings: ${filteredBookings.length} bookings in date range`);
+  
       // Group bookings by date
       const dailyData = new Map();
       
-      // Initialize all dates in range with zero values
+      // ✅ FIXED: Initialize all dates in range with zero values - no date mutation
       for (let i = 0; i < days; i++) {
-        const date = new Date(startDate);
-        date.setDate(startDate.getDate() + i);
-        const dateKey = date.toISOString().split('T')[0];
+        // Create a new date for each iteration
+        const currentDate = new Date(startDate.getTime() + (i * 24 * 60 * 60 * 1000));
+        currentDate.setHours(0, 0, 0, 0);
+        
+        const dateKey = currentDate.toISOString().split('T')[0];
+        
+        // ✅ FIXED: Better date formatting with proper locale handling
+        const dateFormatted = currentDate.toLocaleDateString('en-IN', { 
+          day: '2-digit', 
+          month: 'short',
+          ...(days <= 7 && { weekday: 'short' })
+        }).replace(/,/g, ''); // Remove any commas
+        
+        const fullDate = currentDate.toLocaleDateString('en-IN', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+  
+        console.log(`📅 Day ${i + 1}: ${dateKey} -> ${dateFormatted} (${fullDate})`);
         
         dailyData.set(dateKey, {
           date: dateKey,
-          dateFormatted: date.toLocaleDateString('en-IN', { 
-            day: '2-digit', 
-            month: 'short',
-            weekday: days <= 7 ? 'short' : undefined 
-          }).replace(',', ''),
-          fullDate: date.toLocaleDateString('en-IN', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          }),
+          dateFormatted,
+          fullDate,
           revenue: 0,
           advancedRevenue: 0,
           customRevenue: 0,
@@ -439,10 +454,11 @@ function DailyRevenueBarChart() {
           bookingsList: []
         });
       }
-
+  
       // Process each booking and add to appropriate date
       for (const booking of filteredBookings) {
         const bookingDate = new Date(booking.createdAt);
+        bookingDate.setHours(0, 0, 0, 0);
         const dateKey = bookingDate.toISOString().split('T')[0];
         
         if (dailyData.has(dateKey)) {
@@ -450,12 +466,12 @@ function DailyRevenueBarChart() {
           
           // Calculate revenue based on booking type
           const bookingRevenue = await calculateBookingRevenue(booking);
-          console.log(`${booking.isCustomBooking ? 'Custom' : 'Advanced'} pricing for ${booking.bookingId}: ₹${bookingRevenue}`);
-
+          console.log(`${booking.isCustomBooking ? 'Custom' : 'Advanced'} pricing for ${booking.bookingId} on ${dateKey}: ₹${bookingRevenue}`);
+  
           dayData.revenue += bookingRevenue;
           dayData.bookings += 1;
           dayData.bookingsList.push(booking);
-
+  
           if (booking.isCustomBooking) {
             dayData.customRevenue += bookingRevenue;
             dayData.customBookings += 1;
@@ -463,17 +479,19 @@ function DailyRevenueBarChart() {
             dayData.advancedRevenue += bookingRevenue;
             dayData.advancedBookings += 1;
           }
+        } else {
+          console.warn(`❌ Booking ${booking.bookingId} on ${dateKey} falls outside chart date range`);
         }
       }
-
-      // Calculate average booking values
-      const chartDataArray = [];
+  
+      // Calculate average booking values and sort chronologically
+      const chartDataArray = Array.from(dailyData.values())
+        .sort((a, b) => new Date(a.date) - new Date(b.date)); // ✅ FIXED: Ensure chronological order
       
-      for (const dayData of dailyData.values()) {
+      chartDataArray.forEach(dayData => {
         dayData.avgBookingValue = dayData.bookings > 0 ? Math.round(dayData.revenue / dayData.bookings) : 0;
-        chartDataArray.push(dayData);
-      }
-
+      });
+  
       setChartData(chartDataArray);
       
       const totalRevenue = chartDataArray.reduce((sum, day) => sum + day.revenue, 0);
@@ -483,6 +501,7 @@ function DailyRevenueBarChart() {
       
       console.log(`✅ Enhanced pricing calculation completed:`);
       console.log(`   📊 ${chartDataArray.length} days processed`);
+      console.log(`   📅 Date range: ${startDate.toLocaleDateString('en-IN')} to ${endDate.toLocaleDateString('en-IN')}`);
       console.log(`   💰 Total revenue: ₹${totalRevenue.toLocaleString('en-IN')}`);
       console.log(`   ⚡ Advanced: ₹${totalAdvanced.toLocaleString('en-IN')}`);
       console.log(`   📦 Custom: ₹${totalCustom.toLocaleString('en-IN')}`);
