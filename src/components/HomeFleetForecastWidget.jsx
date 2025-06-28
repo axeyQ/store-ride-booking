@@ -21,7 +21,11 @@ export default function HomeFleetForecastWidget() {
         const response = await fetch('/api/analytics/fleet-forecast');
         const data = await response.json();
         if (data.success) {
-          setForecastData(data.forecast || []);
+          // ✅ FILTER: Only include slots with actual vehicle returns
+          const filteredForecast = (data.forecast || []).filter(slot => 
+            slot.expectedReturns && slot.expectedReturns > 0
+          );
+          setForecastData(filteredForecast);
         } else {
           setError('Failed to load forecast');
         }
@@ -115,6 +119,7 @@ export default function HomeFleetForecastWidget() {
             </div>
           ) : (
             <div className="space-y-3 max-h-64 overflow-y-auto">
+              {/* ✅ IMPROVED: Only show meaningful time slots with returns */}
               {forecastData.slice(0, 4).map((slot, index) => (
                 <div 
                   key={index} 
@@ -143,7 +148,7 @@ export default function HomeFleetForecastWidget() {
               {forecastData.length > 4 && (
                 <div className="text-center pt-3 border-t border-gray-700/50">
                   <div className="text-gray-400 text-sm">
-                    +{forecastData.length - 4} more time slots
+                    +{forecastData.length - 4} more time slots with returns
                   </div>
                   <div className="text-cyan-400 text-lg font-bold mt-1">
                     {forecastData.reduce((sum, slot) => sum + slot.expectedReturns, 0)} total expected today

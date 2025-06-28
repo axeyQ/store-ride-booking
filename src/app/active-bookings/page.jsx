@@ -14,6 +14,7 @@ import { VehicleChangeModal } from '@/components/VehicleChangeModal';
 import { CancellationModal } from '@/components/CancellationModal';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import HomeFleetForecastWidget from '@/components/HomeFleetForecastWidget';
 
 // ✅ NEW: Custom package definitions
 const CUSTOM_PACKAGES = {
@@ -181,52 +182,7 @@ export default function EnhancedActiveBookingsPage() {
   };
 
   // NEW: Fleet Forecast Widget Component
-  const FleetForecastWidget = () => {
-    if (forecastLoading) {
-      return (
-        <ThemedCard title="🔮 Fleet Availability Forecast" className="mb-8">
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mr-3"></div>
-            <span className="text-white">Loading forecast...</span>
-          </div>
-        </ThemedCard>
-      );
-    }
 
-    return (
-      <ThemedCard title="🔮 Fleet Availability Forecast" className="mb-8">
-        <div className="space-y-3">
-          {forecastData.length === 0 ? (
-            <div className="text-center text-gray-400 py-6">
-              <div className="text-3xl mb-2">📊</div>
-              <p>No upcoming returns estimated</p>
-            </div>
-          ) : (
-            forecastData.map((slot, index) => (
-              <div key={index} className="flex justify-between items-center p-4 bg-blue-900/20 rounded-lg border border-blue-700/30">
-                <div>
-                  <div className="text-blue-200 font-medium">{slot.hour}</div>
-                  <div className="text-blue-400 text-sm">
-                    {slot.expectedReturns} vehicle{slot.expectedReturns !== 1 ? 's' : ''} expected
-                  </div>
-                  {slot.vehicles && slot.vehicles.length > 0 && (
-                    <div className="text-blue-300 text-xs mt-1">
-                      {slot.vehicles.slice(0, 2).join(', ')}
-                      {slot.vehicles.length > 2 && ` +${slot.vehicles.length - 2} more`}
-                    </div>
-                  )}
-                </div>
-                <div className="text-right">
-                  <div className="text-blue-400 font-bold text-lg">+{slot.expectedReturns}</div>
-                  <div className="text-blue-300 text-xs">available</div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </ThemedCard>
-    );
-  };
 
   // 📞 NEW: Call handling functions
   const handleQuickCall = (booking, reason = 'follow_up') => {
@@ -1300,8 +1256,8 @@ export default function EnhancedActiveBookingsPage() {
         </div>
 
         {/* NEW: Fleet Forecast Widget */}
-        <FleetForecastWidget />
-
+        <HomeFleetForecastWidget/>
+        <br/>
         {/* ✅ ENHANCED: Stats with booking type breakdown */}
         <div className={theme.layout.grid.stats + " mb-8"}>
           <ThemedStatsCard
