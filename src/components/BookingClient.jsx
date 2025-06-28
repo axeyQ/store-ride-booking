@@ -75,12 +75,20 @@ export default function EnhancedBookingClientPage() {
     additionalNotes: ''
   });
 
-  // NEW: Function to calculate suggested return time
+  // 🔧 FIXED: Function to calculate suggested return time
   const calculateSuggestedReturnTime = (startTime) => {
     if (!startTime) return '';
     const start = new Date(startTime);
     const suggested = new Date(start.getTime() + (2 * 60 * 60 * 1000)); // 2 hours later
-    return suggested.toISOString().slice(0, 16); // Format for datetime-local input
+    
+    // Format for datetime-local input (local time)
+    const year = suggested.getFullYear();
+    const month = String(suggested.getMonth() + 1).padStart(2, '0');
+    const day = String(suggested.getDate()).padStart(2, '0');
+    const hours = String(suggested.getHours()).padStart(2, '0');
+    const minutes = String(suggested.getMinutes()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
   // NEW: Function to calculate and display start time
@@ -373,12 +381,29 @@ export default function EnhancedBookingClientPage() {
     }
   };
 
-  // UPDATED: Include estimated return time in booking submission
+  // 🔧 FIXED: Timezone-aware booking submission
   const handleCompleteBooking = async () => {
     if (!canProceedFromStep(5)) return;
     
     setSubmitting(true);
     try {
+      // 🔧 FIX: Convert datetime-local to proper IST timestamp
+      const convertToIST = (localDateTimeString) => {
+        if (!localDateTimeString) return null;
+        
+        // datetime-local gives us: "2025-06-28T21:00"
+        // We need to explicitly set this as IST time
+        const istDate = new Date(localDateTimeString + '+05:30'); // Add IST timezone
+        
+        return istDate.toISOString(); // This will be in UTC but represents the correct IST time
+      };
+
+      console.log('🕐 Timezone Debug:');
+      console.log('Raw estimatedReturnTime:', estimatedReturnTime);
+      console.log('As IST Date:', new Date(estimatedReturnTime + '+05:30'));
+      console.log('Converting to UTC:', convertToIST(estimatedReturnTime));
+      console.log('Will display as IST:', new Date(convertToIST(estimatedReturnTime)).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
+
       const response = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -387,7 +412,7 @@ export default function EnhancedBookingClientPage() {
           customer: bookingData.customer,
           signature: bookingData.signature,
           startTime: calculatedStartTime?.toISOString(),
-          estimatedReturnTime: estimatedReturnTime, // NEW: Include estimated return time
+          estimatedReturnTime: convertToIST(estimatedReturnTime), // 🔧 FIXED: Convert to proper IST
           helmetProvided: bookingData.checklist.helmetProvided,
           aadharCardCollected: bookingData.checklist.aadharCardCollected,
           vehicleInspected: bookingData.checklist.vehicleInspected,
@@ -621,7 +646,7 @@ export default function EnhancedBookingClientPage() {
                   </div>
                 </div>
 
-                {/* Quick Duration Buttons */}
+                {/* 🔧 FIXED: Quick Duration Buttons */}
                 <div className="mt-6">
                   <div className="text-amber-200 font-medium mb-3">Quick Select:</div>
                   <div className="flex flex-wrap gap-3">
@@ -639,7 +664,22 @@ export default function EnhancedBookingClientPage() {
                         onClick={() => {
                           if (calculatedStartTime) {
                             const returnTime = new Date(calculatedStartTime.getTime() + (duration.hours * 60 * 60 * 1000));
-                            setEstimatedReturnTime(returnTime.toISOString().slice(0, 16));
+                            
+                            // 🔧 FIX: Format as local datetime string for input
+                            const year = returnTime.getFullYear();
+                            const month = String(returnTime.getMonth() + 1).padStart(2, '0');
+                            const day = String(returnTime.getDate()).padStart(2, '0');
+                            const hours = String(returnTime.getHours()).padStart(2, '0');
+                            const minutes = String(returnTime.getMinutes()).padStart(2, '0');
+                            
+                            const localTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
+                            
+                            console.log(`Setting ${duration.label}:`, {
+                              returnTime: returnTime.toLocaleString('en-IN'),
+                              localTimeString: localTimeString
+                            });
+                            
+                            setEstimatedReturnTime(localTimeString);
                           }
                         }}
                         className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-medium transition-colors"

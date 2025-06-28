@@ -1836,7 +1836,6 @@ function EnhancedLiveActivityFeed({ activities, milestones }) {
   );
 }
 
-// ✅ ENHANCED: Main Dashboard Component with Dual Pricing Integration
 export default function EnhancedAdminDashboard() {
   const [dashboardData, setDashboardData] = useState({
     todayStats: { revenue: 0, bookings: 0, activeRentals: 0, vehiclesOut: 0 },
@@ -2316,7 +2315,7 @@ export default function EnhancedAdminDashboard() {
           </div>
         </div>
 
-        {/* Enhanced Vehicle Performance Section */}
+        {/* ✅ INTEGRATED: Fleet Management & Forecast Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Vehicle Performance */}
           <ThemedCard title="🚗 Vehicle Performance" description="Top performers this month">
@@ -2369,6 +2368,9 @@ export default function EnhancedAdminDashboard() {
             )}
           </ThemedCard>
         </div>
+
+        {/* ✅ INTEGRATED: Fleet Forecast Widget - NEW SECTION */}
+        <FleetForecastWidget />
 
         {/* Enhanced Activity Feed */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">

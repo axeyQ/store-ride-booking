@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { calculateCurrentAmount } from '@/lib/pricing';
 import { useApiRequest } from '@/hooks/useApiRequest';
+import HomeFleetForecastWidget from '@/components/HomeFleetForecastWidget';
 
 // Day Operations Control Component (updated with authentication)
 function DayOperationsControl({ onStatusChange }) {
@@ -764,7 +765,9 @@ function MRTravelsDashboard() {
             </Card>
           </div>
         )}
-
+        <div className="mb-8">
+          <HomeFleetForecastWidget />
+          </div>
         {/* Main Navigation Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
           {/* New Booking */}
