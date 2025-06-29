@@ -14,7 +14,6 @@ import { VehicleChangeModal } from '@/components/VehicleChangeModal';
 import { CancellationModal } from '@/components/CancellationModal';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
-import HomeFleetForecastWidget from '@/components/HomeFleetForecastWidget';
 
 // ✅ NEW: Custom package definitions
 const CUSTOM_PACKAGES = {
@@ -1255,9 +1254,7 @@ export default function EnhancedActiveBookingsPage() {
           </p>
         </div>
 
-        {/* NEW: Fleet Forecast Widget */}
-        <HomeFleetForecastWidget/>
-        <br/>
+
         {/* ✅ ENHANCED: Stats with booking type breakdown */}
         <div className={theme.layout.grid.stats + " mb-8"}>
           <ThemedStatsCard
