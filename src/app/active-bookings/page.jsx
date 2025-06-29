@@ -18,21 +18,21 @@ import { cn } from '@/lib/utils';
 // ✅ NEW: Custom package definitions
 const CUSTOM_PACKAGES = {
   half_day: { 
-    label: 'Half Day', 
+    label: 'Half Day (up to 12 hours)', // 🚀 FIXED: Match API label format
     price: 800, 
     maxHours: 12, 
     icon: '🌅',
     color: 'orange'
   },
   full_day: { 
-    label: 'Full Day', 
+    label: 'Full Day (up to 24 hours)', // 🚀 FIXED: Match API label format
     price: 1200, 
     maxHours: 24, 
     icon: '☀️',
     color: 'yellow'
   },
   night: { 
-    label: 'Night Package', 
+    label: 'Night Package (10 PM to 9 AM)', // 🚀 FIXED: Match API label format
     price: 600, 
     maxHours: 11, 
     icon: '🌙',
@@ -111,6 +111,43 @@ export default function EnhancedActiveBookingsPage() {
       setForecastLoading(false);
     }
   };
+
+  const logCustomBookingDebug = (booking) => {
+    if (booking.isCustomBooking && process.env.NODE_ENV === 'development') {
+      console.group(`🐛 Custom Booking Debug: ${booking.bookingId}`);
+      console.log('Booking data:', {
+        bookingId: booking.bookingId,
+        customBookingType: booking.customBookingType,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        finalAmount: booking.finalAmount,
+        isCustomBooking: booking.isCustomBooking
+      });
+      
+      const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
+      console.log('Package info:', packageInfo);
+      
+      const calculatedEndTime = calculateEndTime(booking);
+      console.log('Calculated end time:', calculatedEndTime);
+      
+      const progress = calculatePackageProgress(booking);
+      console.log('Progress:', progress);
+      
+      console.groupEnd();
+    }
+  };
+  
+  // 🚀 FIX 8: Add this to your useEffect to debug custom bookings
+  useEffect(() => {
+    if (bookings.length > 0 && process.env.NODE_ENV === 'development') {
+      const customBookings = bookings.filter(b => b.isCustomBooking);
+      console.log(`🔍 Found ${customBookings.length} custom bookings out of ${bookings.length} total`);
+      
+      customBookings.forEach(booking => {
+        logCustomBookingDebug(booking);
+      });
+    }
+  }, [bookings]);
 
   const fetchActiveBookings = async () => {
     try {
@@ -359,42 +396,97 @@ export default function EnhancedActiveBookingsPage() {
 
   // ✅ ENHANCED: Calculate end time for custom bookings
   const calculateEndTime = (booking) => {
-    if (!booking.isCustomBooking) return null;
+    console.log('Calculating end time for booking:', booking.bookingId, {
+      isCustomBooking: booking.isCustomBooking,
+      hasEndTime: !!booking.endTime,
+      customBookingType: booking.customBookingType
+    });
+  
+    // 🚀 PRIORITY: If booking already has endTime (from our fixed API), use it!
+    if (booking.endTime) {
+      try {
+        const endTime = new Date(booking.endTime);
+        if (!isNaN(endTime.getTime())) {
+          console.log('✅ Using existing endTime from booking:', endTime);
+          return endTime;
+        } else {
+          console.warn('⚠️ Booking has invalid endTime, calculating fallback:', booking.endTime);
+        }
+      } catch (error) {
+        console.error('❌ Error parsing booking.endTime:', error);
+      }
+    }
+  
+    // Fallback calculation for custom bookings without endTime
+    if (!booking.isCustomBooking) {
+      console.log('📋 Not a custom booking, no end time calculation needed');
+      return null;
+    }
     
     const startTime = new Date(booking.startTime);
     const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
     
-    if (!packageInfo) return null;
+    if (!packageInfo) {
+      console.error('❌ Package info not found for type:', booking.customBookingType);
+      return null;
+    }
+  
+    if (isNaN(startTime.getTime())) {
+      console.error('❌ Invalid startTime:', booking.startTime);
+      return null;
+    }
+    
+    let calculatedEndTime;
     
     if (booking.customBookingType === 'night') {
       // Night package: ends at 9 AM the next day
-      const endTime = new Date(startTime);
-      endTime.setDate(endTime.getDate() + 1);
-      endTime.setHours(9, 0, 0, 0);
-      return endTime;
+      calculatedEndTime = new Date(startTime);
+      calculatedEndTime.setDate(calculatedEndTime.getDate() + 1);
+      calculatedEndTime.setHours(9, 0, 0, 0);
     } else {
       // Half day / Full day: add the specified hours
-      const endTime = new Date(startTime.getTime() + (packageInfo.maxHours * 60 * 60 * 1000));
-      return endTime;
+      calculatedEndTime = new Date(startTime.getTime() + (packageInfo.maxHours * 60 * 60 * 1000));
     }
+  
+    console.log('🔄 Calculated fallback endTime:', calculatedEndTime);
+    return calculatedEndTime;
   };
 
   // ✅ ENHANCED: Calculate package progress and remaining time
   const calculatePackageProgress = (booking) => {
-    if (!booking.isCustomBooking) return null;
+    if (!booking.isCustomBooking) {
+      return null;
+    }
+    
+    console.log('📊 Calculating package progress for:', booking.bookingId);
     
     const startTime = new Date(booking.startTime);
     const endTime = calculateEndTime(booking);
     const now = new Date(currentTime);
     
-    if (!endTime) return null;
+    // Validate all required times
+    if (!endTime) {
+      console.error('❌ Cannot calculate progress: endTime is null');
+      return null;
+    }
+  
+    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime()) || isNaN(now.getTime())) {
+      console.error('❌ Invalid dates detected:', { startTime, endTime, now });
+      return null;
+    }
     
     const totalDuration = endTime.getTime() - startTime.getTime();
     const elapsed = now.getTime() - startTime.getTime();
     const remaining = endTime.getTime() - now.getTime();
     
-    const elapsedHours = Math.floor(elapsed / (1000 * 60 * 60));
-    const elapsedMinutes = Math.floor((elapsed % (1000 * 60 * 60)) / (1000 * 60));
+    // Handle edge cases
+    if (totalDuration <= 0) {
+      console.warn('⚠️ Invalid duration: endTime is before startTime');
+      return null;
+    }
+    
+    const elapsedHours = Math.floor(Math.max(0, elapsed) / (1000 * 60 * 60));
+    const elapsedMinutes = Math.floor((Math.max(0, elapsed) % (1000 * 60 * 60)) / (1000 * 60));
     
     const remainingHours = Math.floor(Math.max(0, remaining) / (1000 * 60 * 60));
     const remainingMinutes = Math.floor((Math.max(0, remaining) % (1000 * 60 * 60)) / (1000 * 60));
@@ -402,19 +494,26 @@ export default function EnhancedActiveBookingsPage() {
     const progressPercentage = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
     const isOvertime = now > endTime;
     
+    const overtimeMs = isOvertime ? (now.getTime() - endTime.getTime()) : 0;
+    const overtimeHours = isOvertime ? Math.floor(overtimeMs / (1000 * 60 * 60)) : 0;
+    const overtimeMinutes = isOvertime ? Math.floor((overtimeMs % (1000 * 60 * 60)) / (1000 * 60)) : 0;
+    
     const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
     
-    return {
+    const result = {
       startTime,
       endTime,
       elapsed: { hours: elapsedHours, minutes: elapsedMinutes },
       remaining: { hours: remainingHours, minutes: remainingMinutes },
       progressPercentage,
       isOvertime,
-      overtimeHours: isOvertime ? Math.floor((now - endTime) / (1000 * 60 * 60)) : 0,
-      overtimeMinutes: isOvertime ? Math.floor(((now - endTime) % (1000 * 60 * 60)) / (1000 * 60)) : 0,
+      overtimeHours,
+      overtimeMinutes,
       packageInfo
     };
+  
+    console.log('✅ Package progress calculated:', result);
+    return result;
   };
 
   // ✅ ENHANCED: Revenue calculation for both booking types
@@ -426,13 +525,28 @@ export default function EnhancedActiveBookingsPage() {
         console.warn(`Skipping amount calculation for cancelled/missing booking: ${bookingId}`);
         return 0;
       }
-
-      // ✅ NEW: For custom bookings, return fixed package price + extra charges
+  
+      // 🚀 ENHANCED: Custom booking calculation with overtime penalties
       if (booking.isCustomBooking) {
         const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
-        const basePrice = packageInfo ? packageInfo.price : 0;
+        const basePrice = packageInfo ? packageInfo.price : (booking.finalAmount || 0);
         const extra = extraCharges[bookingId] || 0;
-        return basePrice + extra;
+        
+        // Calculate overtime penalty
+        const progress = calculatePackageProgress(booking);
+        let overtimePenalty = 0;
+        
+        if (progress && progress.isOvertime) {
+          // ₹50 per hour overtime penalty
+          const overtimeHours = progress.overtimeHours + (progress.overtimeMinutes / 60);
+          overtimePenalty = Math.ceil(overtimeHours) * 50;
+          console.log(`💰 Overtime penalty calculated: ${overtimeHours.toFixed(1)}h = ₹${overtimePenalty}`);
+        }
+        
+        const totalAmount = basePrice + extra + overtimePenalty;
+        console.log(`💰 Custom booking amount: Base(₹${basePrice}) + Extra(₹${extra}) + Overtime(₹${overtimePenalty}) = ₹${totalAmount}`);
+        
+        return totalAmount;
       }
   
       // For advanced pricing bookings, use existing API
@@ -442,6 +556,7 @@ export default function EnhancedActiveBookingsPage() {
         return data.currentAmount;
       } else {
         console.error('Error fetching current amount for booking:', bookingId, data.error);
+        // Fallback calculation
         if (booking.status === 'active') {
           const duration = calculateDuration(booking.startTime);
           return Math.max(duration.totalHours * 80, 80);
@@ -450,11 +565,12 @@ export default function EnhancedActiveBookingsPage() {
       }
     } catch (error) {
       console.error('Error fetching current amount:', error);
+      // Final fallback
       const booking = bookings.find(b => b._id === bookingId);
       if (booking && booking.status === 'active') {
         if (booking.isCustomBooking) {
           const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
-          return packageInfo ? packageInfo.price : 0;
+          return packageInfo ? packageInfo.price : (booking.finalAmount || 0);
         }
         const duration = calculateDuration(booking.startTime);
         return Math.max(duration.totalHours * 80, 80);
@@ -521,14 +637,53 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
 
+  const SafePackageProgressBar = ({ booking }) => {
+    try {
+      return <PackageProgressBar booking={booking} />;
+    } catch (error) {
+      console.error('Error rendering PackageProgressBar:', error);
+      return (
+        <div className="text-xs text-red-400">
+          ⚠️ Progress calculation error
+        </div>
+      );
+    }
+  };
+  
+  const SafeBookingTypeBadge = ({ booking }) => {
+    try {
+      return <BookingTypeBadge booking={booking} />;
+    } catch (error) {
+      console.error('Error rendering BookingTypeBadge:', error);
+      return (
+        <ThemedBadge className="bg-gray-500/20 text-gray-400 border-gray-500/30">
+          📋 Booking
+        </ThemedBadge>
+      );
+    }
+  };
+
   // ✅ ENHANCED: Booking type badge component
   const BookingTypeBadge = ({ booking }) => {
     if (booking.isCustomBooking) {
       const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
+      
+      if (!packageInfo) {
+        // Fallback for unknown package types
+        return (
+          <div className="flex items-center gap-2">
+            <ThemedBadge className="bg-gray-500/20 text-gray-400 border-gray-500/30">
+              📦 Custom Package
+            </ThemedBadge>
+            <span className="text-xl">❓</span>
+          </div>
+        );
+      }
+      
       return (
         <div className="flex items-center gap-2">
           <ThemedBadge className={`bg-${packageInfo.color}-500/20 text-${packageInfo.color}-400 border-${packageInfo.color}-500/30`}>
-            📦 Custom Package
+            📦 {packageInfo.label.split(' (')[0]} {/* Show only first part of label */}
           </ThemedBadge>
           <span className="text-2xl">{packageInfo.icon}</span>
         </div>
@@ -548,9 +703,25 @@ export default function EnhancedActiveBookingsPage() {
   const PackageProgressBar = ({ booking }) => {
     const progress = calculatePackageProgress(booking);
     
-    if (!progress) return null;
+    if (!progress) {
+      // Show a message for custom bookings where progress can't be calculated
+      if (booking.isCustomBooking) {
+        return (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-400">Package Progress</div>
+            <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="bg-gray-500 h-2 rounded-full w-0"></div>
+            </div>
+            <div className="text-xs text-red-400">
+              ⚠️ Unable to calculate progress
+            </div>
+          </div>
+        );
+      }
+      return null;
+    }
     
-    const { progressPercentage, isOvertime, packageInfo } = progress;
+    const { progressPercentage, isOvertime, packageInfo, remaining, overtimeHours, overtimeMinutes } = progress;
     
     return (
       <div className="space-y-2">
@@ -569,9 +740,13 @@ export default function EnhancedActiveBookingsPage() {
             style={{ width: `${Math.min(100, progressPercentage)}%` }}
           />
         </div>
-        {isOvertime && (
-          <div className="text-xs text-red-400">
-            ⚠️ Package expired - {progress.overtimeHours}h {progress.overtimeMinutes}m overtime
+        {isOvertime ? (
+          <div className="text-xs text-red-400 font-medium">
+            ⚠️ Package expired - {overtimeHours}h {overtimeMinutes}m overtime
+          </div>
+        ) : (
+          <div className="text-xs text-green-400">
+            ⏳ {remaining.hours}h {remaining.minutes}m remaining
           </div>
         )}
       </div>
@@ -629,7 +804,7 @@ export default function EnhancedActiveBookingsPage() {
                 🔴 LIVE
               </ThemedBadge>
               
-              <BookingTypeBadge booking={booking} />
+              <SafeBookingTypeBadge booking={booking} />
               
               {eligibility.canChange && timeRemaining > 0 && (
                 <VehicleChangeStatus booking={booking} />
@@ -750,7 +925,7 @@ export default function EnhancedActiveBookingsPage() {
 
               {/* Package Progress Bar */}
               <div className="mb-6">
-                <PackageProgressBar booking={booking} />
+                <SafePackageProgressBar booking={booking} />
               </div>
 
               {/* Time Remaining */}

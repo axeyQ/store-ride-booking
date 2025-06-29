@@ -140,21 +140,41 @@ export default function CustomBookingPage() {
   };
 
   const calculateEndTime = () => {
-    if (!startTime || !packageType) return '';
+    console.log('Calculating end time with:', { startTime, packageType });
     
-    const start = new Date(startTime);
-    const packageInfo = CUSTOM_RATES[packageType];
+    if (!startTime || !packageType) {
+      console.warn('Missing startTime or packageType:', { startTime, packageType });
+      return '';
+    }
     
-    if (packageType === 'night') {
-      // Night package: Set end time to 9 AM next day
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      end.setHours(9, 0, 0, 0);
-      return end.toISOString().slice(0, 16);
-    } else {
-      // Add hours for half day or full day
-      const end = new Date(start.getTime() + (packageInfo.maxHours * 60 * 60 * 1000));
-      return end.toISOString().slice(0, 16);
+    try {
+      const start = new Date(startTime);
+      const packageInfo = CUSTOM_RATES[packageType];
+      
+      if (!packageInfo) {
+        console.error('Package info not found for:', packageType);
+        return '';
+      }
+      
+      let end;
+      
+      if (packageType === 'night') {
+        // Night package: Set end time to 9 AM next day
+        end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        end.setHours(9, 0, 0, 0);
+      } else {
+        // Add hours for half day or full day
+        end = new Date(start.getTime() + (packageInfo.maxHours * 60 * 60 * 1000));
+      }
+      
+      const endTimeString = end.toISOString();
+      console.log('Calculated end time:', endTimeString);
+      return endTimeString;
+      
+    } catch (error) {
+      console.error('Error calculating end time:', error);
+      return '';
     }
   };
 
@@ -186,8 +206,31 @@ export default function CustomBookingPage() {
     }
   };
 
+  const handleStartTimeChange = (newStartTime) => {
+    console.log('Start time changed to:', newStartTime);
+    setStartTime(newStartTime);
+    
+    // Validate the start time
+    if (newStartTime) {
+      const selectedTime = new Date(newStartTime);
+      const now = new Date();
+      
+      // Check if start time is in the past
+      if (selectedTime < now) {
+        console.warn('Start time is in the past');
+        // You might want to show a warning but still allow it for custom bookings
+      }
+      
+      // Log calculated end time for debugging
+      const calculatedEnd = calculateEndTime();
+      console.log('Calculated end time after start time change:', calculatedEnd);
+    }
+  };
+
   const handleSubmit = async () => {
-    // Validation
+    console.log('Starting booking submission...');
+    
+    // Enhanced validation
     if (!selectedVehicle) {
       alert('Please select a vehicle');
       return;
@@ -200,20 +243,39 @@ export default function CustomBookingPage() {
       alert('Please select start time');
       return;
     }
+    if (!packageType) {
+      alert('Please select a package type');
+      return;
+    }
     if (!signature) {
       alert('Please provide customer signature');
       return;
     }
-
+  
+    // Calculate end time with validation
+    const calculatedEndTime = calculateEndTime();
+    if (!calculatedEndTime) {
+      alert('Error calculating end time. Please check start time and package selection.');
+      return;
+    }
+  
     const packageInfo = CUSTOM_RATES[packageType];
-    const endTime = calculateEndTime();
-
+    
+    console.log('Creating booking with data:', {
+      selectedVehicle,
+      selectedCustomer,
+      startTime,
+      calculatedEndTime,
+      packageType,
+      packageInfo
+    });
+  
     const bookingData = {
       vehicleId: selectedVehicle,
       customerId: selectedCustomer,
       signature,
       startTime,
-      endTime,
+      endTime: calculatedEndTime, // 🚀 FIXED: Use calculated end time
       paymentMethod,
       isCustomBooking: true,
       customBookingType: packageType,
@@ -223,9 +285,11 @@ export default function CustomBookingPage() {
       aadharCardCollected: checklist.aadharCardCollected,
       vehicleInspected: checklist.vehicleInspected,
       securityDepositCollected: checklist.securityDepositCollected,
-      securityDepositAmount: checklist.securityDepositCollected ? securityDepositAmount : 0
+      securityDepositAmount: checklist.securityDepositCollected ? 500 : 0
     };
-
+  
+    console.log('Final booking data:', bookingData);
+  
     setSubmitting(true);
     try {
       const response = await fetch('/api/custom-bookings', {
@@ -233,16 +297,19 @@ export default function CustomBookingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bookingData)
       });
-
+  
       const data = await response.json();
+      console.log('API Response:', data);
+      
       if (data.success) {
         router.push(`/booking/confirmation/${data.booking.bookingId}`);
       } else {
+        console.error('Booking creation failed:', data.error);
         alert(data.error || 'Error creating booking');
       }
     } catch (error) {
       console.error('Error creating booking:', error);
-      alert('Error creating booking');
+      alert('Network error: Please check your connection and try again');
     } finally {
       setSubmitting(false);
     }

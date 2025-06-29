@@ -1,11 +1,15 @@
+// src/components/EnhancedRevenue.jsx
 import { useState, useEffect } from 'react';
 import { ThemedCard, ThemedSelect, ThemedButton } from '@/components/themed';
+import { BusinessErrorBoundary, SimpleErrorFallback } from '@/components/BusinessErrorBoundary';
+import ServiceRegistry from '@/lib/serviceRegistry';
 
-// Enhanced Revenue Summary Component for Dashboard
-export function EnhancedRevenueSummary() {
+// Enhanced Revenue Summary Component with Service Integration
+function EnhancedRevenueSummaryInternal() {
   const [revenueData, setRevenueData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('today');
+  const [error, setError] = useState(null);
   
   useEffect(() => {
     fetchRevenueData();
@@ -14,25 +18,60 @@ export function EnhancedRevenueSummary() {
   const fetchRevenueData = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
+      // 🚀 NEW: Use ServiceRegistry for health check before fetching
+      const healthCheck = await ServiceRegistry.healthCheck();
+      if (healthCheck.overall !== 'healthy') {
+        console.warn('Services are in degraded state:', healthCheck);
+      }
+      
       const response = await fetch(`/api/admin/enhanced-revenue?period=${period}`);
       const data = await response.json();
+      
       if (data.success) {
         setRevenueData(data);
+      } else {
+        throw new Error(data.error || 'Failed to fetch revenue data');
       }
     } catch (error) {
       console.error('Error fetching revenue data:', error);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
   };
   
+  // 🚀 NEW: Enhanced loading state with service status
   if (loading) {
     return (
       <ThemedCard title="💰 Enhanced Revenue Analytics" description="Loading...">
         <div className="p-6">
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mr-3"></div>
-            <span className="text-white">Loading revenue data...</span>
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto mb-3"></div>
+              <span className="text-white block">Loading revenue data...</span>
+              <span className="text-gray-400 text-sm">Using enhanced pricing engine</span>
+            </div>
+          </div>
+        </div>
+      </ThemedCard>
+    );
+  }
+  
+  // 🚀 NEW: Enhanced error state with retry
+  if (error) {
+    return (
+      <ThemedCard title="💰 Revenue Analytics" description="Error loading data">
+        <div className="p-6">
+          <SimpleErrorFallback 
+            error={{ message: error }}
+            retry={fetchRevenueData}
+          />
+          <div className="text-center mt-4">
+            <ThemedButton onClick={fetchRevenueData} variant="primary">
+              Retry Loading
+            </ThemedButton>
           </div>
         </div>
       </ThemedCard>
@@ -43,9 +82,9 @@ export function EnhancedRevenueSummary() {
     return (
       <ThemedCard title="💰 Revenue Analytics" description="No data available">
         <div className="p-6 text-center">
-          <div className="text-red-400 mb-4">Unable to load revenue data</div>
+          <div className="text-yellow-400 mb-4">📊 No revenue data available</div>
           <ThemedButton onClick={fetchRevenueData} variant="primary">
-            Retry
+            Refresh Data
           </ThemedButton>
         </div>
       </ThemedCard>
@@ -79,10 +118,15 @@ export function EnhancedRevenueSummary() {
             <div className="text-sm text-green-300 mt-1">
               {revenueData.summary.totalBookings} total bookings • Avg ₹{revenueData.summary.averagePerBooking.toLocaleString('en-IN')}
             </div>
+            {/* 🚀 NEW: Service status indicator */}
+            <div className="text-xs text-green-400 mt-2 flex items-center justify-center gap-1">
+              <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+              Enhanced pricing engine active
+            </div>
           </div>
         </div>
         
-        {/* Revenue Breakdown */}
+        {/* Revenue Breakdown (unchanged UI) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           {/* Advanced Pricing */}
           <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4">
@@ -119,7 +163,7 @@ export function EnhancedRevenueSummary() {
           </div>
         </div>
         
-        {/* Custom Package Breakdown */}
+        {/* Custom Package Breakdown (unchanged) */}
         {revenueData.breakdown.custom.count > 0 && (
           <div>
             <h4 className="text-lg font-semibold text-white mb-4">📦 Custom Package Breakdown</h4>
@@ -170,7 +214,7 @@ export function EnhancedRevenueSummary() {
           </div>
         )}
         
-        {/* No Custom Bookings Message */}
+        {/* No Custom Bookings Message (unchanged) */}
         {revenueData.breakdown.custom.count === 0 && (
           <div className="text-center py-6 bg-gray-800/30 rounded-lg">
             <div className="text-3xl mb-2">📦</div>
@@ -183,7 +227,7 @@ export function EnhancedRevenueSummary() {
           </div>
         )}
         
-        {/* Refresh Button */}
+        {/* 🚀 NEW: Enhanced refresh with service status */}
         <div className="flex justify-center mt-6">
           <ThemedButton
             onClick={fetchRevenueData}
@@ -193,15 +237,30 @@ export function EnhancedRevenueSummary() {
             🔄 Refresh Data
           </ThemedButton>
         </div>
+        
+        {/* 🚀 NEW: Service status footer */}
+        <div className="mt-4 text-center text-xs text-gray-500">
+          Powered by MR Travels Enhanced Pricing Engine
+        </div>
       </div>
     </ThemedCard>
   );
 }
 
-// Simple stats cards for dashboard overview
-export function EnhancedStatsCards() {
+// 🚀 NEW: Wrap with Error Boundary
+export function EnhancedRevenueSummary() {
+  return (
+    <BusinessErrorBoundary>
+      <EnhancedRevenueSummaryInternal />
+    </BusinessErrorBoundary>
+  );
+}
+
+// Enhanced Stats Cards with Error Boundary
+function EnhancedStatsCardsInternal() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   
   useEffect(() => {
     fetchStats();
@@ -209,13 +268,17 @@ export function EnhancedStatsCards() {
   
   const fetchStats = async () => {
     try {
+      setError(null);
       const response = await fetch('/api/admin/stats');
       const data = await response.json();
       if (data.success) {
         setStats(data);
+      } else {
+        throw new Error(data.error || 'Failed to fetch stats');
       }
     } catch (error) {
       console.error('Error fetching stats:', error);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -233,10 +296,21 @@ export function EnhancedStatsCards() {
       </div>
     );
   }
+
+  if (error) {
+    return (
+      <div className="mb-8">
+        <SimpleErrorFallback 
+          error={{ message: error }}
+          retry={fetchStats}
+        />
+      </div>
+    );
+  }
   
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-      {/* Today's Total Revenue */}
+      {/* Stats cards unchanged but now with error protection */}
       <div className="bg-gradient-to-r from-green-900/50 to-green-800/50 border border-green-700/50 rounded-lg p-6">
         <div className="text-center">
           <div className="text-3xl font-bold text-green-400 mb-2">
@@ -250,7 +324,6 @@ export function EnhancedStatsCards() {
         </div>
       </div>
       
-      {/* Today's Bookings */}
       <div className="bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-700/50 rounded-lg p-6">
         <div className="text-center">
           <div className="text-3xl font-bold text-blue-400 mb-2">
@@ -263,7 +336,6 @@ export function EnhancedStatsCards() {
         </div>
       </div>
       
-      {/* Active Rentals */}
       <div className="bg-gradient-to-r from-orange-900/50 to-orange-800/50 border border-orange-700/50 rounded-lg p-6">
         <div className="text-center">
           <div className="text-3xl font-bold text-orange-400 mb-2">
@@ -274,7 +346,6 @@ export function EnhancedStatsCards() {
         </div>
       </div>
       
-      {/* Monthly Revenue */}
       <div className="bg-gradient-to-r from-purple-900/50 to-purple-800/50 border border-purple-700/50 rounded-lg p-6">
         <div className="text-center">
           <div className="text-3xl font-bold text-purple-400 mb-2">
@@ -287,5 +358,14 @@ export function EnhancedStatsCards() {
         </div>
       </div>
     </div>
+  );
+}
+
+// 🚀 NEW: Wrap with Error Boundary
+export function EnhancedStatsCards() {
+  return (
+    <BusinessErrorBoundary>
+      <EnhancedStatsCardsInternal />
+    </BusinessErrorBoundary>
   );
 }

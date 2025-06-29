@@ -1,52 +1,11 @@
+// src/app/api/bookings/complete/[id]/route.js
 import connectDB from '@/lib/db';
 import Booking from '@/models/Booking';
 import Vehicle from '@/models/Vehicle';
 import { NextResponse } from 'next/server';
+import { PricingService } from '@/services/PricingService';
 
-// Your existing pricing calculation (simplified for brevity)
-async function calculateAdvancedPricing(startTime, endTime) {
-  try {
-    const settingsResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings`);
-    const settingsData = await settingsResponse.json();
-    const settings = settingsData.success ? settingsData.settings : {
-      hourlyRate: 80,
-      graceMinutes: 15,
-      blockMinutes: 30,
-      nightChargeTime: '22:30',
-      nightMultiplier: 2
-    };
-
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const totalMinutes = Math.max(0, Math.floor((end - start) / (1000 * 60)));
-
-    if (totalMinutes === 0) {
-      return { totalAmount: 80, breakdown: [], totalMinutes: 0 }; // Minimum charge
-    }
-
-    // Simplified calculation for this example
-    const hours = Math.ceil(totalMinutes / 60);
-    const totalAmount = Math.max(hours * settings.hourlyRate, settings.hourlyRate);
-
-    return {
-      totalAmount,
-      breakdown: [{ period: `${hours} hour(s)`, minutes: totalMinutes, rate: totalAmount }],
-      totalMinutes,
-      summary: `${hours}h rental completed`
-    };
-  } catch (error) {
-    console.error('Pricing calculation error:', error);
-    const hours = Math.ceil((new Date(endTime) - new Date(startTime)) / (1000 * 60 * 60));
-    return {
-      totalAmount: Math.max(hours * 80, 80),
-      breakdown: [],
-      totalMinutes: Math.floor((new Date(endTime) - new Date(startTime)) / (1000 * 60)),
-      summary: `${hours}h fallback calculation`
-    };
-  }
-}
-
-// 🛡️ BULLETPROOF VEHICLE STATUS UPDATE FUNCTION
+// 🛡️ BULLETPROOF VEHICLE STATUS UPDATE FUNCTION (unchanged)
 async function updateVehicleStatusSafely(vehicleId, newStatus, context = '') {
   const maxRetries = 3;
   let lastError = null;
@@ -55,7 +14,6 @@ async function updateVehicleStatusSafely(vehicleId, newStatus, context = '') {
     try {
       console.log(`🔄 Attempt ${attempt}/${maxRetries}: Updating vehicle ${vehicleId} to ${newStatus} (${context})`);
       
-      // First, verify the vehicle exists
       const vehicle = await Vehicle.findById(vehicleId);
       if (!vehicle) {
         throw new Error(`Vehicle with ID ${vehicleId} not found`);
@@ -63,14 +21,13 @@ async function updateVehicleStatusSafely(vehicleId, newStatus, context = '') {
 
       console.log(`📋 Vehicle ${vehicle.plateNumber} current status: ${vehicle.status} → ${newStatus}`);
 
-      // Update with explicit options
       const updateResult = await Vehicle.findByIdAndUpdate(
         vehicleId,
         { status: newStatus },
         { 
-          new: true,           // Return updated document
-          runValidators: true, // Run schema validation
-          upsert: false       // Don't create if not exists
+          new: true,
+          runValidators: true,
+          upsert: false
         }
       );
 
@@ -78,7 +35,6 @@ async function updateVehicleStatusSafely(vehicleId, newStatus, context = '') {
         throw new Error(`Vehicle update returned null for ID ${vehicleId}`);
       }
 
-      // 🔍 VERIFICATION: Double-check the update worked
       const verificationCheck = await Vehicle.findById(vehicleId);
       if (!verificationCheck || verificationCheck.status !== newStatus) {
         throw new Error(`Verification failed: Vehicle ${vehicleId} status is ${verificationCheck?.status}, expected ${newStatus}`);
@@ -98,13 +54,11 @@ async function updateVehicleStatusSafely(vehicleId, newStatus, context = '') {
       console.error(`❌ Attempt ${attempt} failed for vehicle ${vehicleId}:`, error.message);
       
       if (attempt < maxRetries) {
-        // Wait a bit before retrying
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
     }
   }
 
-  // All attempts failed
   console.error(`💥 CRITICAL: Failed to update vehicle ${vehicleId} after ${maxRetries} attempts. Last error:`, lastError.message);
   return {
     success: false,
@@ -146,18 +100,19 @@ export async function PATCH(request, { params }) {
 
     const endTime = new Date(body.endTime || new Date());
 
-    // Calculate pricing
-    const pricingResult = await calculateAdvancedPricing(booking.startTime, endTime);
+    // 🚀 NEW: Use PricingService instead of inline calculation
+    console.log(`💰 Calculating pricing using PricingService...`);
+    const pricingResult = await PricingService.calculateAdvancedPricing(booking.startTime, endTime);
     let finalAmount = pricingResult.totalAmount;
 
-    // Apply adjustments
+    // Apply adjustments (unchanged)
     if (body.discountAmount) finalAmount -= body.discountAmount;
     if (body.additionalCharges) finalAmount += body.additionalCharges;
     finalAmount = Math.max(0, finalAmount);
 
     const actualDurationHours = Math.ceil(pricingResult.totalMinutes / 60);
 
-    // 🔄 STEP 1: Update booking record
+    // 🔄 STEP 1: Update booking record (unchanged)
     console.log(`📝 Updating booking ${booking.bookingId}...`);
     
     booking.endTime = endTime;
@@ -177,7 +132,7 @@ export async function PATCH(request, { params }) {
     await booking.save();
     console.log(`✅ Booking ${booking.bookingId} marked as completed`);
 
-    // 🔄 STEP 2: Update vehicle status with bulletproof method
+    // 🔄 STEP 2: Update vehicle status (unchanged)
     console.log(`🚗 Updating vehicle ${vehicleInfo} status...`);
     
     const vehicleUpdateResult = await updateVehicleStatusSafely(
@@ -186,16 +141,9 @@ export async function PATCH(request, { params }) {
       `booking completion for ${booking.bookingId}`
     );
 
-    // 🚨 CRITICAL ERROR HANDLING
+    // 🚨 CRITICAL ERROR HANDLING (unchanged)
     if (!vehicleUpdateResult.success) {
       console.error(`💥 CRITICAL: Vehicle status update failed for ${vehicleInfo}`);
-      
-      // Log the issue but don't fail the booking completion
-      // In a production system, you might want to:
-      // 1. Send an alert to administrators
-      // 2. Create a task to manually fix this
-      // 3. Add to a retry queue
-      
       console.error(`🚨 MANUAL INTERVENTION REQUIRED: Vehicle ${vehicleInfo} needs status changed to 'available'`);
     }
 
@@ -206,13 +154,13 @@ export async function PATCH(request, { params }) {
 
     console.log(`🏁 Booking completion finished for ${booking.bookingId}`);
 
+    // ✅ RESPONSE FORMAT UNCHANGED - 100% backward compatibility
     return NextResponse.json({
       success: true,
       booking: updatedBooking,
       pricingDetails: pricingResult,
       vehicleStatusUpdate: vehicleUpdateResult,
       message: `Booking completed successfully. Final amount: ₹${finalAmount}`,
-      // Include any warnings about vehicle status
       warnings: vehicleUpdateResult.success ? [] : [
         `Vehicle ${vehicleInfo} status may not have updated correctly. Please verify manually.`
       ]

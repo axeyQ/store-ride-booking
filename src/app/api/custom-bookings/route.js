@@ -1,8 +1,32 @@
+// src/app/api/custom-bookings/route.js - FIXED VERSION
 import connectDB from '@/lib/db';
 import Booking from '@/models/Booking';
 import Vehicle from '@/models/Vehicle';
 import Customer from '@/models/Customer';
 import { NextResponse } from 'next/server';
+
+// 🚀 FIXED: Helper function to calculate endTime for custom packages
+function calculateEndTimeForPackage(startTime, packageType) {
+  const PACKAGE_DURATIONS = {
+    half_day: 12, // 12 hours
+    full_day: 24, // 24 hours  
+    night: 11     // 11 hours (10 PM to 9 AM)
+  };
+
+  const start = new Date(startTime);
+  const hours = PACKAGE_DURATIONS[packageType] || 12;
+
+  if (packageType === 'night') {
+    // Night package: Set end time to 9 AM next day
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    end.setHours(9, 0, 0, 0);
+    return end;
+  } else {
+    // Add hours for half day or full day
+    return new Date(start.getTime() + (hours * 60 * 60 * 1000));
+  }
+}
 
 export async function POST(request) {
   try {
@@ -13,7 +37,9 @@ export async function POST(request) {
       vehicleId: body.vehicleId,
       customerId: body.customerId,
       packageType: body.customBookingType,
-      amount: body.finalAmount
+      amount: body.finalAmount,
+      startTime: body.startTime,
+      endTime: body.endTime
     });
     
     // Validate required fields
@@ -29,6 +55,16 @@ export async function POST(request) {
         { success: false, error: 'Missing custom booking details: type or amount' },
         { status: 400 }
       );
+    }
+
+    // 🚀 FIXED: Calculate endTime if not provided
+    let calculatedEndTime;
+    if (body.endTime && body.endTime !== '' && body.endTime !== 'undefined') {
+      calculatedEndTime = new Date(body.endTime);
+      console.log('✅ Using provided endTime:', calculatedEndTime);
+    } else {
+      calculatedEndTime = calculateEndTimeForPackage(body.startTime, body.customBookingType);
+      console.log('⚠️ EndTime was missing, calculated:', calculatedEndTime);
     }
 
     // Verify vehicle exists and is available
@@ -76,14 +112,14 @@ export async function POST(request) {
       );
     }
 
-    // Create custom booking
+    // 🚀 FIXED: Create custom booking with properly calculated endTime
     const bookingData = {
       vehicleId: body.vehicleId,
       customerId: body.customerId,
       signature: body.signature,
       startTime: new Date(body.startTime),
-      endTime: body.endTime ? new Date(body.endTime) : null,
-      estimatedReturnTime: endTime,
+      endTime: calculatedEndTime, // 🚀 FIXED: Use calculated endTime
+      estimatedReturnTime: calculatedEndTime, // 🚀 FIXED: Use calculated endTime
       finalAmount: body.finalAmount,
       paymentMethod: body.paymentMethod || 'cash',
       status: 'active',
@@ -98,23 +134,28 @@ export async function POST(request) {
       // Custom booking specific fields
       isCustomBooking: true,
       customBookingType: body.customBookingType,
-      customBookingLabel: body.customBookingLabel,
+      customBookingLabel: body.customBookingLabel || `${body.customBookingType} package`,
       
       // Add custom pricing breakdown for analytics
       pricingBreakdown: [{
-        period: body.customBookingLabel,
+        period: body.customBookingLabel || `${body.customBookingType} package`,
         startTime: new Date(body.startTime).toLocaleTimeString('en-IN'),
-        endTime: body.endTime ? new Date(body.endTime).toLocaleTimeString('en-IN') : 'N/A',
-        minutes: body.endTime ? Math.floor((new Date(body.endTime) - new Date(body.startTime)) / (1000 * 60)) : 0,
+        endTime: calculatedEndTime.toLocaleTimeString('en-IN'), // 🚀 FIXED: Use calculated endTime
+        minutes: Math.floor((calculatedEndTime - new Date(body.startTime)) / (1000 * 60)), // 🚀 FIXED
         rate: body.finalAmount,
         isNightCharge: body.customBookingType === 'night',
-        description: `Custom booking - ${body.customBookingLabel}`
+        description: `Custom booking - ${body.customBookingLabel || body.customBookingType}`
       }],
       
-      additionalNotes: `Custom booking: ${body.customBookingLabel} - Fixed rate ₹${body.finalAmount}`
+      additionalNotes: `Custom booking: ${body.customBookingLabel || body.customBookingType} - Fixed rate ₹${body.finalAmount}`
     };
 
-    console.log('💾 Creating booking with data:', bookingData);
+    console.log('💾 Creating booking with data:', {
+      ...bookingData,
+      startTime: bookingData.startTime.toISOString(),
+      endTime: bookingData.endTime.toISOString(),
+      estimatedReturnTime: bookingData.estimatedReturnTime.toISOString()
+    });
     
     const booking = new Booking(bookingData);
     await booking.save();
@@ -135,11 +176,32 @@ export async function POST(request) {
 
     console.log('✅ Custom booking created successfully:', booking.bookingId);
 
+    // 🚀 FIXED: Check for customer warnings
+    let warningInfo = null;
+    if (customer.isBlacklisted && 
+        customer.blacklistDetails?.isActive && 
+        customer.blacklistDetails.severity === 'warning') {
+      warningInfo = {
+        reason: customer.blacklistDetails.reason,
+        customReason: customer.blacklistDetails.customReason,
+        blacklistedAt: customer.blacklistDetails.blacklistedAt,
+        blacklistedBy: customer.blacklistDetails.blacklistedBy,
+        message: 'Customer has a warning on their account. Please monitor this booking carefully.'
+      };
+    }
+
     return NextResponse.json({
       success: true,
       booking: populatedBooking,
-      estimatedReturnTime: endTime.toISOString(),
-      message: `Custom booking created successfully with fixed rate of ₹${body.finalAmount}`
+      estimatedReturnTime: calculatedEndTime.toISOString(), // 🚀 FIXED: Use calculated endTime
+      calculatedEndTime: calculatedEndTime.toISOString(), // Additional field for frontend
+      warning: warningInfo,
+      message: `Custom booking created successfully with fixed rate of ₹${body.finalAmount}`,
+      packageInfo: {
+        type: body.customBookingType,
+        label: body.customBookingLabel || body.customBookingType,
+        duration: Math.floor((calculatedEndTime - new Date(body.startTime)) / (1000 * 60 * 60))
+      }
     });
 
   } catch (error) {
@@ -151,6 +213,7 @@ export async function POST(request) {
   }
 }
 
+// GET method unchanged - it was working fine
 export async function GET(request) {
   try {
     await connectDB();
