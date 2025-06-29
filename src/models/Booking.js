@@ -404,7 +404,7 @@ bookingSchema.virtual('driverDisplayName').get(function() {
 bookingSchema.index({ customerId: 1, createdAt: -1 });
 bookingSchema.index({ vehicleId: 1, status: 1 });
 bookingSchema.index({ status: 1, startTime: 1 });
-bookingSchema.index({ bookingId: 1 });
+// bookingSchema.index({ bookingId: 1 });
 bookingSchema.index({ 'actualDriver.isSameAsLicenseHolder': 1 }); // For multiple driver analytics
 bookingSchema.index({ 'enhancedSecurity.isRequired': 1 }); // For enhanced security tracking
 

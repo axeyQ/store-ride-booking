@@ -105,11 +105,13 @@ function isNightCharge(startTime, durationMinutes, nightChargeTime) {
   }
 }
 
-// ✅ FIXED: GET method with cancelled booking handling
+// ✅ FIXED: GET method with proper params awaiting
 export async function GET(request, { params }) {
   try {
     await connectDB();
-    const { id } = params;
+    
+    // ✅ FIX: Await params before destructuring (Next.js 15+ requirement)
+    const { id } = await params;
 
     const booking = await Booking.findById(id);
     if (!booking) {
@@ -119,7 +121,7 @@ export async function GET(request, { params }) {
       );
     }
 
-    // ✅ NEW: Check if booking is cancelled
+    // ✅ Check if booking is cancelled
     if (booking.status === 'cancelled') {
       return NextResponse.json({
         success: true,
@@ -133,7 +135,7 @@ export async function GET(request, { params }) {
       });
     }
 
-    // ✅ NEW: Check if booking is not active
+    // ✅ Check if booking is not active
     if (booking.status !== 'active') {
       return NextResponse.json({
         success: false,
