@@ -3,158 +3,94 @@ import Vehicle from '@/models/Vehicle';
 import Booking from '@/models/Booking';
 import { NextResponse } from 'next/server';
 
-export async function GET(request, { params }) {
+export async function GET(request) {
   try {
     await connectDB();
-    const { id } = await params; // Await params in Next.js 15+
-    const vehicle = await Vehicle.findById(id);
     
-    if (!vehicle) {
-      return NextResponse.json(
-        { success: false, error: 'Vehicle not found' },
-        { status: 404 }
-      );
+    const { searchParams } = new URL(request.url);
+    const excludeBookingId = searchParams.get('excludeBookingId');
+    const crossCheck = searchParams.get('crossCheck') !== 'false'; // Default to true
+    
+    console.log('🚗 Available vehicles API called:', { excludeBookingId, crossCheck });
+    
+    // Get vehicles marked as available
+    const availableVehicles = await Vehicle.find({ status: 'available' }).sort({ type: 1, model: 1 });
+    console.log(`📋 Found ${availableVehicles.length} vehicles marked as available`);
+    
+    if (!crossCheck) {
+      // Skip cross-checking if explicitly disabled
+      return NextResponse.json({ 
+        success: true, 
+        vehicles: availableVehicles,
+        meta: { crossChecked: false }
+      });
     }
     
-    return NextResponse.json({ success: true, vehicle });
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
+    // ✅ CROSS-CHECK: Verify which vehicles are actually available
+    console.log('🔍 Cross-checking with active bookings...');
+    
+    let bookingQuery = { status: 'active' };
+    if (excludeBookingId) {
+      bookingQuery.bookingId = { $ne: excludeBookingId };
+    }
+    
+    const activeBookings = await Booking.find(bookingQuery).populate('vehicleId', '_id plateNumber model');
+    console.log(`📋 Found ${activeBookings.length} active bookings`);
+    
+    // Create set of actually rented vehicle IDs
+    const rentedVehicleIds = new Set(
+      activeBookings
+        .filter(booking => booking.vehicleId)
+        .map(booking => booking.vehicleId._id.toString())
     );
-  }
-}
-
-// Add PATCH method for status updates
-export async function PATCH(request, { params }) {
-  try {
-    await connectDB();
-    const { id } = await params;
-    const body = await request.json();
     
-    console.log(`🔧 Updating vehicle ${id}:`, body);
+    console.log(`🚫 Actually rented: ${rentedVehicleIds.size} vehicles`);
     
-    // Validate status changes
-    if (body.status) {
-      const validStatuses = ['available', 'rented', 'maintenance'];
-      if (!validStatuses.includes(body.status)) {
-        return NextResponse.json(
-          { success: false, error: 'Invalid status. Must be: available, rented, or maintenance' },
-          { status: 400 }
-        );
-      }
+    // Filter out vehicles that are actually rented
+    const trulyAvailableVehicles = [];
+    const inconsistentVehicles = [];
+    
+    for (const vehicle of availableVehicles) {
+      const vehicleId = vehicle._id.toString();
+      const isActuallyRented = rentedVehicleIds.has(vehicleId);
       
-      // Special validation for status changes to 'available'
-      if (body.status === 'available') {
-        // Check if vehicle is actually rented
-        const activeBooking = await Booking.findOne({ 
-          'vehicleId': id, 
-          status: 'active' 
-        }).populate('customerId', 'name');
+      if (isActuallyRented) {
+        inconsistentVehicles.push({
+          id: vehicleId,
+          plateNumber: vehicle.plateNumber,
+          model: vehicle.model
+        });
+        console.warn(`⚠️ Vehicle ${vehicle.plateNumber} marked available but actually rented!`);
         
-        if (activeBooking) {
-          console.warn(`⚠️ Attempting to mark vehicle ${id} as available but it has active booking ${activeBooking.bookingId}`);
-          return NextResponse.json(
-            { 
-              success: false, 
-              error: `Cannot mark as available. Vehicle is currently rented to ${activeBooking.customerId?.name || 'Unknown'} (Booking: ${activeBooking.bookingId})` 
-            },
-            { status: 400 }
-          );
-        }
-      }
-    }
-    
-    const vehicle = await Vehicle.findByIdAndUpdate(
-      id,
-      body,
-      { new: true, runValidators: true }
-    );
-    
-    if (!vehicle) {
-      return NextResponse.json(
-        { success: false, error: 'Vehicle not found' },
-        { status: 404 }
-      );
-    }
-    
-    console.log(`✅ Updated vehicle ${vehicle.plateNumber}: ${JSON.stringify(body)}`);
-    
-    return NextResponse.json({ success: true, vehicle });
-  } catch (error) {
-    console.error('Vehicle update error:', error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-export async function PUT(request, { params }) {
-  try {
-    await connectDB();
-    const { id } = await params;
-    const body = await request.json();
-    
-    const vehicle = await Vehicle.findByIdAndUpdate(
-      id,
-      body,
-      { new: true, runValidators: true }
-    );
-    
-    if (!vehicle) {
-      return NextResponse.json(
-        { success: false, error: 'Vehicle not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json({ success: true, vehicle });
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request, { params }) {
-  try {
-    await connectDB();
-    const { id } = await params;
-    
-    // Check if vehicle is currently rented
-    const vehicle = await Vehicle.findById(id);
-    if (!vehicle) {
-      return NextResponse.json(
-        { success: false, error: 'Vehicle not found' },
-        { status: 404 }
-      );
-    }
-    
-    if (vehicle.status === 'rented') {
-      // Double-check with active bookings
-      const activeBooking = await Booking.findOne({ 
-        'vehicleId': id, 
-        status: 'active' 
-      }).populate('customerId', 'name');
-      
-      if (activeBooking) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: `Cannot delete vehicle. Currently rented to ${activeBooking.customerId?.name || 'Unknown'} (Booking: ${activeBooking.bookingId})` 
-          },
-          { status: 400 }
+        // Auto-fix in background
+        Vehicle.findByIdAndUpdate(vehicleId, { status: 'rented' }).catch(err => 
+          console.error(`Failed to auto-fix ${vehicle.plateNumber}:`, err)
         );
+      } else {
+        trulyAvailableVehicles.push(vehicle);
       }
     }
     
-    const deletedVehicle = await Vehicle.findByIdAndDelete(id);
-    console.log(`🗑️ Deleted vehicle: ${deletedVehicle.plateNumber}`);
+    console.log(`✅ Truly available: ${trulyAvailableVehicles.length}/${availableVehicles.length}`);
     
-    return NextResponse.json({ success: true, message: 'Vehicle deleted successfully' });
+    if (inconsistentVehicles.length > 0) {
+      console.log(`🔧 Auto-fixing ${inconsistentVehicles.length} inconsistent vehicles`);
+    }
+    
+    return NextResponse.json({
+      success: true,
+      vehicles: trulyAvailableVehicles,
+      meta: {
+        total: availableVehicles.length,
+        available: trulyAvailableVehicles.length,
+        crossChecked: true,
+        inconsistencies: inconsistentVehicles.length,
+        inconsistentVehicles: inconsistentVehicles.slice(0, 5) // Limit response size
+      }
+    });
+    
   } catch (error) {
+    console.error('Available vehicles API error:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
