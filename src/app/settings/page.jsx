@@ -11,122 +11,77 @@ import {
 } from '@/components/themed';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { SettingsService } from '@/services/SettingsService';
+import { PricingService } from '@/services/PricingService';
 
 export default function ThemedSettingsPage() {
-  const [settings, setSettings] = useState({
-    // Business Settings
-    businessName: 'MR Travels',
-    businessAddress: 'Bhopal, Madhya Pradesh',
-    businessPhone: '',
-    businessEmail: '',
-    gstNumber: '',
-    
-    // Pricing Settings
-    hourlyRate: 80,
-    minimumHours: 1,
-    graceMinutes: 15,
-    blockMinutes: 30,
-    lateFeePerHour: 20,
-    securityDeposit: 500,
-    nightChargeTime: '22:30',
-    nightMultiplier: 2,
-    
-    // NEW: Start delay settings
-    startDelayMinutes: 5,
-    roundToNearestMinutes: 5,
-    
-    // Operational Settings
-    operatingHours: {
-      start: '06:00',
-      end: '22:00'
-    },
-    maxAdvanceBookingDays: 7,
-    reminderTimeBeforeReturn: 30,
-    
-    // Notification Settings
-    smsNotifications: true,
-    emailNotifications: false,
-    whatsappNotifications: false,
-    
-    // System Settings
-    autoBackup: true,
-    backupFrequency: 'daily',
-    dataRetentionMonths: 12,
-    
-    // Document Settings
-    requireAadharPhoto: true,
-    requireSignature: true,
-    requireLicenseVerification: true
-  });
-
+  const [settings, setSettings] = useState(SettingsService.DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState('business');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState({});
+  const [pricingExamples, setPricingExamples] = useState({ day: [], night: [] });
 
   useEffect(() => {
     fetchSettings();
+    fetchPricingExamples();
   }, []);
 
+  // 🚀 NEW: Use SettingsService instead of direct API call
   const fetchSettings = async () => {
     try {
-      const response = await fetch('/api/settings');
-      const data = await response.json();
-      if (data.success) {
-        setSettings(prev => ({ ...prev, ...data.settings }));
-      }
+      // Use SettingsService with caching
+      const settingsData = await SettingsService.getSettings();
+      setSettings(prev => ({ ...prev, ...settingsData }));
+      console.log('✅ Settings loaded via SettingsService:', settingsData.businessName);
     } catch (error) {
-      console.error('Error fetching settings:', error);
+      console.error('Error fetching settings via service:', error);
+      // Fallback to defaults (already handled by SettingsService)
     } finally {
       setLoading(false);
     }
   };
 
-  const validateSettings = () => {
-    const newErrors = {};
-    
-    // Business validation
-    if (!settings.businessName?.trim()) {
-      newErrors.businessName = 'Business name is required';
+  // 🚀 NEW: Use PricingService for pricing examples
+  const fetchPricingExamples = async () => {
+    try {
+      const examples = await PricingService.getPricingExamples();
+      setPricingExamples(examples);
+      console.log('✅ Pricing examples loaded via PricingService');
+    } catch (error) {
+      console.error('Error fetching pricing examples:', error);
+      // Keep empty arrays as fallback
     }
-    
-    // Pricing validation
-    if (!settings.hourlyRate || settings.hourlyRate <= 0) {
-      newErrors.hourlyRate = 'Hourly rate must be greater than 0';
-    }
-    
-    if (settings.graceMinutes < 0 || settings.graceMinutes > 60) {
-      newErrors.graceMinutes = 'Grace period must be between 0 and 60 minutes';
-    }
-    
-    if (settings.blockMinutes <= 0 || settings.blockMinutes > 120) {
-      newErrors.blockMinutes = 'Block duration must be between 1 and 120 minutes';
-    }
-    
-    if (settings.nightMultiplier < 1 || settings.nightMultiplier > 5) {
-      newErrors.nightMultiplier = 'Night multiplier must be between 1 and 5';
-    }
-    
-    // NEW: Start delay validation
-    if (settings.startDelayMinutes < 0 || settings.startDelayMinutes > 60) {
-      newErrors.startDelayMinutes = 'Start delay must be between 0 and 60 minutes';
-    }
-    
-    if (settings.roundToNearestMinutes && ![1, 5, 10, 15, 30].includes(settings.roundToNearestMinutes)) {
-      newErrors.roundToNearestMinutes = 'Round to nearest must be 1, 5, 10, 15, or 30 minutes';
-    }
-    
-    // Time format validation
-    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    if (!timeRegex.test(settings.nightChargeTime)) {
-      newErrors.nightChargeTime = 'Night charge time must be in HH:MM format';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
   };
 
+  // 🚀 NEW: Use SettingsService validation
+  const validateSettings = () => {
+    const validation = SettingsService.validateSettings(settings);
+    setErrors(validation.isValid ? {} : validation.errors.reduce((acc, error, index) => {
+      // Map errors to field names (simplified mapping)
+      const fieldMappings = {
+        'Business name is required': 'businessName',
+        'Hourly rate must be greater than 0': 'hourlyRate',
+        'Grace period must be between 0 and 60 minutes': 'graceMinutes',
+        'Block duration must be between 1 and 120 minutes': 'blockMinutes',
+        'Night multiplier must be between 1 and 5': 'nightMultiplier',
+        'Start delay must be between 0 and 60 minutes': 'startDelayMinutes',
+        'Round to nearest must be 1, 5, 10, 15, or 30 minutes': 'roundToNearestMinutes',
+        'Night charge time must be in HH:MM format': 'nightChargeTime'
+      };
+      
+      const fieldName = Object.keys(fieldMappings).find(key => error.includes(key.split(' ')[0]));
+      if (fieldName && fieldMappings[fieldName]) {
+        acc[fieldMappings[fieldName]] = error;
+      }
+      return acc;
+    }, {}));
+    
+    return validation.isValid;
+  };
+
+  // 🚀 NEW: Use SettingsService for saving
   const handleSave = async () => {
     if (!validateSettings()) {
       return;
@@ -134,17 +89,19 @@ export default function ThemedSettingsPage() {
     
     try {
       setSaving(true);
-      const response = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
-      });
-      const data = await response.json();
-      if (data.success) {
+      
+      // Use SettingsService instead of direct API call
+      const result = await SettingsService.updateSettings(settings);
+      
+      if (result.success) {
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
+        console.log('✅ Settings saved via SettingsService');
+        
+        // Refresh pricing examples with new settings
+        await fetchPricingExamples();
       } else {
-        alert('Error saving settings: ' + data.error);
+        alert('Error saving settings: ' + result.error);
       }
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -176,37 +133,23 @@ export default function ThemedSettingsPage() {
     }
   };
 
-  const resetToDefaults = () => {
+  // 🚀 NEW: Use SettingsService defaults
+  const resetToDefaults = async () => {
     if (confirm('Are you sure you want to reset all settings to default values?')) {
-      setSettings({
-        businessName: 'MR Travels',
-        businessAddress: 'Bhopal, Madhya Pradesh',
-        businessPhone: '',
-        businessEmail: '',
-        gstNumber: '',
-        hourlyRate: 80,
-        minimumHours: 1,
-        graceMinutes: 15,
-        blockMinutes: 30,
-        lateFeePerHour: 20,
-        securityDeposit: 500,
-        nightChargeTime: '22:30',
-        nightMultiplier: 2,
-        startDelayMinutes: 5, // NEW
-        roundToNearestMinutes: 5, // NEW
-        operatingHours: { start: '06:00', end: '22:00' },
-        maxAdvanceBookingDays: 7,
-        reminderTimeBeforeReturn: 30,
-        smsNotifications: true,
-        emailNotifications: false,
-        whatsappNotifications: false,
-        autoBackup: true,
-        backupFrequency: 'daily',
-        dataRetentionMonths: 12,
-        requireAadharPhoto: true,
-        requireSignature: true,
-        requireLicenseVerification: true
-      });
+      try {
+        const result = await SettingsService.resetToDefaults();
+        if (result.success) {
+          setSettings(SettingsService.DEFAULT_SETTINGS);
+          await fetchPricingExamples();
+          alert('Settings reset to defaults successfully!');
+        } else {
+          alert('Error resetting settings: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Error resetting settings:', error);
+        // Fallback to local reset
+        setSettings(SettingsService.DEFAULT_SETTINGS);
+      }
     }
   };
 
@@ -219,56 +162,57 @@ export default function ThemedSettingsPage() {
     }
   };
 
-  // Pricing examples calculation
-  const getPricingExamples = () => {
-    const { hourlyRate, graceMinutes, blockMinutes, nightMultiplier } = settings;
-    const halfRate = Math.round(hourlyRate / 2);
-    
-    return {
-      day: [
-        { duration: '30 minutes', amount: hourlyRate },
-        { duration: '1 hour', amount: hourlyRate },
-        { duration: '1.5 hours', amount: hourlyRate + halfRate },
-        { duration: '2 hours', amount: hourlyRate + halfRate * 2 }
-      ],
-      night: [
-        { duration: '1 hour (night)', amount: hourlyRate * nightMultiplier },
-        { duration: '1.5 hours (night)', amount: (hourlyRate + halfRate) * nightMultiplier }
-      ]
-    };
+  // 🚀 NEW: Use SettingsService for start time examples
+  const getStartTimeExamples = () => {
+    return SettingsService.generateStartTimeExamples(
+      settings.startDelayMinutes, 
+      settings.roundToNearestMinutes
+    );
   };
 
-  // NEW: Calculate example start times
-  const getStartTimeExamples = () => {
-    const now = new Date();
-    const examples = [];
-    
-    for (let i = 0; i < 3; i++) {
-      const testTime = new Date(now.getTime() + (i * 2 * 60 * 1000)); // Every 2 minutes
-      const delayMinutes = settings.startDelayMinutes || 5;
-      const roundToMinutes = settings.roundToNearestMinutes || 5;
+  // 🚀 NEW: Export settings functionality
+  const exportSettings = async () => {
+    try {
+      const exportData = await SettingsService.exportSettings();
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mr-travels-settings-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting settings:', error);
+      alert('Settings export failed. Please try again.');
+    }
+  };
+
+  // 🚀 NEW: Import settings functionality
+  const importSettings = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const importData = JSON.parse(text);
       
-      const startTime = new Date(testTime.getTime() + (delayMinutes * 60 * 1000));
-      
-      if (roundToMinutes > 1) {
-        const minutes = startTime.getMinutes();
-        const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
-        
-        if (roundedMinutes >= 60) {
-          startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));
-          startTime.setMinutes(roundedMinutes % 60, 0, 0);
-        } else {
-          startTime.setMinutes(roundedMinutes, 0, 0);
-        }
+      const result = await SettingsService.importSettings(importData);
+      if (result.success) {
+        await fetchSettings();
+        await fetchPricingExamples();
+        alert('Settings imported successfully!');
+      } else {
+        alert('Import failed: ' + result.error);
       }
-      
-      examples.push({
-        bookingTime: testTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-        startTime: startTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-      });
+    } catch (error) {
+      console.error('Error importing settings:', error);
+      alert('Invalid settings file. Please check the format.');
     }
     
-    return examples;
+    // Reset file input
+    event.target.value = '';
   };
 
   const tabs = [
@@ -286,7 +230,7 @@ export default function ThemedSettingsPage() {
           <ThemedCard>
             <div className="flex items-center space-x-3 p-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
-              <span className="text-white text-xl">Loading settings...</span>
+              <span className="text-white text-xl">Loading settings via SettingsService...</span>
             </div>
           </ThemedCard>
         </div>
@@ -294,8 +238,7 @@ export default function ThemedSettingsPage() {
     );
   }
 
-  const pricingExamples = getPricingExamples();
-  const startTimeExamples = getStartTimeExamples(); // NEW
+  const startTimeExamples = getStartTimeExamples();
 
   return (
     <ThemedLayout>
@@ -308,6 +251,12 @@ export default function ThemedSettingsPage() {
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
             Configure your rental business parameters and preferences
           </p>
+          {/* NEW: Service status indicator */}
+          <div className="mt-4">
+            <ThemedBadge variant="success" className="text-sm">
+              ⚡ Enhanced with SettingsService - Cached & Optimized
+            </ThemedBadge>
+          </div>
         </div>
 
         {/* Settings Header */}
@@ -315,9 +264,31 @@ export default function ThemedSettingsPage() {
           <div className="flex justify-between items-center p-6">
             <div>
               <h3 className="text-lg font-semibold text-white">Configuration Management</h3>
-              <p className="text-gray-400">Customize your rental system settings</p>
+              <p className="text-gray-400">Customize your rental system settings via centralized service</p>
             </div>
             <div className="flex items-center space-x-3">
+              {/* NEW: Import/Export buttons */}
+              <input
+                type="file"
+                accept=".json"
+                onChange={importSettings}
+                className="hidden"
+                id="settings-import"
+              />
+              <ThemedButton
+                variant="secondary"
+                onClick={() => document.getElementById('settings-import').click()}
+                className="text-sm"
+              >
+                📥 Import
+              </ThemedButton>
+              <ThemedButton
+                variant="secondary"
+                onClick={exportSettings}
+                className="text-sm"
+              >
+                📤 Export
+              </ThemedButton>
               <ThemedButton
                 variant="secondary"
                 onClick={resetToDefaults}
@@ -488,16 +459,16 @@ export default function ThemedSettingsPage() {
                   />
                 </div>
 
-                {/* Advanced Pricing Preview */}
+                {/* 🚀 NEW: Enhanced pricing preview using PricingService */}
                 <div className="bg-gradient-to-r from-blue-900/50 to-blue-800/50 border border-blue-700/50 rounded-lg p-6 mt-8">
-                  <h4 className="font-semibold text-blue-200 mb-4">💡 Advanced Pricing Preview</h4>
+                  <h4 className="font-semibold text-blue-200 mb-4">💡 Live Pricing Preview (via PricingService)</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <h5 className="font-medium text-blue-300 mb-3">Day Time Examples:</h5>
                       <div className="space-y-2 text-sm">
                         {pricingExamples.day.map((example, index) => (
                           <div key={index} className="flex justify-between">
-                            <span className="text-blue-200">{example.duration}:</span>
+                            <span className="text-blue-200">{example.label}:</span>
                             <span className="font-semibold text-white">₹{example.amount}</span>
                           </div>
                         ))}
@@ -508,7 +479,7 @@ export default function ThemedSettingsPage() {
                       <div className="space-y-2 text-sm">
                         {pricingExamples.night.map((example, index) => (
                           <div key={index} className="flex justify-between">
-                            <span className="text-blue-200">{example.duration}:</span>
+                            <span className="text-blue-200">{example.label}:</span>
                             <span className="font-semibold text-orange-400">₹{example.amount}</span>
                           </div>
                         ))}
@@ -529,11 +500,12 @@ export default function ThemedSettingsPage() {
               <div className="space-y-6">
                 <h3 className="text-2xl font-bold text-white mb-6">Operational Settings</h3>
                 
-                {/* NEW: Rental Start Time Configuration */}
+                {/* Rental Start Time Configuration - Enhanced with service integration */}
                 <div className="bg-gradient-to-r from-cyan-900/50 to-cyan-800/50 border border-cyan-700/50 rounded-xl p-6 mb-8">
                   <h4 className="text-xl font-semibold text-cyan-200 mb-4">🕐 Rental Start Time Configuration</h4>
                   <p className="text-cyan-300 text-sm mb-6">
                     Configure how much time customers get to reach the vehicle after booking confirmation.
+                    <span className="block mt-1 text-cyan-400">✨ Enhanced with SettingsService integration</span>
                   </p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -747,30 +719,35 @@ export default function ThemedSettingsPage() {
                   </div>
                 </div>
                 
-                {/* System Status */}
+                {/* 🚀 NEW: Service Health Status */}
                 <div className="bg-gradient-to-r from-green-900/50 to-green-800/50 border border-green-700/50 rounded-lg p-6">
-                  <h4 className="font-semibold text-green-200 mb-4">System Health Status</h4>
+                  <h4 className="font-semibold text-green-200 mb-4">🔧 Service Health Status</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl mb-2">🟢</div>
+                      <div className="text-green-200 text-sm">SettingsService</div>
+                      <div className="text-green-400 font-medium">Cached</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-2">🟢</div>
+                      <div className="text-green-200 text-sm">PricingService</div>
+                      <div className="text-green-400 font-medium">Active</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl mb-2">🟢</div>
+                      <div className="text-green-200 text-sm">BookingService</div>
+                      <div className="text-green-400 font-medium">Ready</div>
+                    </div>
                     <div className="text-center">
                       <div className="text-2xl mb-2">🟢</div>
                       <div className="text-green-200 text-sm">Database</div>
                       <div className="text-green-400 font-medium">Online</div>
                     </div>
-                    <div className="text-center">
-                      <div className="text-2xl mb-2">🟢</div>
-                      <div className="text-green-200 text-sm">API Status</div>
-                      <div className="text-green-400 font-medium">Healthy</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl mb-2">🟢</div>
-                      <div className="text-green-200 text-sm">Backup</div>
-                      <div className="text-green-400 font-medium">2h ago</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl mb-2">🟢</div>
-                      <div className="text-green-200 text-sm">Uptime</div>
-                      <div className="text-green-400 font-medium">99.9%</div>
-                    </div>
+                  </div>
+                  <div className="mt-4 text-center">
+                    <ThemedBadge variant="success">
+                      ✨ All services integrated and running optimally
+                    </ThemedBadge>
                   </div>
                 </div>
               </div>

@@ -1,8 +1,11 @@
+// src/app/api/bookings/route.js
 import connectDB from '@/lib/db';
 import Booking from '@/models/Booking';
 import Customer from '@/models/Customer';
 import Vehicle from '@/models/Vehicle';
 import { NextResponse } from 'next/server';
+import { SettingsService } from '@/services/SettingsService';
+import { BookingService } from '@/services/BookingService';
 
 // Helper function to validate phone number
 function validatePhoneNumber(phone) {
@@ -24,57 +27,6 @@ function validatePanNumber(pan) {
   return /^[A-Z]{5}\d{4}[A-Z]$/.test(pan);
 }
 
-// Helper function to calculate rental start time with settings
-async function calculateRentalStartTime() {
-  try {
-    // Get current settings
-    const settingsResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings`);
-    const settingsData = await settingsResponse.json();
-    
-    const settings = settingsData.success ? settingsData.settings : {
-      startDelayMinutes: 5,
-      roundToNearestMinutes: 5
-    };
-    
-    const bookingTime = new Date();
-    const delayMinutes = settings.startDelayMinutes || 5;
-    const roundToMinutes = settings.roundToNearestMinutes || 5;
-    
-    // Add delay to current time
-    const startTime = new Date(bookingTime.getTime() + (delayMinutes * 60 * 1000));
-    
-    // Round to nearest specified minutes
-    if (roundToMinutes > 1) {
-      const minutes = startTime.getMinutes();
-      const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
-      
-      if (roundedMinutes >= 60) {
-        startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));
-        startTime.setMinutes(roundedMinutes % 60, 0, 0);
-      } else {
-        startTime.setMinutes(roundedMinutes, 0, 0);
-      }
-    }
-    
-    return startTime;
-  } catch (error) {
-    console.error('Error calculating rental start time:', error);
-    // Fallback to 5 minutes from now, rounded to nearest 5 minutes
-    const fallbackTime = new Date(Date.now() + 5 * 60 * 1000);
-    const minutes = fallbackTime.getMinutes();
-    const roundedMinutes = Math.ceil(minutes / 5) * 5;
-    
-    if (roundedMinutes >= 60) {
-      fallbackTime.setHours(fallbackTime.getHours() + 1);
-      fallbackTime.setMinutes(0, 0, 0);
-    } else {
-      fallbackTime.setMinutes(roundedMinutes, 0, 0);
-    }
-    
-    return fallbackTime;
-  }
-}
-
 export async function GET(request) {
   try {
     await connectDB();
@@ -94,9 +46,9 @@ export async function GET(request) {
       .populate('customerId', 'name phone driverLicense')
       .sort({ createdAt: -1 });
 
-      const filteredBookings = bookings.filter(booking => 
-        booking.status !== 'cancelled'
-      );
+    const filteredBookings = bookings.filter(booking => 
+      booking.status !== 'cancelled'
+    );
     
     console.log(`Found ${bookings.length} bookings with query:`, query);
     return NextResponse.json({ success: true, bookings: filteredBookings });
@@ -121,24 +73,24 @@ export async function POST(request) {
       hasMultipleDriver: body.actualDriver && !body.actualDriver.isSameAsLicenseHolder
     });
 
-        // ADD VALIDATION FOR ESTIMATED RETURN TIME
-        if (!body.estimatedReturnTime) {
-          return NextResponse.json(
-            { success: false, error: 'Estimated return time is required' },
-            { status: 400 }
-          );
-        }
+    // ADD VALIDATION FOR ESTIMATED RETURN TIME
+    if (!body.estimatedReturnTime) {
+      return NextResponse.json(
+        { success: false, error: 'Estimated return time is required' },
+        { status: 400 }
+      );
+    }
     
-        // Validate estimated return time
-        const startTime = new Date(body.startTime || new Date());
-        const estimatedReturn = new Date(body.estimatedReturnTime);
-        
-        if (estimatedReturn <= startTime) {
-          return NextResponse.json(
-            { success: false, error: 'Estimated return time must be after start time' },
-            { status: 400 }
-          );
-        }
+    // Validate estimated return time
+    const startTime = new Date(body.startTime || new Date());
+    const estimatedReturn = new Date(body.estimatedReturnTime);
+    
+    if (estimatedReturn <= startTime) {
+      return NextResponse.json(
+        { success: false, error: 'Estimated return time must be after start time' },
+        { status: 400 }
+      );
+    }
     
     // Validate only essential required fields
     if (!body.vehicleId || !body.customer || !body.signature) {
@@ -344,9 +296,9 @@ export async function POST(request) {
     
     console.log('🚗 Vehicle available:', vehicle.model, vehicle.plateNumber);
     
-    // Calculate rental start time with delay and rounding
-    const rentalStartTime = await calculateRentalStartTime();
-    console.log('⏰ Calculated start time:', rentalStartTime);
+    // 🚀 NEW: Use SettingsService instead of duplicated function
+    const rentalStartTime = await SettingsService.calculateRentalStartTime();
+    console.log('⏰ Calculated start time using SettingsService:', rentalStartTime);
     
     // NEW: Prepare enhanced security information
     const enhancedSecurity = body.enhancedSecurity || {};
@@ -428,13 +380,29 @@ export async function POST(request) {
       );
     }
     
-    // Update vehicle status to rented
+    // 🚀 NEW: Use BookingService for safe vehicle status update
     try {
-      await Vehicle.findByIdAndUpdate(body.vehicleId, { status: 'rented' });
-      console.log('✅ Vehicle status updated to rented');
+      const vehicleUpdateResult = await BookingService.updateVehicleStatusSafely(
+        body.vehicleId, 
+        'rented', 
+        `new booking ${booking.bookingId}`
+      );
+      
+      if (!vehicleUpdateResult.success) {
+        console.error('❌ Vehicle status update failed:', vehicleUpdateResult.error);
+        // Continue with booking but log the issue
+      } else {
+        console.log('✅ Vehicle status updated to rented via BookingService');
+      }
     } catch (vehicleUpdateError) {
-      console.error('❌ Error updating vehicle status:', vehicleUpdateError);
-      // This is not critical enough to fail the booking, but log it
+      console.error('❌ Error updating vehicle status via service:', vehicleUpdateError);
+      // Fallback to direct update
+      try {
+        await Vehicle.findByIdAndUpdate(body.vehicleId, { status: 'rented' });
+        console.log('✅ Vehicle status updated to rented (fallback)');
+      } catch (fallbackError) {
+        console.error('❌ Fallback vehicle update also failed:', fallbackError);
+      }
     }
     
     // Populate the booking for response with error handling
