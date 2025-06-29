@@ -1,153 +1,125 @@
 import connectDB from '@/lib/db';
-// ✅ CRITICAL: Import ALL models explicitly for Vercel serverless
 import Booking from '@/models/Booking';
-import Customer from '@/models/Customer';  // Must import explicitly
-import Vehicle from '@/models/Vehicle';    // Must import explicitly
+import Customer from '@/models/Customer';
+import Vehicle from '@/models/Vehicle';
 import { NextResponse } from 'next/server';
 import { getCurrentIST, formatIST, createSafeDate } from '@/lib/timezone';
 
 export async function GET() {
   try {
-    // ✅ FIXED: Connect and ensure all models are registered
     await connectDB();
     
-    // Log registered models for debugging
     console.log('📋 Models registered:', Object.keys(require('mongoose').models));
 
     const nowIST = getCurrentIST();
     
-    // Validate the current time
     if (!nowIST || isNaN(nowIST.getTime())) {
       throw new Error('Failed to get valid current IST time');
     }
 
     const endTimeIST = new Date(nowIST.getTime() + (6 * 60 * 60 * 1000));
 
-    console.log('🕐 Fleet Forecast - IST Times (Serverless Safe):');
-    console.log('Now IST:', nowIST.toISOString());
-    console.log('End IST:', endTimeIST.toISOString());
+    console.log('🕐 Fleet Forecast - Time Window:');
+    console.log('Now IST:', formatIST(nowIST));
+    console.log('End IST:', formatIST(endTimeIST));
+    console.log('Now ISO:', nowIST.toISOString());
+    console.log('End ISO:', endTimeIST.toISOString());
 
-    // ✅ FIXED: Get active bookings with explicit model references
-    let upcomingReturns = [];
+    // ✅ FIXED: Get ALL active bookings first, then filter properly
+    let allActiveBookings = [];
     try {
-      upcomingReturns = await Booking.find({
-        status: 'active',
-        estimatedReturnTime: {
-          $gte: nowIST,
-          $lte: endTimeIST
-        }
-      })
-      .populate({
-        path: 'vehicleId',
-        model: Vehicle,  // Explicit model reference
-        select: 'model plateNumber type'
-      })
-      .populate({
-        path: 'customerId',
-        model: Customer, // Explicit model reference
-        select: 'name phone'
-      })
-      .sort({ estimatedReturnTime: 1 });
+      allActiveBookings = await Booking.find({ status: 'active' })
+        .populate({
+          path: 'vehicleId',
+          model: Vehicle,
+          select: 'model plateNumber type'
+        })
+        .populate({
+          path: 'customerId',
+          model: Customer,
+          select: 'name phone'
+        })
+        .sort({ startTime: 1 });
+        
+      console.log(`📊 Found ${allActiveBookings.length} active bookings total`);
     } catch (dbError) {
-      console.log('No bookings with stored estimated return times:', dbError.message);
-      upcomingReturns = [];
+      console.log('Error fetching active bookings:', dbError.message);
+      allActiveBookings = [];
     }
 
-    // ✅ FIXED: Get active bookings without estimated return times
-    let activeBookingsWithoutEstimate = [];
-    try {
-      activeBookingsWithoutEstimate = await Booking.find({
-        status: 'active',
-        $or: [
-          { estimatedReturnTime: { $exists: false } },
-          { estimatedReturnTime: null }
-        ]
-      })
-      .populate({
-        path: 'vehicleId',
-        model: Vehicle,
-        select: 'model plateNumber type'
-      })
-      .populate({
-        path: 'customerId', 
-        model: Customer,
-        select: 'name phone'
-      });
-    } catch (dbError) {
-      console.log('Error fetching active bookings without estimates:', dbError.message);
-      activeBookingsWithoutEstimate = [];
-    }
+    // ✅ ENHANCED: Process all bookings to ensure they have return times
+    const processedBookings = allActiveBookings.map(booking => {
+      try {
+        let estimatedReturnTime = booking.estimatedReturnTime;
+        let isEstimated = false;
 
-    // Calculate estimated return times for bookings without them
-    const estimatedReturns = activeBookingsWithoutEstimate
-      .map(booking => {
-        try {
+        // If no stored estimated return time, calculate one
+        if (!estimatedReturnTime) {
           const startTime = createSafeDate(booking.startTime);
-          
-          if (isNaN(startTime.getTime())) {
-            console.log(`Invalid start time for booking ${booking.bookingId}`);
-            return null;
-          }
-          
-          // Business logic for estimated duration
-          let estimatedDurationHours = 2; // Default 2 hours
-          
+          let estimatedDurationHours = 2; // Default
+
           if (booking.isCustomBooking) {
             switch (booking.customBookingType) {
-              case 'half_day':
-                estimatedDurationHours = 4;
-                break;
-              case 'full_day':
-                estimatedDurationHours = 8;
-                break;
-              case 'night':
-                estimatedDurationHours = 10;
-                break;
-              default:
-                estimatedDurationHours = 2;
+              case 'half_day': estimatedDurationHours = 4; break;
+              case 'full_day': estimatedDurationHours = 8; break;
+              case 'night': estimatedDurationHours = 10; break;
             }
           } else {
-            // Advanced pricing bookings - estimate based on time of day
             const startHour = startTime.getHours();
-            if (startHour >= 9 && startHour <= 11) {
-              estimatedDurationHours = 3; // Morning rentals tend to be longer
-            } else if (startHour >= 18 && startHour <= 20) {
-              estimatedDurationHours = 1.5; // Evening rentals tend to be shorter
-            }
+            if (startHour >= 9 && startHour <= 11) estimatedDurationHours = 3;
+            else if (startHour >= 18 && startHour <= 20) estimatedDurationHours = 1.5;
           }
-          
-          const estimatedReturnTime = new Date(startTime.getTime() + (estimatedDurationHours * 60 * 60 * 1000));
-          
-          if (isNaN(estimatedReturnTime.getTime())) {
-            console.log(`Invalid estimated return time for booking ${booking.bookingId}`);
-            return null;
-          }
-          
-          return {
-            ...booking.toObject(),
-            estimatedReturnTime,
-            isEstimated: true
-          };
-        } catch (error) {
-          console.log(`Error processing booking ${booking.bookingId}:`, error.message);
-          return null;
-        }
-      })
-      .filter(booking => booking !== null);
 
-    // Combine bookings with actual and estimated return times
-    const allUpcomingReturns = [
-      ...upcomingReturns.map(b => ({ ...b.toObject(), isEstimated: false })),
-      ...estimatedReturns.filter(booking => {
-        try {
-          const returnTime = createSafeDate(booking.estimatedReturnTime);
-          return returnTime >= nowIST && returnTime <= endTimeIST;
-        } catch (error) {
-          console.log('Error filtering estimated return:', error.message);
-          return false;
+          estimatedReturnTime = new Date(startTime.getTime() + (estimatedDurationHours * 60 * 60 * 1000));
+          isEstimated = true;
         }
-      })
-    ].sort((a, b) => {
+
+        return {
+          ...booking.toObject(),
+          estimatedReturnTime,
+          isEstimated
+        };
+      } catch (error) {
+        console.log(`Error processing booking ${booking.bookingId}:`, error.message);
+        return null;
+      }
+    }).filter(booking => booking !== null);
+
+    console.log(`📋 Processed ${processedBookings.length} bookings with return times`);
+
+    // ✅ CRITICAL FIX: Filter for 6-hour window with proper timezone handling
+    const upcomingReturns = processedBookings.filter(booking => {
+      try {
+        // Convert stored return time to proper Date object
+        const returnTime = new Date(booking.estimatedReturnTime);
+        
+        // Debug log each booking's filtering
+        console.log(`🔍 Checking booking ${booking.bookingId}:`);
+        console.log(`  - Return time: ${formatIST(returnTime)} (${returnTime.toISOString()})`);
+        console.log(`  - Now: ${formatIST(nowIST)} (${nowIST.toISOString()})`);
+        console.log(`  - End window: ${formatIST(endTimeIST)} (${endTimeIST.toISOString()})`);
+        console.log(`  - Is valid date: ${!isNaN(returnTime.getTime())}`);
+        console.log(`  - Is after now: ${returnTime >= nowIST}`);
+        console.log(`  - Is before end: ${returnTime <= endTimeIST}`);
+        
+        const isValid = !isNaN(returnTime.getTime());
+        const isAfterNow = returnTime >= nowIST;
+        const isBeforeEnd = returnTime <= endTimeIST;
+        const isInWindow = isValid && isAfterNow && isBeforeEnd;
+        
+        console.log(`  - Included in forecast: ${isInWindow}`);
+        
+        return isInWindow;
+      } catch (error) {
+        console.log(`Error filtering booking ${booking.bookingId}:`, error.message);
+        return false;
+      }
+    });
+
+    console.log(`✅ ${upcomingReturns.length} bookings in 6-hour window`);
+
+    // Sort by return time
+    upcomingReturns.sort((a, b) => {
       try {
         return new Date(a.estimatedReturnTime) - new Date(b.estimatedReturnTime);
       } catch (error) {
@@ -155,28 +127,32 @@ export async function GET() {
       }
     });
 
-    // ✅ FIXED: Group returns by hour using safe date operations
+    // ✅ FIXED: Group returns by hour with proper timezone handling
     const forecast = [];
     for (let i = 0; i < 6; i++) {
       try {
         const slotStartIST = new Date(nowIST.getTime() + (i * 60 * 60 * 1000));
         const slotEndIST = new Date(nowIST.getTime() + ((i + 1) * 60 * 60 * 1000));
         
-        if (isNaN(slotStartIST.getTime()) || isNaN(slotEndIST.getTime())) {
-          console.log(`Invalid slot times for hour ${i}, skipping...`);
-          continue;
-        }
+        console.log(`📅 Slot ${i}: ${formatIST(slotStartIST)} - ${formatIST(slotEndIST)}`);
         
-        const returnsInSlot = allUpcomingReturns.filter(booking => {
+        const returnsInSlot = upcomingReturns.filter(booking => {
           try {
-            const returnTime = createSafeDate(booking.estimatedReturnTime);
-            return returnTime >= slotStartIST && returnTime < slotEndIST;
+            const returnTime = new Date(booking.estimatedReturnTime);
+            const isInSlot = returnTime >= slotStartIST && returnTime < slotEndIST;
+            
+            if (isInSlot) {
+              console.log(`  ✅ ${booking.bookingId} (${booking.customerId?.name}) fits in slot ${i}`);
+            }
+            
+            return isInSlot;
           } catch (error) {
             return false;
           }
         });
         
-        // ✅ SAFE: Format time with error handling
+        console.log(`📊 Slot ${i} has ${returnsInSlot.length} returns`);
+        
         let hourDisplay;
         try {
           hourDisplay = formatIST(slotStartIST, { 
@@ -231,11 +207,11 @@ export async function GET() {
     }
 
     // Calculate summary statistics
-    const totalReturns = allUpcomingReturns.length;
-    const estimatedCount = allUpcomingReturns.filter(b => b.isEstimated).length;
+    const totalReturns = upcomingReturns.length;
+    const estimatedCount = upcomingReturns.filter(b => b.isEstimated).length;
     const confirmedCount = totalReturns - estimatedCount;
 
-    return NextResponse.json({
+    const result = {
       success: true,
       forecast: forecast.filter(slot => slot.expectedReturns > 0),
       summary: {
@@ -254,15 +230,25 @@ export async function GET() {
         queryEnd: endTimeIST.toISOString(),
         modelsRegistered: Object.keys(require('mongoose').models),
         processedBookings: {
-          withStoredEstimates: upcomingReturns.length,
-          withCalculatedEstimates: estimatedReturns.length,
-          total: allUpcomingReturns.length
+          totalActive: allActiveBookings.length,
+          withProcessedTimes: processedBookings.length,
+          inTimeWindow: upcomingReturns.length,
+          totalSlots: forecast.length,
+          slotsWithReturns: forecast.filter(s => s.expectedReturns > 0).length
         }
       }
+    };
+    
+    console.log('🎯 Final result summary:', {
+      totalBookings: allActiveBookings.length,
+      upcomingReturns: totalReturns,
+      forecastSlots: forecast.filter(s => s.expectedReturns > 0).length
     });
 
+    return NextResponse.json(result);
+
   } catch (error) {
-    console.error('Fleet forecast API error:', error);
+    console.error('❌ Fleet forecast API error:', error);
     
     return NextResponse.json(
       { 
@@ -278,7 +264,6 @@ export async function GET() {
   }
 }
 
-// Helper function with error handling
 function calculateCurrentDuration(startTime) {
   try {
     const start = createSafeDate(startTime);
