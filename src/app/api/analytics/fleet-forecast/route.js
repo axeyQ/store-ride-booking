@@ -1,16 +1,19 @@
-// src/app/api/analytics/fleet-forecast/route.js
-// Error-safe version with robust timezone handling
-
 import connectDB from '@/lib/db';
+// ✅ CRITICAL: Import ALL models explicitly for Vercel serverless
 import Booking from '@/models/Booking';
+import Customer from '@/models/Customer';  // Must import explicitly
+import Vehicle from '@/models/Vehicle';    // Must import explicitly
 import { NextResponse } from 'next/server';
 import { getCurrentIST, formatIST, createSafeDate } from '@/lib/timezone';
 
 export async function GET() {
   try {
+    // ✅ FIXED: Connect and ensure all models are registered
     await connectDB();
+    
+    // Log registered models for debugging
+    console.log('📋 Models registered:', Object.keys(require('mongoose').models));
 
-    // ✅ FIXED: Use safer date creation with validation
     const nowIST = getCurrentIST();
     
     // Validate the current time
@@ -18,13 +21,13 @@ export async function GET() {
       throw new Error('Failed to get valid current IST time');
     }
 
-    const endTimeIST = new Date(nowIST.getTime() + (6 * 60 * 60 * 1000)); // Next 6 hours in IST
+    const endTimeIST = new Date(nowIST.getTime() + (6 * 60 * 60 * 1000));
 
-    console.log('🕐 Fleet Forecast - IST Times (Safe Version):');
+    console.log('🕐 Fleet Forecast - IST Times (Serverless Safe):');
     console.log('Now IST:', nowIST.toISOString());
     console.log('End IST:', endTimeIST.toISOString());
 
-    // Get active bookings with stored estimated return times
+    // ✅ FIXED: Get active bookings with explicit model references
     let upcomingReturns = [];
     try {
       upcomingReturns = await Booking.find({
@@ -34,15 +37,23 @@ export async function GET() {
           $lte: endTimeIST
         }
       })
-      .populate('vehicleId', 'model plateNumber type')
-      .populate('customerId', 'name')
+      .populate({
+        path: 'vehicleId',
+        model: Vehicle,  // Explicit model reference
+        select: 'model plateNumber type'
+      })
+      .populate({
+        path: 'customerId',
+        model: Customer, // Explicit model reference
+        select: 'name phone'
+      })
       .sort({ estimatedReturnTime: 1 });
     } catch (dbError) {
-      console.log('No bookings with stored estimated return times, continuing...');
+      console.log('No bookings with stored estimated return times:', dbError.message);
       upcomingReturns = [];
     }
 
-    // ✅ ENHANCED: Get active bookings without estimated return times
+    // ✅ FIXED: Get active bookings without estimated return times
     let activeBookingsWithoutEstimate = [];
     try {
       activeBookingsWithoutEstimate = await Booking.find({
@@ -52,8 +63,16 @@ export async function GET() {
           { estimatedReturnTime: null }
         ]
       })
-      .populate('vehicleId', 'model plateNumber type')
-      .populate('customerId', 'name');
+      .populate({
+        path: 'vehicleId',
+        model: Vehicle,
+        select: 'model plateNumber type'
+      })
+      .populate({
+        path: 'customerId', 
+        model: Customer,
+        select: 'name phone'
+      });
     } catch (dbError) {
       console.log('Error fetching active bookings without estimates:', dbError.message);
       activeBookingsWithoutEstimate = [];
@@ -70,11 +89,10 @@ export async function GET() {
             return null;
           }
           
-          // Business logic for estimated duration based on booking type
+          // Business logic for estimated duration
           let estimatedDurationHours = 2; // Default 2 hours
           
           if (booking.isCustomBooking) {
-            // Custom booking estimated durations
             switch (booking.customBookingType) {
               case 'half_day':
                 estimatedDurationHours = 4;
@@ -101,21 +119,21 @@ export async function GET() {
           const estimatedReturnTime = new Date(startTime.getTime() + (estimatedDurationHours * 60 * 60 * 1000));
           
           if (isNaN(estimatedReturnTime.getTime())) {
-            console.log(`Invalid estimated return time calculated for booking ${booking.bookingId}`);
+            console.log(`Invalid estimated return time for booking ${booking.bookingId}`);
             return null;
           }
           
           return {
             ...booking.toObject(),
             estimatedReturnTime,
-            isEstimated: true // Flag to indicate this was calculated
+            isEstimated: true
           };
         } catch (error) {
           console.log(`Error processing booking ${booking.bookingId}:`, error.message);
           return null;
         }
       })
-      .filter(booking => booking !== null); // Remove failed calculations
+      .filter(booking => booking !== null);
 
     // Combine bookings with actual and estimated return times
     const allUpcomingReturns = [
@@ -133,7 +151,7 @@ export async function GET() {
       try {
         return new Date(a.estimatedReturnTime) - new Date(b.estimatedReturnTime);
       } catch (error) {
-        return 0; // Keep original order if sorting fails
+        return 0;
       }
     });
 
@@ -144,7 +162,6 @@ export async function GET() {
         const slotStartIST = new Date(nowIST.getTime() + (i * 60 * 60 * 1000));
         const slotEndIST = new Date(nowIST.getTime() + ((i + 1) * 60 * 60 * 1000));
         
-        // Validate slot times
         if (isNaN(slotStartIST.getTime()) || isNaN(slotEndIST.getTime())) {
           console.log(`Invalid slot times for hour ${i}, skipping...`);
           continue;
@@ -183,9 +200,9 @@ export async function GET() {
             try {
               return {
                 bookingId: b.bookingId,
-                customerName: b.customerId?.name,
-                vehicleModel: b.vehicleId?.model,
-                plateNumber: b.vehicleId?.plateNumber,
+                customerName: b.customerId?.name || 'Unknown Customer',
+                vehicleModel: b.vehicleId?.model || 'Unknown Vehicle',
+                plateNumber: b.vehicleId?.plateNumber || 'N/A',
                 estimatedReturn: formatIST(b.estimatedReturnTime),
                 estimatedReturnISO: b.estimatedReturnTime,
                 isCustomBooking: b.isCustomBooking,
@@ -210,7 +227,6 @@ export async function GET() {
         
       } catch (error) {
         console.log(`Error creating forecast slot ${i}:`, error.message);
-        // Continue with next slot
       }
     }
 
@@ -221,7 +237,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      forecast: forecast.filter(slot => slot.expectedReturns > 0), // Only return slots with returns
+      forecast: forecast.filter(slot => slot.expectedReturns > 0),
       summary: {
         totalUpcomingReturns: totalReturns,
         confirmedReturns: confirmedCount,
@@ -236,6 +252,7 @@ export async function GET() {
         istTime: formatIST(new Date()),
         queryStart: nowIST.toISOString(),
         queryEnd: endTimeIST.toISOString(),
+        modelsRegistered: Object.keys(require('mongoose').models),
         processedBookings: {
           withStoredEstimates: upcomingReturns.length,
           withCalculatedEstimates: estimatedReturns.length,
@@ -247,20 +264,21 @@ export async function GET() {
   } catch (error) {
     console.error('Fleet forecast API error:', error);
     
-    // Return a safe error response
     return NextResponse.json(
       { 
         success: false, 
         error: 'Failed to generate fleet forecast',
         details: error.message,
-        timestamp: new Date().toISOString()
+        stack: error.stack,
+        timestamp: new Date().toISOString(),
+        modelsRegistered: Object.keys(require('mongoose').models || {})
       },
       { status: 500 }
     );
   }
 }
 
-// Helper function to calculate current rental duration with error handling
+// Helper function with error handling
 function calculateCurrentDuration(startTime) {
   try {
     const start = createSafeDate(startTime);
