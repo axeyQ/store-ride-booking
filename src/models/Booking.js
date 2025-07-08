@@ -191,6 +191,13 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     min: 0
   },
+  paymentMethod: {
+  type: String,
+  enum: ['cash', 'upi'],
+  required: function() {
+    return this.status === 'completed';
+  }
+},
   status: {
     type: String,
     enum: ['active', 'completed', 'cancelled'],
