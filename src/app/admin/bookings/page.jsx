@@ -166,7 +166,7 @@ export default function ThemedAllBookingsPage() {
     }
   };
 
-  // ✅ SUPER AGGRESSIVE FIX: Handle both custom and advanced pricing bookings
+  // ✅ ENHANCED: Handle both custom and advanced pricing bookings with discount support
   const fetchPricingForBooking = async (bookingId) => {
     try {
       setPricingLoading(prev => ({ ...prev, [bookingId]: true }));
@@ -184,6 +184,30 @@ export default function ThemedAllBookingsPage() {
             totalMinutes: 0,
             summary: 'Cancelled - No charge',
             isCustomBooking: booking.isCustomBooking || false
+          }
+        }));
+        return;
+      }
+
+      // ✅ SIMPLE FIX: For completed bookings with stored finalAmount, use it directly
+      if (booking.status === 'completed' && booking.finalAmount !== undefined && booking.finalAmount !== null) {
+        console.log(`✅ Using stored final amount for completed booking ${booking.bookingId}: ₹${booking.finalAmount}`);
+        
+        const hasAdjustments = (booking.discountAmount > 0) || (booking.additionalCharges > 0);
+        
+        setAdvancedPricing(prev => ({
+          ...prev,
+          [bookingId]: {
+            totalAmount: booking.finalAmount, // ✅ Use stored final amount (already includes discounts)
+            rawAmount: booking.finalAmount + (booking.discountAmount || 0) - (booking.additionalCharges || 0), // Calculate what raw amount would have been
+            discountAmount: booking.discountAmount || 0,
+            additionalCharges: booking.additionalCharges || 0,
+            breakdown: booking.pricingBreakdown || [],
+            totalMinutes: calculateDuration(booking.startTime, booking.endTime).totalMinutes || 0,
+            summary: `Completed booking${hasAdjustments ? ' (adjusted)' : ''}`,
+            isCustomBooking: booking.isCustomBooking || false,
+            hasAdjustments: hasAdjustments,
+            usedStoredAmount: true
           }
         }));
         return;
@@ -210,28 +234,35 @@ export default function ThemedAllBookingsPage() {
         const packageInfo = CUSTOM_PACKAGES[packageType];
         
         if (packageInfo) {
-          // ✅ FORCE PACKAGE RATE - COMPLETELY IGNORE finalAmount
-          const forcedPackageRate = packageInfo.price;
+          // ✅ For custom packages, apply any stored discounts to the package rate
+          let packageRate = packageInfo.price;
+          const discountAmount = booking.discountAmount || 0;
+          const additionalCharges = booking.additionalCharges || 0;
+          const finalPackageAmount = Math.max(0, packageRate - discountAmount + additionalCharges);
           
-          console.log(`✅ FORCED PACKAGE RATE: ${booking.bookingId} from ₹${booking.finalAmount} to ₹${forcedPackageRate}`);
+          console.log(`✅ PACKAGE WITH ADJUSTMENTS: ${booking.bookingId} - Base: ₹${packageRate}, Final: ₹${finalPackageAmount}`);
           
           setAdvancedPricing(prev => ({
             ...prev,
             [bookingId]: {
-              totalAmount: forcedPackageRate, // ✅ Always use package rate
+              totalAmount: booking.finalAmount !== undefined ? booking.finalAmount : finalPackageAmount,
+              rawAmount: packageRate,
+              discountAmount: discountAmount,
+              additionalCharges: additionalCharges,
               breakdown: [{
                 period: `${packageInfo.icon} ${packageInfo.label}`,
                 minutes: packageInfo.maxHours * 60,
-                rate: forcedPackageRate,
+                rate: packageRate,
                 isNightCharge: false,
-                description: `FORCED: Fixed package rate for ${packageInfo.label}`
+                description: `Fixed package rate for ${packageInfo.label}`
               }],
               totalMinutes: packageInfo.maxHours * 60,
-              summary: `${packageInfo.label} - CORRECTED Rate`,
+              summary: `${packageInfo.label} - Fixed Rate${discountAmount > 0 || additionalCharges > 0 ? ' (adjusted)' : ''}`,
               isCustomBooking: true,
               packageType: packageType,
               packageInfo: packageInfo,
-              correctedFrom: booking.finalAmount
+              hasAdjustments: discountAmount > 0 || additionalCharges > 0,
+              usedStoredAmount: booking.finalAmount !== undefined
             }
           }));
         } else {
@@ -240,7 +271,7 @@ export default function ThemedAllBookingsPage() {
           setAdvancedPricing(prev => ({
             ...prev,
             [bookingId]: {
-              totalAmount: 0,
+              totalAmount: booking.finalAmount || 0,
               breakdown: [],
               totalMinutes: 0,
               summary: 'Custom booking - Unknown type',
@@ -251,7 +282,7 @@ export default function ThemedAllBookingsPage() {
         return;
       }
 
-      // ✅ FIXED: For advanced pricing bookings, always use the calculator
+      // ✅ FIXED: For advanced pricing bookings
       if (booking.status === 'active') {
         // For active bookings, use live API
         const response = await fetch(`/api/bookings/current-amount/${bookingId}`);
@@ -282,26 +313,14 @@ export default function ThemedAllBookingsPage() {
             }
           }));
         }
-      } else if (booking.status === 'completed') {
-        // ✅ For completed bookings, use advanced pricing calculator
+      } else {
+        // ✅ For other completed bookings without stored finalAmount, calculate with adjustments
+        console.log(`⚠️ No stored final amount for ${booking.bookingId}, calculating with adjustments...`);
         const advancedAmount = calculateAdvancedPricingForCompleted(booking);
         advancedAmount.isCustomBooking = false;
         setAdvancedPricing(prev => ({
           ...prev,
           [bookingId]: advancedAmount
-        }));
-      } else {
-        // For other statuses, use fallback calculation
-        const fallbackAmount = calculateSimpleAmount(booking);
-        setAdvancedPricing(prev => ({
-          ...prev,
-          [bookingId]: {
-            totalAmount: fallbackAmount,
-            breakdown: [],
-            totalMinutes: 0,
-            summary: 'Fallback calculation',
-            isCustomBooking: false
-          }
         }));
       }
     } catch (error) {
@@ -322,14 +341,22 @@ export default function ThemedAllBookingsPage() {
           }));
         } else {
           const fallbackAmount = calculateSimpleAmount(booking);
+          const discountAmount = booking.discountAmount || 0;
+          const additionalCharges = booking.additionalCharges || 0;
+          const finalAmount = Math.max(0, fallbackAmount - discountAmount + additionalCharges);
+          
           setAdvancedPricing(prev => ({
             ...prev,
             [bookingId]: {
-              totalAmount: fallbackAmount,
+              totalAmount: booking.finalAmount !== undefined ? booking.finalAmount : finalAmount,
+              rawAmount: fallbackAmount,
+              discountAmount: discountAmount,
+              additionalCharges: additionalCharges,
               breakdown: [],
               totalMinutes: 0,
-              summary: 'Error - using fallback',
-              isCustomBooking: booking.isCustomBooking || false
+              summary: 'Error - using fallback with adjustments',
+              isCustomBooking: booking.isCustomBooking || false,
+              hasAdjustments: discountAmount > 0 || additionalCharges > 0
             }
           }));
         }
@@ -339,6 +366,7 @@ export default function ThemedAllBookingsPage() {
     }
   };
 
+  // ✅ FIXED: Advanced pricing calculation that properly applies stored discounts
   const calculateAdvancedPricingForCompleted = (booking) => {
     try {
       // Advanced pricing settings (should match your API)
@@ -354,19 +382,29 @@ export default function ThemedAllBookingsPage() {
       const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
       const totalMinutes = Math.max(0, Math.floor((endTime - startTime) / (1000 * 60)));
       
+      // ✅ Get stored adjustments
+      const discountAmount = booking.discountAmount || 0;
+      const additionalCharges = booking.additionalCharges || 0;
+      
       if (totalMinutes === 0) {
+        const rawAmount = 80;
+        const finalAmount = Math.max(0, rawAmount - discountAmount + additionalCharges);
         return {
-          totalAmount: 80, // Minimum charge
+          totalAmount: finalAmount,
+          rawAmount: rawAmount,
+          discountAmount: discountAmount,
+          additionalCharges: additionalCharges,
           breakdown: [],
           totalMinutes: 0,
-          summary: 'No duration - minimum charge'
+          summary: `No duration - minimum charge${discountAmount > 0 || additionalCharges > 0 ? ' (adjusted)' : ''}`,
+          hasAdjustments: discountAmount > 0 || additionalCharges > 0
         };
       }
 
       const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
       const halfRate = Math.round(hourlyRate / 2); // ₹40
 
-      let totalAmount = 0;
+      let rawTotalAmount = 0;
       let breakdown = [];
       let remainingMinutes = totalMinutes;
       let currentTime = new Date(startTime);
@@ -386,7 +424,7 @@ export default function ThemedAllBookingsPage() {
         isNightCharge: isFirstBlockNight
       });
 
-      totalAmount += firstBlockRate;
+      rawTotalAmount += firstBlockRate;
       remainingMinutes -= firstBlockUsed;
       currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
 
@@ -404,11 +442,14 @@ export default function ThemedAllBookingsPage() {
           isNightCharge: isNight
         });
 
-        totalAmount += blockRate;
+        rawTotalAmount += blockRate;
         remainingMinutes -= blockUsed;
         currentTime = new Date(currentTime.getTime() + blockUsed * 60000);
         blockNumber++;
       }
+
+      // ✅ CRITICAL FIX: Apply stored discounts and additional charges
+      const finalTotalAmount = Math.max(0, rawTotalAmount - discountAmount + additionalCharges);
 
       const hours = Math.floor(totalMinutes / 60);
       const minutes = totalMinutes % 60;
@@ -418,21 +459,44 @@ export default function ThemedAllBookingsPage() {
       if (nightBlocks > 0) {
         summary += ` (${nightBlocks} night-rate blocks)`;
       }
+      
+      // ✅ Add adjustment summary
+      if (discountAmount > 0 || additionalCharges > 0) {
+        const adjustments = [];
+        if (discountAmount > 0) adjustments.push(`-₹${discountAmount} discount`);
+        if (additionalCharges > 0) adjustments.push(`+₹${additionalCharges} additional`);
+        summary += ` • ${adjustments.join(', ')}`;
+      }
 
       return {
-        totalAmount,
-        breakdown,
-        totalMinutes,
-        summary
+        totalAmount: finalTotalAmount,  // ✅ Final amount after adjustments
+        rawAmount: rawTotalAmount,      // ✅ Raw calculated amount
+        discountAmount: discountAmount, // ✅ Applied discount
+        additionalCharges: additionalCharges, // ✅ Additional charges
+        breakdown: breakdown,
+        totalMinutes: totalMinutes,
+        summary: summary,
+        hasAdjustments: discountAmount > 0 || additionalCharges > 0
       };
 
     } catch (error) {
       console.error('Error in advanced pricing calculation:', error);
+      
+      // ✅ Even in fallback, apply adjustments
+      const fallbackAmount = calculateSimpleAmount(booking);
+      const discountAmount = booking.discountAmount || 0;
+      const additionalCharges = booking.additionalCharges || 0;
+      const finalAmount = Math.max(0, fallbackAmount - discountAmount + additionalCharges);
+      
       return {
-        totalAmount: calculateSimpleAmount(booking),
+        totalAmount: finalAmount,
+        rawAmount: fallbackAmount,
+        discountAmount: discountAmount,
+        additionalCharges: additionalCharges,
         breakdown: [],
         totalMinutes: 0,
-        summary: 'Calculation error - fallback'
+        summary: 'Calculation error - fallback with adjustments',
+        hasAdjustments: discountAmount > 0 || additionalCharges > 0
       };
     }
   };
@@ -487,6 +551,7 @@ export default function ThemedAllBookingsPage() {
       return {
         hours: 0,
         minutes: 0,
+        totalMinutes: 0,
         isCancelled: true,
         displayText: 'CANCELLED'
       };
@@ -497,10 +562,12 @@ export default function ThemedAllBookingsPage() {
     const diffMs = end - start;
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const totalMinutes = Math.floor(diffMs / (1000 * 60));
     
     return { 
       hours, 
-      minutes, 
+      minutes,
+      totalMinutes,
       isCancelled: false,
       displayText: `${hours}h ${minutes}m`
     };
@@ -534,14 +601,58 @@ export default function ThemedAllBookingsPage() {
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  // ✅ FIXED: Fallback page stats calculation (only used if API fails)
+  // ✅ FIXED: Fallback page stats calculation matching the API logic exactly
   const calculatePageStats = () => {
     // Filter out cancelled bookings from revenue calculation
     const revenueBookings = bookings.filter(booking => booking.status !== 'cancelled');
     
-    const totalAmount = revenueBookings.reduce((sum, booking) => {
-      return sum + getPricingAmount(booking._id);
-    }, 0);
+    // ✅ CRITICAL FIX: Use advanced pricing calculation + apply stored discounts (matching API)
+    let totalRevenue = 0;
+    let rawTotalRevenue = 0;
+    let totalDiscounts = 0;
+    let totalAdditionalCharges = 0;
+    let bookingsWithDiscounts = 0;
+    let bookingsWithAdditionalCharges = 0;
+
+    for (const booking of revenueBookings) {
+      // Get the advanced pricing calculation (raw amount)
+      const advancedAmount = getPricingAmount(booking._id);
+      
+      // Get stored adjustments from booking record
+      const discountAmount = booking.discountAmount || 0;
+      const additionalCharges = booking.additionalCharges || 0;
+      
+      // Track adjustment statistics
+      if (discountAmount > 0) bookingsWithDiscounts++;
+      if (additionalCharges > 0) bookingsWithAdditionalCharges++;
+      totalDiscounts += discountAmount;
+      totalAdditionalCharges += additionalCharges;
+      
+      // Apply adjustments to the advanced pricing
+      const adjustedAmount = Math.max(0, advancedAmount - discountAmount + additionalCharges);
+      
+      rawTotalRevenue += advancedAmount;
+      totalRevenue += adjustedAmount;
+      
+      console.log(`📊 Frontend stats for ${booking.bookingId}:`, {
+        advancedAmount,
+        discountAmount,
+        additionalCharges,
+        finalAmount: adjustedAmount,
+        hasAdjustments: discountAmount > 0 || additionalCharges > 0
+      });
+    }
+    
+    console.log('📊 Frontend Page Stats Calculation (Advanced Pricing + Adjustments):', {
+      rawTotalRevenue: Math.round(rawTotalRevenue),
+      totalDiscounts: Math.round(totalDiscounts),
+      totalAdditionalCharges: Math.round(totalAdditionalCharges),
+      finalTotalRevenue: Math.round(totalRevenue),
+      netAdjustment: Math.round(totalAdditionalCharges - totalDiscounts),
+      revenueBookings: revenueBookings.length,
+      bookingsWithDiscounts,
+      bookingsWithAdditionalCharges
+    });
 
     // ✅ NEW: Separate stats for booking types
     const customBookings = bookings.filter(b => b.isCustomBooking);
@@ -553,9 +664,19 @@ export default function ThemedAllBookingsPage() {
       completed: bookings.filter(b => b.status === 'completed').length,
       cancelled: bookings.filter(b => b.status === 'cancelled').length,
       withSignatures: bookings.filter(b => b.signature).length,
-      totalRevenue: totalAmount,
+      totalRevenue: Math.round(totalRevenue), // ✅ Advanced pricing with discount adjustments
       customBookings: customBookings.length,
-      advancedBookings: advancedBookings.length
+      advancedBookings: advancedBookings.length,
+      // ✅ Debug info matching API structure
+      debug: {
+        rawTotalRevenue: Math.round(rawTotalRevenue),
+        totalDiscounts: Math.round(totalDiscounts),
+        totalAdditionalCharges: Math.round(totalAdditionalCharges),
+        bookingsWithDiscounts,
+        bookingsWithAdditionalCharges,
+        netAdjustment: Math.round(totalAdditionalCharges - totalDiscounts),
+        calculationMethod: 'frontend_advanced_pricing_with_adjustments'
+      }
     };
   };
 
@@ -888,16 +1009,45 @@ export default function ThemedAllBookingsPage() {
                               <div className="text-white font-bold text-lg">
                                 ₹{pricingAmount.toLocaleString('en-IN')}
                               </div>
+                              
+                              {/* ✅ NEW: Show adjustment details for bookings with discounts */}
+                              {pricingData?.hasAdjustments && (
+                                <div className="text-xs space-y-1 mt-1">
+                                  {pricingData.discountAmount > 0 && (
+                                    <div className="text-green-400 flex items-center gap-1">
+                                      <span>↳ Discount:</span>
+                                      <span>-₹{pricingData.discountAmount.toLocaleString('en-IN')}</span>
+                                    </div>
+                                  )}
+                                  {pricingData.additionalCharges > 0 && (
+                                    <div className="text-red-400 flex items-center gap-1">
+                                      <span>↳ Additional:</span>
+                                      <span>+₹{pricingData.additionalCharges.toLocaleString('en-IN')}</span>
+                                    </div>
+                                  )}
+                                  {pricingData.rawAmount && pricingData.rawAmount !== pricingAmount && (
+                                    <div className="text-gray-400 flex items-center gap-1">
+                                      <span>Raw:</span>
+                                      <span>₹{pricingData.rawAmount.toLocaleString('en-IN')}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              
                               {/* ✅ ENHANCED: Different labels for custom vs advanced pricing */}
                               {booking.isCustomBooking ? (
                                 <div className="text-purple-400 text-xs">
                                   📦 Fixed Package
+                                  {pricingData?.hasAdjustments && <span className="text-yellow-400 ml-1">• Adjusted</span>}
                                 </div>
                               ) : (
                                 <div className="text-cyan-400 text-xs">
                                   {booking.status === 'active' ? '🔄 Live Advanced' : '🧮 Advanced Calc'}
+                                  {pricingData?.hasAdjustments && <span className="text-yellow-400 ml-1">• Adjusted</span>}
+                                  {pricingData?.usedStoredAmount && <span className="text-blue-400 ml-1">• Stored</span>}
                                 </div>
                               )}
+                              
                               {booking.paymentMethod && (
                                 <div className="text-gray-400 text-sm capitalize">
                                   {booking.paymentMethod}

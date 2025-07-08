@@ -123,6 +123,8 @@ export async function GET(request) {
             isCustomBooking: 1,
             customBookingType: 1,
             customBookingLabel: 1,
+            discountAmount: 1,        // ✅ ADD: Include discount fields
+            additionalCharges: 1,     // ✅ ADD: Include additional charges
             createdAt: 1
           }
         }
@@ -141,18 +143,27 @@ export async function GET(request) {
         isCustomBooking: 1,
         customBookingType: 1,
         customBookingLabel: 1,
+        discountAmount: 1,          // ✅ ADD: Include discount fields
+        additionalCharges: 1,       // ✅ ADD: Include additional charges
         createdAt: 1
       });
     }
 
     console.log(`📋 Found ${allBookings.length} total bookings matching filters`);
 
-    // ✅ FIXED: Use advanced pricing calculator for all bookings
+    // ✅ CRITICAL FIX: Track raw amounts and adjustments separately
     let totalRevenue = 0;
+    let rawTotalRevenue = 0;
+    let totalDiscounts = 0;
+    let totalAdditionalCharges = 0;
     let customBookingCount = 0;
     let advancedBookingCount = 0;
     let customRevenue = 0;
     let advancedRevenue = 0;
+    let rawCustomRevenue = 0;
+    let rawAdvancedRevenue = 0;
+    let bookingsWithDiscounts = 0;
+    let bookingsWithAdditionalCharges = 0;
 
     // Process each booking to get correct revenue
     for (const booking of allBookings) {
@@ -160,6 +171,16 @@ export async function GET(request) {
       if (booking.status === 'cancelled') {
         continue;
       }
+
+      // ✅ Get stored adjustments
+      const discountAmount = booking.discountAmount || 0;
+      const additionalCharges = booking.additionalCharges || 0;
+      
+      if (discountAmount > 0) bookingsWithDiscounts++;
+      if (additionalCharges > 0) bookingsWithAdditionalCharges++;
+      
+      totalDiscounts += discountAmount;
+      totalAdditionalCharges += additionalCharges;
 
       // ✅ Check if it's a custom booking
       if (booking.isCustomBooking) {
@@ -170,34 +191,46 @@ export async function GET(request) {
         const packageInfo = CUSTOM_PACKAGES[packageType];
         
         if (packageInfo) {
-          const packageRevenue = packageInfo.price;
-          customRevenue += packageRevenue;
-          totalRevenue += packageRevenue;
-          console.log(`📦 Custom booking ${booking.bookingId}: ${packageType} = ₹${packageRevenue}`);
+          const rawPackageRevenue = packageInfo.price;
+          const adjustedPackageRevenue = Math.max(0, rawPackageRevenue - discountAmount + additionalCharges);
+          
+          rawCustomRevenue += rawPackageRevenue;
+          customRevenue += adjustedPackageRevenue;
+          rawTotalRevenue += rawPackageRevenue;
+          totalRevenue += adjustedPackageRevenue;
+          
+          console.log(`📦 Custom booking ${booking.bookingId}: ${packageType} = ₹${rawPackageRevenue} → ₹${adjustedPackageRevenue} (discount: ₹${discountAmount}, additional: ₹${additionalCharges})`);
         } else {
           console.log(`❌ Unknown custom package type for booking ${booking.bookingId}: ${booking.customBookingType}`);
         }
       } else {
-        // ✅ For advanced pricing bookings, ALWAYS use the pricing calculator
+        // ✅ For advanced pricing bookings, ALWAYS use the pricing calculator + apply adjustments
         advancedBookingCount++;
         
         try {
           const result = await calculateCurrentAmount(booking);
-          const bookingRevenue = typeof result === 'number' ? result : result.amount;
+          const rawBookingRevenue = typeof result === 'number' ? result : result.amount;
+          const adjustedBookingRevenue = Math.max(0, rawBookingRevenue - discountAmount + additionalCharges);
           
-          advancedRevenue += bookingRevenue;
-          totalRevenue += bookingRevenue;
+          rawAdvancedRevenue += rawBookingRevenue;
+          advancedRevenue += adjustedBookingRevenue;
+          rawTotalRevenue += rawBookingRevenue;
+          totalRevenue += adjustedBookingRevenue;
           
-          console.log(`⚡ Advanced booking ${booking.bookingId}: ₹${bookingRevenue} (${booking.status}) - calculated`);
+          console.log(`⚡ Advanced booking ${booking.bookingId}: ₹${rawBookingRevenue} → ₹${adjustedBookingRevenue} (${booking.status}) - discount: ₹${discountAmount}, additional: ₹${additionalCharges}`);
         } catch (error) {
           console.error(`❌ Error calculating revenue for booking ${booking.bookingId}:`, error);
           
           // Fallback to simple calculation if advanced pricing fails
-          const fallbackRevenue = calculateSimpleAmount(booking);
-          advancedRevenue += fallbackRevenue;
-          totalRevenue += fallbackRevenue;
+          const rawFallbackRevenue = calculateSimpleAmount(booking);
+          const adjustedFallbackRevenue = Math.max(0, rawFallbackRevenue - discountAmount + additionalCharges);
           
-          console.log(`⚡ Advanced booking ${booking.bookingId}: ₹${fallbackRevenue} (fallback)`);
+          rawAdvancedRevenue += rawFallbackRevenue;
+          advancedRevenue += adjustedFallbackRevenue;
+          rawTotalRevenue += rawFallbackRevenue;
+          totalRevenue += adjustedFallbackRevenue;
+          
+          console.log(`⚡ Advanced booking ${booking.bookingId}: ₹${rawFallbackRevenue} → ₹${adjustedFallbackRevenue} (fallback) - discount: ₹${discountAmount}, additional: ₹${additionalCharges}`);
         }
       }
     }
@@ -208,18 +241,31 @@ export async function GET(request) {
       activeRentals: allBookings.filter(b => b.status === 'active').length,
       completed: allBookings.filter(b => b.status === 'completed').length,
       cancelled: allBookings.filter(b => b.status === 'cancelled').length,
-      totalRevenue: Math.round(totalRevenue),
+      totalRevenue: Math.round(totalRevenue),               // ✅ Final revenue (with adjustments)
+      rawTotalRevenue: Math.round(rawTotalRevenue),         // ✅ Raw revenue (before adjustments)
+      totalDiscounts: Math.round(totalDiscounts),           // ✅ Total discounts applied
+      totalAdditionalCharges: Math.round(totalAdditionalCharges), // ✅ Total additional charges
       customBookings: customBookingCount,
       advancedBookings: advancedBookingCount,
-      customRevenue: Math.round(customRevenue),
-      advancedRevenue: Math.round(advancedRevenue)
+      customRevenue: Math.round(customRevenue),             // ✅ Adjusted custom revenue
+      advancedRevenue: Math.round(advancedRevenue),         // ✅ Adjusted advanced revenue
+      rawCustomRevenue: Math.round(rawCustomRevenue),       // ✅ Raw custom revenue
+      rawAdvancedRevenue: Math.round(rawAdvancedRevenue),   // ✅ Raw advanced revenue
+      bookingsWithDiscounts,                                // ✅ Count of discounted bookings
+      bookingsWithAdditionalCharges,                        // ✅ Count of bookings with extra charges
+      netAdjustment: Math.round(totalAdditionalCharges - totalDiscounts) // ✅ Net adjustment
     };
 
-    console.log('✅ Total stats calculated:', {
+    console.log('✅ Total stats calculated with discount adjustments:', {
       totalBookings: stats.totalBookings,
-      totalRevenue: stats.totalRevenue,
+      rawTotalRevenue: stats.rawTotalRevenue,
+      totalDiscounts: stats.totalDiscounts,
+      totalAdditionalCharges: stats.totalAdditionalCharges,
+      finalTotalRevenue: stats.totalRevenue,
+      netAdjustment: stats.netAdjustment,
       customBookings: stats.customBookings,
       advancedBookings: stats.advancedBookings,
+      bookingsWithDiscounts: stats.bookingsWithDiscounts,
       filters: { search, status, dateFilter }
     });
 
@@ -227,7 +273,20 @@ export async function GET(request) {
       success: true,
       stats,
       filters: { search, status, dateFilter },
-      appliedFilters: Object.keys(query).length > 0 || search
+      appliedFilters: Object.keys(query).length > 0 || search,
+      debug: {
+        calculationMethod: 'advanced_pricing_with_adjustments',
+        rawTotal: stats.rawTotalRevenue,
+        adjustments: {
+          discounts: stats.totalDiscounts,
+          additional: stats.totalAdditionalCharges,
+          net: stats.netAdjustment
+        },
+        bookingsWithAdjustments: {
+          discounts: stats.bookingsWithDiscounts,
+          additional: stats.bookingsWithAdditionalCharges
+        }
+      }
     });
 
   } catch (error) {

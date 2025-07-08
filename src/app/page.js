@@ -363,7 +363,7 @@ function DayOperationsControl({ onStatusChange }) {
   );
 }
 
-// Main Dashboard Component (integrated with authentication)
+// Main Dashboard Component (integrated with authentication and revenue toggle)
 function MRTravelsDashboard() {
   const { user, logout, apiCall } = useAuth();
   const { request, loading: apiLoading, error: apiError } = useApiRequest();
@@ -380,13 +380,90 @@ function MRTravelsDashboard() {
   const [dayOperation, setDayOperation] = useState(null);
   const [businessHoursRevenue, setBusinessHoursRevenue] = useState(0);
   
+  // 🔒 Revenue Visibility Toggle State
+  const [showRevenue, setShowRevenue] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mr-travels-show-revenue');
+      return saved === 'true';
+    }
+    return false;
+  });
+  
   // User Management State
   const [showUserRegistration, setShowUserRegistration] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
 
+  // Save revenue visibility preference
+  useEffect(() => {
+    localStorage.setItem('mr-travels-show-revenue', showRevenue.toString());
+  }, [showRevenue]);
+
   useEffect(() => {
     fetchStats();
   }, []);
+
+  // 🔒 Revenue formatting helper
+  const formatRevenue = (amount) => showRevenue ? `₹${amount.toLocaleString('en-IN')}` : "₹●●●●●";
+
+  // 🔒 Eye toggle button component
+  const RevenueToggleButton = ({ size = "w-5 h-5" }) => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        setShowRevenue(!showRevenue);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          setShowRevenue(!showRevenue);
+        }
+      }}
+      className="p-1 hover:bg-green-500/20 rounded-full transition-all duration-200 group ml-2 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50"
+      title={showRevenue ? "Hide revenue" : "Show revenue"}
+      aria-label={showRevenue ? "Hide revenue amounts" : "Show revenue amounts"}
+    >
+      {showRevenue ? (
+        // Eye Open Icon
+        <svg 
+          className={`${size} text-green-400 group-hover:text-green-300`}
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" 
+          />
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" 
+          />
+        </svg>
+      ) : (
+        // Eye Closed Icon
+        <svg 
+          className={`${size} text-green-400 group-hover:text-green-300`}
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" 
+          />
+        </svg>
+      )}
+    </button>
+  );
 
   // Handle day operation status changes
   const handleDayOperationChange = (operation) => {
@@ -669,18 +746,21 @@ function MRTravelsDashboard() {
           <DayOperationsControl onStatusChange={handleDayOperationChange} />
         </div>
 
-        {/* Quick Stats */}
+        {/* Quick Stats with Revenue Toggle */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
           <Card className="bg-gradient-to-r from-green-900/50 to-green-800/50 border-green-700/50 hover:scale-105 transition-transform">
             <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-green-400 mb-2">
-                {calculatingRevenue ? (
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
-                  </div>
-                ) : (
-                  `₹${getDisplayRevenue().toLocaleString('en-IN')}`
-                )}
+              <div className="flex items-center justify-center mb-2">
+                <div className="text-3xl font-bold text-green-400">
+                  {calculatingRevenue ? (
+                    <div className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
+                    </div>
+                  ) : (
+                    formatRevenue(getDisplayRevenue())
+                  )}
+                </div>
+                <RevenueToggleButton />
               </div>
               <div className="text-green-200 text-sm">{getRevenueLabel()}</div>
               <div className="text-xs text-green-300 mt-1">{getRevenueSubtext()}</div>
@@ -736,8 +816,11 @@ function MRTravelsDashboard() {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-400">
-                      ₹{dayOperation.dailySummary?.revenuePerHour || 0}/hr
+                    <div className="flex items-center justify-center">
+                      <div className="text-2xl font-bold text-green-400">
+                        {formatRevenue(dayOperation.dailySummary?.revenuePerHour || 0)}/hr
+                      </div>
+                      <RevenueToggleButton size="w-4 h-4" />
                     </div>
                     <div className="text-gray-400 text-sm">Revenue Rate</div>
                   </div>
@@ -789,27 +872,27 @@ function MRTravelsDashboard() {
             </Card>
           </Link>
 
-          {/* Custom Booking Card - Add this to your existing dashboard grid */}
-<Link href="/custom-booking" className="group">
-  <Card className="bg-gradient-to-br from-purple-800 to-purple-900 border-purple-700 hover:border-purple-500/50 transition-all duration-300 hover:scale-105 h-full">
-    <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-      <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
-        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-        </svg>
-      </div>
-      <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-purple-400 transition-colors">
-        Custom Booking
-      </CardTitle>
-      <CardDescription className="text-purple-200 text-lg">
-        Fixed rate packages
-      </CardDescription>
-      <Badge className="mt-4 bg-purple-500/20 text-purple-400 border-purple-500/30">
-        Flat Rates
-      </Badge>
-    </CardContent>
-  </Card>
-</Link>
+          {/* Custom Booking Card */}
+          <Link href="/custom-booking" className="group">
+            <Card className="bg-gradient-to-br from-purple-800 to-purple-900 border-purple-700 hover:border-purple-500/50 transition-all duration-300 hover:scale-105 h-full">
+              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                  </svg>
+                </div>
+                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-purple-400 transition-colors">
+                  Custom Booking
+                </CardTitle>
+                <CardDescription className="text-purple-200 text-lg">
+                  Fixed rate packages
+                </CardDescription>
+                <Badge className="mt-4 bg-purple-500/20 text-purple-400 border-purple-500/30">
+                  Flat Rates
+                </Badge>
+              </CardContent>
+            </Card>
+          </Link>
 
           {/* Active Bookings */}
           <Link href="/active-bookings" className="group">
@@ -951,7 +1034,7 @@ function MRTravelsDashboard() {
           </Link>
         </div>
 
-        {/* Today's Summary */}
+        {/* Today's Summary with Revenue Toggle */}
         <Card className="bg-gradient-to-r from-gray-800/50 to-gray-900/50 border-gray-700 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-white flex items-center gap-3">
@@ -977,14 +1060,17 @@ function MRTravelsDashboard() {
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-6 text-center">
-                  <div className="text-3xl font-bold text-green-400 mb-2">
-                    {calculatingRevenue ? (
-                      <div className="flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
-                      </div>
-                    ) : (
-                      `₹${getDisplayRevenue().toLocaleString('en-IN')}`
-                    )}
+                  <div className="flex items-center justify-center mb-2">
+                    <div className="text-3xl font-bold text-green-400">
+                      {calculatingRevenue ? (
+                        <div className="flex items-center justify-center">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-400"></div>
+                        </div>
+                      ) : (
+                        formatRevenue(getDisplayRevenue())
+                      )}
+                    </div>
+                    <RevenueToggleButton />
                   </div>
                   <div className="text-green-200 text-sm">{getRevenueLabel()}</div>
                   <div className="text-xs text-green-300 mt-1">{getRevenueSubtext()}</div>

@@ -18,21 +18,21 @@ import { cn } from '@/lib/utils';
 // ✅ NEW: Custom package definitions
 const CUSTOM_PACKAGES = {
   half_day: { 
-    label: 'Half Day (up to 12 hours)', // 🚀 FIXED: Match API label format
+    label: 'Half Day (up to 12 hours)',
     price: 800, 
     maxHours: 12, 
     icon: '🌅',
     color: 'orange'
   },
   full_day: { 
-    label: 'Full Day (up to 24 hours)', // 🚀 FIXED: Match API label format
+    label: 'Full Day (up to 24 hours)',
     price: 1200, 
     maxHours: 24, 
     icon: '☀️',
     color: 'yellow'
   },
   night: { 
-    label: 'Night Package (10 PM to 9 AM)', // 🚀 FIXED: Match API label format
+    label: 'Night Package (10 PM to 9 AM)',
     price: 600, 
     maxHours: 11, 
     icon: '🌙',
@@ -45,10 +45,19 @@ export default function EnhancedActiveBookingsPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterVehicle, setFilterVehicle] = useState('all');
-  const [filterBookingType, setFilterBookingType] = useState('all'); // ✅ NEW: Booking type filter
+  const [filterBookingType, setFilterBookingType] = useState('all');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [currentAmounts, setCurrentAmounts] = useState({});
-  const [extraCharges, setExtraCharges] = useState({}); // ✅ NEW: Extra charges state
+  const [extraCharges, setExtraCharges] = useState({});
+
+  // 🔒 Revenue Visibility Toggle State (only for main stats)
+  const [showRevenue, setShowRevenue] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mr-travels-show-revenue');
+      return saved === 'true';
+    }
+    return false;
+  });
 
   // NEW: Fleet forecast state
   const [forecastData, setForecastData] = useState([]);
@@ -64,22 +73,79 @@ export default function EnhancedActiveBookingsPage() {
     booking: null
   });
 
-  // 📞 NEW: Call functionality state
-  const [callModal, setCallModal] = useState({
-    isOpen: false,
-    booking: null
-  });
+  // Save revenue visibility preference
+  useEffect(() => {
+    localStorage.setItem('mr-travels-show-revenue', showRevenue.toString());
+  }, [showRevenue]);
 
-  const [lastCalled, setLastCalled] = useState({}); // Track last call time per booking
+  // 🔒 Revenue formatting helper (only for main stats)
+  const formatRevenue = (amount) => showRevenue ? `₹${amount.toLocaleString('en-IN')}` : "₹●●●●●";
+
+  // 🔒 Eye toggle button component (only for main stats)
+  const RevenueToggleButton = ({ size = "w-5 h-5" }) => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        setShowRevenue(!showRevenue);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          setShowRevenue(!showRevenue);
+        }
+      }}
+      className="p-1 hover:bg-green-500/20 rounded-full transition-all duration-200 group ml-2 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50"
+      title={showRevenue ? "Hide revenue" : "Show revenue"}
+      aria-label={showRevenue ? "Hide revenue amounts" : "Show revenue amounts"}
+    >
+      {showRevenue ? (
+        <svg 
+          className={`${size} text-green-400 group-hover:text-green-300`}
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" 
+          />
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" 
+          />
+        </svg>
+      ) : (
+        <svg 
+          className={`${size} text-green-400 group-hover:text-green-300`}
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" 
+          />
+        </svg>
+      )}
+    </button>
+  );
 
   useEffect(() => {
     fetchActiveBookings();
-    fetchFleetForecast(); // NEW: Fetch forecast data
+    fetchFleetForecast();
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
     
-    // NEW: Update forecast every 5 minutes
     const forecastInterval = setInterval(fetchFleetForecast, 5 * 60 * 1000);
     
     return () => {
@@ -96,7 +162,6 @@ export default function EnhancedActiveBookingsPage() {
     }
   }, [bookings]);
 
-  // NEW: Fleet forecast API call
   const fetchFleetForecast = async () => {
     try {
       setForecastLoading(true);
@@ -137,7 +202,6 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
   
-  // 🚀 FIX 8: Add this to your useEffect to debug custom bookings
   useEffect(() => {
     if (bookings.length > 0 && process.env.NODE_ENV === 'development') {
       const customBookings = bookings.filter(b => b.isCustomBooking);
@@ -217,184 +281,18 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
 
-  // NEW: Fleet Forecast Widget Component
-
-
-  // 📞 NEW: Call handling functions
-  const handleQuickCall = (booking, reason = 'follow_up') => {
+  // Direct call handling (no modal)
+  const handleDirectCall = (booking, reason = 'follow_up') => {
     const phoneNumber = booking.customer?.phone || booking.customerId?.phone;
     if (!phoneNumber) {
       alert('Phone number not available for this customer');
       return;
     }
 
-    // Track the call time
-    setLastCalled(prev => ({
-      ...prev,
-      [booking._id]: {
-        time: new Date(),
-        reason: reason,
-        phone: phoneNumber
-      }
-    }));
-
-    // Open phone dialer
+    // Open phone dialer directly
     window.location.href = `tel:${phoneNumber}`;
   };
 
-  const handleOpenCallModal = (booking) => {
-    setCallModal({
-      isOpen: true,
-      booking: booking
-    });
-  };
-
-  const handleCloseCallModal = () => {
-    setCallModal({
-      isOpen: false,
-      booking: null
-    });
-  };
-
-  const formatLastCallTime = (bookingId) => {
-    const lastCall = lastCalled[bookingId];
-    if (!lastCall) return null;
-    
-    const now = new Date();
-    const callTime = new Date(lastCall.time);
-    const diffMinutes = Math.floor((now - callTime) / (1000 * 60));
-    
-    if (diffMinutes < 1) return 'Just called';
-    if (diffMinutes < 60) return `Called ${diffMinutes}m ago`;
-    
-    const diffHours = Math.floor(diffMinutes / 60);
-    return `Called ${diffHours}h ago`;
-  };
-
-  // 📞 NEW: Call Modal Component
-  const CallModal = ({ isOpen, onClose, booking }) => {
-    if (!isOpen || !booking) return null;
-
-    const callReasons = [
-      { 
-        id: 'follow_up', 
-        label: 'Follow-up: When will you return?', 
-        icon: '🕐',
-        description: 'Check expected return time'
-      },
-      { 
-        id: 'estimated_return_check', 
-        label: 'Estimated return time check', 
-        icon: '📅',
-        description: 'Verify if still on schedule'
-      },
-      { 
-        id: 'location_check', 
-        label: 'Location check', 
-        icon: '📍',
-        description: 'Verify current location'
-      },
-      { 
-        id: 'vehicle_status', 
-        label: 'Vehicle condition check', 
-        icon: '🔧',
-        description: 'Ask about vehicle status'
-      },
-      { 
-        id: 'extension_request', 
-        label: 'Extension discussion', 
-        icon: '⏱️',
-        description: 'Discuss rental extension'
-      },
-      { 
-        id: 'overdue_reminder', 
-        label: 'Overdue reminder', 
-        icon: '⚠️',
-        description: 'Past estimated return time'
-      },
-      { 
-        id: 'general_inquiry', 
-        label: 'General inquiry', 
-        icon: '💬',
-        description: 'General customer service'
-      }
-    ];
-
-    const handleCallWithReason = (reason) => {
-      handleQuickCall(booking, reason.id);
-      onClose();
-    };
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-gray-800 rounded-lg max-w-md w-full max-h-96 overflow-y-auto">
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">Call Customer</h3>
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Customer Info */}
-            <div className="bg-gray-700 rounded-lg p-4 mb-6">
-              <div className="text-white font-medium">{booking.customerId?.name || booking.customer?.name}</div>
-              <div className="text-gray-300">{booking.customerId?.phone || booking.customer?.phone}</div>
-              <div className="text-sm text-gray-400">
-                Booking: {booking.bookingId} • {booking.vehicleId?.model} ({booking.vehicleId?.plateNumber})
-              </div>
-              {/* NEW: Show estimated return status in call modal */}
-              {booking.estimatedReturnTime && (
-                <div className="text-sm text-amber-300 mt-1">
-                  Estimated return: {new Date(booking.estimatedReturnTime).toLocaleString('en-IN', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    day: 'numeric',
-                    month: 'short'
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Call Reasons */}
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium text-gray-300 mb-3">Select call purpose:</h4>
-              {callReasons.map((reason) => (
-                <button
-                  key={reason.id}
-                  onClick={() => handleCallWithReason(reason)}
-                  className="w-full text-left p-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-                >
-                  <div className="flex items-start gap-3">
-                    <span className="text-xl">{reason.icon}</span>
-                    <div>
-                      <div className="text-white font-medium">{reason.label}</div>
-                      <div className="text-sm text-gray-400">{reason.description}</div>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Quick Call Button */}
-            <div className="mt-6 pt-4 border-t border-gray-600">
-              <button
-                onClick={() => handleCallWithReason({ id: 'quick_call', label: 'Quick Call' })}
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                📞 Call Now (Quick)
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ✅ ENHANCED: Calculate end time for custom bookings
   const calculateEndTime = (booking) => {
     console.log('Calculating end time for booking:', booking.bookingId, {
       isCustomBooking: booking.isCustomBooking,
@@ -402,7 +300,6 @@ export default function EnhancedActiveBookingsPage() {
       customBookingType: booking.customBookingType
     });
   
-    // 🚀 PRIORITY: If booking already has endTime (from our fixed API), use it!
     if (booking.endTime) {
       try {
         const endTime = new Date(booking.endTime);
@@ -417,7 +314,6 @@ export default function EnhancedActiveBookingsPage() {
       }
     }
   
-    // Fallback calculation for custom bookings without endTime
     if (!booking.isCustomBooking) {
       console.log('📋 Not a custom booking, no end time calculation needed');
       return null;
@@ -439,12 +335,10 @@ export default function EnhancedActiveBookingsPage() {
     let calculatedEndTime;
     
     if (booking.customBookingType === 'night') {
-      // Night package: ends at 9 AM the next day
       calculatedEndTime = new Date(startTime);
       calculatedEndTime.setDate(calculatedEndTime.getDate() + 1);
       calculatedEndTime.setHours(9, 0, 0, 0);
     } else {
-      // Half day / Full day: add the specified hours
       calculatedEndTime = new Date(startTime.getTime() + (packageInfo.maxHours * 60 * 60 * 1000));
     }
   
@@ -452,7 +346,6 @@ export default function EnhancedActiveBookingsPage() {
     return calculatedEndTime;
   };
 
-  // ✅ ENHANCED: Calculate package progress and remaining time
   const calculatePackageProgress = (booking) => {
     if (!booking.isCustomBooking) {
       return null;
@@ -464,7 +357,6 @@ export default function EnhancedActiveBookingsPage() {
     const endTime = calculateEndTime(booking);
     const now = new Date(currentTime);
     
-    // Validate all required times
     if (!endTime) {
       console.error('❌ Cannot calculate progress: endTime is null');
       return null;
@@ -479,7 +371,6 @@ export default function EnhancedActiveBookingsPage() {
     const elapsed = now.getTime() - startTime.getTime();
     const remaining = endTime.getTime() - now.getTime();
     
-    // Handle edge cases
     if (totalDuration <= 0) {
       console.warn('⚠️ Invalid duration: endTime is before startTime');
       return null;
@@ -516,7 +407,6 @@ export default function EnhancedActiveBookingsPage() {
     return result;
   };
 
-  // ✅ ENHANCED: Revenue calculation for both booking types
   const fetchCurrentAmount = async (bookingId) => {
     try {
       const booking = bookings.find(b => b._id === bookingId);
@@ -526,18 +416,15 @@ export default function EnhancedActiveBookingsPage() {
         return 0;
       }
   
-      // 🚀 ENHANCED: Custom booking calculation with overtime penalties
       if (booking.isCustomBooking) {
         const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
         const basePrice = packageInfo ? packageInfo.price : (booking.finalAmount || 0);
         const extra = extraCharges[bookingId] || 0;
         
-        // Calculate overtime penalty
         const progress = calculatePackageProgress(booking);
         let overtimePenalty = 0;
         
         if (progress && progress.isOvertime) {
-          // ₹50 per hour overtime penalty
           const overtimeHours = progress.overtimeHours + (progress.overtimeMinutes / 60);
           overtimePenalty = Math.ceil(overtimeHours) * 50;
           console.log(`💰 Overtime penalty calculated: ${overtimeHours.toFixed(1)}h = ₹${overtimePenalty}`);
@@ -549,14 +436,12 @@ export default function EnhancedActiveBookingsPage() {
         return totalAmount;
       }
   
-      // For advanced pricing bookings, use existing API
       const response = await fetch(`/api/bookings/current-amount/${bookingId}`);
       const data = await response.json();
       if (data.success) {
         return data.currentAmount;
       } else {
         console.error('Error fetching current amount for booking:', bookingId, data.error);
-        // Fallback calculation
         if (booking.status === 'active') {
           const duration = calculateDuration(booking.startTime);
           return Math.max(duration.totalHours * 80, 80);
@@ -565,7 +450,6 @@ export default function EnhancedActiveBookingsPage() {
       }
     } catch (error) {
       console.error('Error fetching current amount:', error);
-      // Final fallback
       const booking = bookings.find(b => b._id === bookingId);
       if (booking && booking.status === 'active') {
         if (booking.isCustomBooking) {
@@ -587,14 +471,12 @@ export default function EnhancedActiveBookingsPage() {
     setCurrentAmounts(amounts);
   };
 
-  // ✅ ENHANCED: Handle extra charges for custom bookings
   const handleExtraChargeChange = (bookingId, amount) => {
     setExtraCharges(prev => ({
       ...prev,
       [bookingId]: parseFloat(amount) || 0
     }));
     
-    // Update current amounts when extra charge changes
     setTimeout(() => {
       updateCurrentAmounts();
     }, 100);
@@ -663,13 +545,11 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
 
-  // ✅ ENHANCED: Booking type badge component
   const BookingTypeBadge = ({ booking }) => {
     if (booking.isCustomBooking) {
       const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
       
       if (!packageInfo) {
-        // Fallback for unknown package types
         return (
           <div className="flex items-center gap-2">
             <ThemedBadge className="bg-gray-500/20 text-gray-400 border-gray-500/30">
@@ -683,7 +563,7 @@ export default function EnhancedActiveBookingsPage() {
       return (
         <div className="flex items-center gap-2">
           <ThemedBadge className={`bg-${packageInfo.color}-500/20 text-${packageInfo.color}-400 border-${packageInfo.color}-500/30`}>
-            📦 {packageInfo.label.split(' (')[0]} {/* Show only first part of label */}
+            📦 {packageInfo.label.split(' (')[0]}
           </ThemedBadge>
           <span className="text-2xl">{packageInfo.icon}</span>
         </div>
@@ -699,12 +579,10 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
 
-  // ✅ ENHANCED: Package progress component
   const PackageProgressBar = ({ booking }) => {
     const progress = calculatePackageProgress(booking);
     
     if (!progress) {
-      // Show a message for custom bookings where progress can't be calculated
       if (booking.isCustomBooking) {
         return (
           <div className="space-y-2">
@@ -753,17 +631,14 @@ export default function EnhancedActiveBookingsPage() {
     );
   };
 
-  // ✅ ENHANCED: Booking card with estimated return time and custom package support
+  // ✅ ENHANCED: Booking card with simplified actions and always visible prices
   const EnhancedBookingCard = ({ booking }) => {
     const duration = calculateDuration(booking.startTime);
     const currentAmount = currentAmounts[booking._id] || 0;
     const progress = calculatePackageProgress(booking);
     const eligibility = getChangeEligibilityReason(booking);
-    const timeRemaining = getChangeTimeRemaining(booking);
     const withinCancellationWindow = isWithinCancellationWindow(booking);
-    const cancellationTimeRemaining = getCancellationTimeRemaining(booking);
 
-    // ✅ NEW: Card styling based on booking type
     const cardClassName = cn(
       "hover:scale-105 transition-all duration-300 border-2",
       booking.isCustomBooking 
@@ -774,7 +649,7 @@ export default function EnhancedActiveBookingsPage() {
     return (
       <ThemedCard className={cardClassName}>
         <div className="p-6">
-          {/* 📞 ENHANCED Header with Call Functionality */}
+          {/* Header */}
           <div className="flex justify-between items-start mb-6">
             <div>
               <h3 className="text-xl font-bold text-white">
@@ -782,9 +657,8 @@ export default function EnhancedActiveBookingsPage() {
               </h3>
               <div className="flex items-center gap-2">
                 <p className="text-gray-400">{booking.customerId.phone}</p>
-                {/* 📞 NEW: Quick call button */}
                 <button
-                  onClick={() => handleQuickCall(booking, 'quick_call')}
+                  onClick={() => handleDirectCall(booking, 'quick_call')}
                   className="text-green-400 hover:text-green-300 transition-colors"
                   title="Quick call"
                 >
@@ -792,12 +666,6 @@ export default function EnhancedActiveBookingsPage() {
                 </button>
               </div>
               <p className="text-sm text-gray-500 font-mono">ID: {booking.bookingId}</p>
-              {/* 📞 NEW: Last call status */}
-              {lastCalled[booking._id] && (
-                <p className="text-xs text-blue-400 mt-1">
-                  📞 {formatLastCallTime(booking._id)}
-                </p>
-              )}
             </div>
             <div className="flex flex-col items-end gap-2">
               <ThemedBadge status="active">
@@ -805,16 +673,6 @@ export default function EnhancedActiveBookingsPage() {
               </ThemedBadge>
               
               <SafeBookingTypeBadge booking={booking} />
-              
-              {eligibility.canChange && timeRemaining > 0 && (
-                <VehicleChangeStatus booking={booking} />
-              )}
-              
-              {withinCancellationWindow && cancellationTimeRemaining && (
-                <span className="text-xs text-blue-400 bg-blue-900/30 px-2 py-1 rounded border border-blue-700/50">
-                  🚫 Free cancel ({cancellationTimeRemaining} left)
-                </span>
-              )}
             </div>
           </div>
 
@@ -836,7 +694,7 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           </div>
 
-          {/* NEW: Estimated Return Time Section */}
+          {/* Estimated Return Time Section */}
           <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-4 mb-6">
             <div className="flex justify-between items-center">
               <div>
@@ -863,10 +721,9 @@ export default function EnhancedActiveBookingsPage() {
               <div className="text-right">
                 <EstimatedReturnStatus booking={booking} currentTime={currentTime} />
                 
-                {/* Call Button - Enhanced for estimated return context */}
                 <div className="mt-2">
                   <button
-                    onClick={() => handleOpenCallModal(booking)}
+                    onClick={() => handleDirectCall(booking)}
                     className="inline-flex items-center px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
                   >
                     📞 Call
@@ -894,7 +751,7 @@ export default function EnhancedActiveBookingsPage() {
             )}
           </div>
 
-          {/* ✅ ENHANCED: Dual metrics for different booking types */}
+          {/* Dual metrics for different booking types - ALWAYS VISIBLE PRICES */}
           {booking.isCustomBooking ? (
             <>
               {/* Custom Package Metrics */}
@@ -911,7 +768,7 @@ export default function EnhancedActiveBookingsPage() {
                   )}
                 </div>
                 <div className="bg-green-900/20 border border-green-700/30 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-green-400">
+                  <div className="text-2xl font-bold text-green-400 mb-2">
                     ₹{currentAmount.toLocaleString('en-IN')}
                   </div>
                   <div className="text-green-200 text-sm">Package Price</div>
@@ -941,7 +798,7 @@ export default function EnhancedActiveBookingsPage() {
                 </div>
               )}
 
-              {/* 📞 NEW: Overdue Alert with Call Button */}
+              {/* Overdue Alert */}
               {progress && progress.isOvertime && (
                 <div className="bg-red-900/20 border border-red-700/30 rounded-lg p-3 mb-6">
                   <div className="text-center mb-3">
@@ -953,7 +810,7 @@ export default function EnhancedActiveBookingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleQuickCall(booking, 'overdue_reminder')}
+                    onClick={() => handleDirectCall(booking, 'overdue_reminder')}
                     className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
                   >
                     📞 Call Customer (Overdue)
@@ -989,7 +846,7 @@ export default function EnhancedActiveBookingsPage() {
                   <div className="text-blue-200 text-sm">Live Duration</div>
                 </div>
                 <div className="bg-green-900/20 border border-green-700/30 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-green-400">
+                  <div className="text-2xl font-bold text-green-400 mb-2">
                     ₹{currentAmount.toLocaleString('en-IN')}
                   </div>
                   <div className="text-green-200 text-sm">Advanced Pricing</div>
@@ -1025,9 +882,6 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           </div>
 
-          {/* Enhanced Vehicle Change Status Section */}
-          {renderEnhancedVehicleChangeSection(booking)}
-
           {/* Safety Checklist Status */}
           <div className="mb-6">
             <h4 className="text-sm font-medium text-gray-400 mb-3">Safety Checklist</h4>
@@ -1044,23 +898,21 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           </div>
 
-          {/* 📞 ENHANCED Action Buttons with Call Features */}
-          {renderActionButtons(booking, {
+          {/* Simplified Action Buttons - Only show available actions */}
+          {renderSimplifiedActionButtons(booking, {
             openVehicleChange: handleOpenVehicleChange,
-            openCancellation: handleOpenCancellation,
-            openCall: handleOpenCallModal
+            openCancellation: handleOpenCancellation
           })}
         </div>
       </ThemedCard>
     );
   };
 
-  // ✅ Enhanced stats with booking type breakdown
+  // Enhanced stats with booking type breakdown (with revenue toggle)
   const customBookings = bookings.filter(b => b.isCustomBooking);
   const advancedBookings = bookings.filter(b => !b.isCustomBooking);
   const totalCurrentRevenue = Object.values(currentAmounts).reduce((sum, amount) => sum + amount, 0);
 
-  // [Keep all existing functions: getChangeEligibilityReason, getChangeTimeRemaining, etc.]
   const getChangeEligibilityReason = (booking) => {
     try {
       const now = new Date();
@@ -1118,31 +970,6 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
 
-  const getChangeTimeRemaining = (booking) => {
-    try {
-      const now = new Date();
-      const startTime = new Date(booking.startTime);
-      const createdAt = new Date(booking.createdAt);
-      
-      const minutesSinceStart = Math.floor((now - startTime) / (1000 * 60));
-      const minutesSinceCreation = Math.floor((now - createdAt) / (1000 * 60));
-      
-      if (now < startTime) {
-        const minutesToStart = Math.floor((startTime - now) / (1000 * 60));
-        return Math.max(0, minutesToStart + 30);
-      }
-      
-      const remainingFromStart = Math.max(0, 30 - minutesSinceStart);
-      const remainingFromCreation = Math.max(0, 45 - minutesSinceCreation);
-      const remainingFirstHour = Math.max(0, 60 - minutesSinceStart);
-      
-      return Math.max(remainingFromStart, remainingFromCreation, remainingFirstHour);
-    } catch (error) {
-      console.error('Error calculating remaining change time:', error);
-      return 0;
-    }
-  };
-
   const isWithinCancellationWindow = (booking) => {
     if (!booking?.createdAt) return false;
     const bookingTime = new Date(booking.createdAt);
@@ -1150,115 +977,14 @@ export default function EnhancedActiveBookingsPage() {
     return new Date() <= twoHoursLater;
   };
 
-  const getCancellationTimeRemaining = (booking) => {
-    if (!booking?.createdAt) return null;
-    const bookingTime = new Date(booking.createdAt);
-    const twoHoursLater = new Date(bookingTime.getTime() + (2 * 60 * 60 * 1000));
-    const now = new Date();
-    
-    if (now > twoHoursLater) return null;
-    
-    const remainingMs = twoHoursLater - now;
-    const remainingMinutes = Math.ceil(remainingMs / (1000 * 60));
-    
-    if (remainingMinutes > 60) {
-      const hours = Math.floor(remainingMinutes / 60);
-      const mins = remainingMinutes % 60;
-      return `${hours}h ${mins}m`;
-    }
-    return `${remainingMinutes}m`;
-  };
-
-  const VehicleChangeStatus = ({ booking, detailed = false }) => {
-    const eligibility = getChangeEligibilityReason(booking);
-    const timeRemaining = getChangeTimeRemaining(booking);
-    
-    if (!eligibility.canChange) {
-      return null;
-    }
-    
-    const getStatusColor = (timeframe) => {
-      switch (timeframe) {
-        case 'pre-start': return 'blue';
-        case 'early-rental': return 'green';
-        case 'recent-booking': return 'yellow';
-        case 'first-hour': return 'orange';
-        default: return 'gray';
-      }
-    };
-    
-    const color = getStatusColor(eligibility.timeframe);
-    
-    if (detailed) {
-      return (
-        <div className={`text-xs bg-${color}-900/30 border border-${color}-700/50 text-${color}-300 px-3 py-2 rounded-lg`}>
-          <div className="font-medium">✨ Vehicle change available</div>
-          <div className="text-xs opacity-80">{eligibility.reason}</div>
-          {timeRemaining > 0 && (
-            <div className="text-xs opacity-60">{timeRemaining}min remaining</div>
-          )}
-        </div>
-      );
-    }
-    
-    return (
-      <span className={`text-xs bg-${color}-900/30 border border-${color}-700/50 text-${color}-300 px-2 py-1 rounded`}>
-        ✨ Change available ({timeRemaining}min left)
-      </span>
-    );
-  };
-
-  const renderEnhancedVehicleChangeSection = (booking) => {
-    const eligibility = getChangeEligibilityReason(booking);
-    
-    return (
-      <div className="mb-6">
-        <h4 className="text-sm font-medium text-gray-400 mb-3 flex items-center justify-between">
-          <span>Vehicle Change Status</span>
-          {eligibility.canChange && (
-            <span className="text-green-400 text-xs">✅ Eligible</span>
-          )}
-        </h4>
-        
-        {eligibility.canChange ? (
-          <VehicleChangeStatus booking={booking} detailed={true} />
-        ) : (
-          <div className="text-xs bg-red-900/30 border border-red-700/50 text-red-300 px-3 py-2 rounded-lg">
-            <div className="font-medium">❌ Vehicle change not available</div>
-            <div className="text-xs opacity-80">{eligibility.reason}</div>
-            <div className="text-xs opacity-60 mt-1">
-              Changes allowed within first hour of rental or 45min of booking
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // 📞 ENHANCED: Action buttons with calling functionality
-  const renderActionButtons = (booking, handlers) => {
+  // Simplified action buttons - only show when available
+  const renderSimplifiedActionButtons = (booking, handlers) => {
     const eligibility = getChangeEligibilityReason(booking);
     const cancellationEligibility = isWithinCancellationWindow(booking);
     
     return (
       <div className="space-y-3">
-        {/* 📞 NEW: Call Actions Row */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleOpenCallModal(booking)}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-          >
-            📞 Call Customer
-          </button>
-          <button
-            onClick={() => handleQuickCall(booking, 'follow_up')}
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-            title="Quick follow-up call: When will you return?"
-          >
-            🕐 Return Time?
-          </button>
-        </div>
-
+        {/* Always show these buttons */}
         <div className="flex gap-3">
           <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
             <ThemedButton variant="secondary" className="w-full">
@@ -1273,38 +999,27 @@ export default function EnhancedActiveBookingsPage() {
           </Link>
         </div>
 
+        {/* Only show available actions */}
         <div className="flex gap-2">
-          <ThemedButton 
-            variant={eligibility.canChange ? "warning" : "secondary"}
-            onClick={() => {
-              if (eligibility.canChange) {
-                handlers.openVehicleChange(booking);
-              } else {
-                alert(`Vehicle change not available: ${eligibility.reason}\n\nChanges are allowed:\n• Within 30 minutes of rental start\n• Within 45 minutes of booking creation\n• Within first hour of rental\n• Before rental starts`);
-              }
-            }}
-            disabled={!eligibility.canChange}
-            className={cn(
-              "flex-1 text-sm",
-              eligibility.canChange 
-                ? "bg-orange-600 hover:bg-orange-700 text-white" 
-                : "opacity-50 cursor-not-allowed bg-gray-600"
-            )}
-            title={eligibility.reason}
-          >
-            🔄 {eligibility.canChange ? "Change Vehicle" : "Change Unavailable"}
-          </ThemedButton>
+          {eligibility.canChange && (
+            <ThemedButton 
+              variant="warning"
+              onClick={() => handlers.openVehicleChange(booking)}
+              className="flex-1 text-sm bg-orange-600 hover:bg-orange-700 text-white"
+            >
+              🔄 Change Vehicle
+            </ThemedButton>
+          )}
           
-          <ThemedButton 
-            variant="danger" 
-            onClick={() => handlers.openCancellation(booking)}
-            className="flex-1 text-sm"
-          >
-            {cancellationEligibility 
-              ? "🚫 Cancel (Free)" 
-              : "🚫 Cancel (Override)"
-            }
-          </ThemedButton>
+          {cancellationEligibility && (
+            <ThemedButton 
+              variant="danger" 
+              onClick={() => handlers.openCancellation(booking)}
+              className="flex-1 text-sm"
+            >
+              🚫 Cancel (Free)
+            </ThemedButton>
+          )}
         </div>
       </div>
     );
@@ -1384,7 +1099,6 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
 
-  // ✅ ENHANCED: Filtering with booking type support
   const filteredBookings = bookings.filter(booking => {
     const customer = booking.customerId;
     const vehicle = booking.vehicleId;
@@ -1429,8 +1143,7 @@ export default function EnhancedActiveBookingsPage() {
           </p>
         </div>
 
-
-        {/* ✅ ENHANCED: Stats with booking type breakdown */}
+        {/* Stats with booking type breakdown + REVENUE TOGGLE (only here) */}
         <div className={theme.layout.grid.stats + " mb-8"}>
           <ThemedStatsCard
             title="Total Active"
@@ -1442,10 +1155,15 @@ export default function EnhancedActiveBookingsPage() {
           />
           <ThemedStatsCard
             title="Current Revenue"
-            value={`₹${totalCurrentRevenue.toLocaleString('en-IN')}`}
+            value={formatRevenue(totalCurrentRevenue)}
             subtitle="Dual pricing applied"
             colorScheme="revenue"
-            icon={<div className="text-4xl mb-2">💰</div>}
+            icon={
+              <div className="flex items-center justify-center mb-2">
+                <div className="text-4xl">💰</div>
+                <RevenueToggleButton />
+              </div>
+            }
             progress={75}
           />
           <ThemedStatsCard
@@ -1493,7 +1211,7 @@ export default function EnhancedActiveBookingsPage() {
           </div>
         </ThemedCard>
 
-        {/* ✅ ENHANCED: Search and Filter with booking type */}
+        {/* Search and Filter */}
         <ThemedCard className="mb-8">
           <div className="p-6">
             <h3 className="text-lg font-semibold text-white mb-4">Search & Filter</h3>
@@ -1529,7 +1247,7 @@ export default function EnhancedActiveBookingsPage() {
           </div>
         </ThemedCard>
 
-        {/* ✅ ENHANCED: Active Bookings with estimated return times + calling */}
+        {/* Active Bookings */}
         {filteredBookings.length === 0 ? (
           <ThemedCard className="text-center p-12">
             <div className="mb-6">
@@ -1571,7 +1289,7 @@ export default function EnhancedActiveBookingsPage() {
           </div>
         )}
 
-        {/* ✅ ENHANCED: Quick Actions with custom booking support */}
+        {/* Quick Actions */}
         <div className="flex flex-col md:flex-row gap-4">
           <ThemedButton
             variant="primary"
@@ -1606,7 +1324,7 @@ export default function EnhancedActiveBookingsPage() {
         </div>
       </div>
 
-      {/* 📞 ENHANCED: Modals with Call Modal */}
+      {/* Modals */}
       <VehicleChangeModal
         isOpen={vehicleChangeModal.isOpen}
         onClose={handleCloseVehicleChange}
@@ -1619,13 +1337,6 @@ export default function EnhancedActiveBookingsPage() {
         onClose={handleCloseCancellation}
         booking={cancellationModal.booking}
         onCancel={handleBookingCancelled}
-      />
-
-      {/* 📞 NEW: Call Modal */}
-      <CallModal
-        isOpen={callModal.isOpen}
-        onClose={handleCloseCallModal}
-        booking={callModal.booking}
       />
     </ThemedLayout>
   );
