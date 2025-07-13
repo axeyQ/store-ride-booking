@@ -46,7 +46,7 @@ const TermsModal = ({ isOpen, onClose, onAccept }) => {
                 <ul className="space-y-1">
                   <li>• ₹80 for first hour + 15min grace</li>
                   <li>• ₹40 per 30-minute block after</li>
-                  <li>• Night charges: 1.5x after 10 PM</li>
+                  <li>• Night charges: 2x after 10 PM</li>
                 </ul>
               </div>
               <div>
@@ -126,7 +126,7 @@ const TermsModal = ({ isOpen, onClose, onAccept }) => {
               <h3 className="text-lg font-bold text-red-800 mb-3">6. Return Policy & Restrictions</h3>
               <ul className="space-y-2 text-red-700">
                 <li>• Vehicle must be returned by <strong>10:30 PM</strong> (store closing time)</li>
-                <li>• Late return after 10:00 PM: <strong>Additional ₹80 charge</strong></li>
+                <li>• Late return after 10:00 PM: <strong>Additional ₹80 charge/hr</strong></li>
                 <li>• Return after 10:30 PM: <strong>₹500 overnight fine + next day return</strong></li>
                 <li>• Vehicle should be returned in the same condition as received.</li>
                 <li>• Vehicle must be returned with <strong>same fuel level</strong></li>
