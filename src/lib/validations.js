@@ -10,7 +10,7 @@ export const validatePhoneNumber = (phone) => {
   
   export const validateDrivingLicense = (license) => {
     // Basic validation for Indian driving license
-    const licenseRegex = /^[A-Z]{2}[0-9]{2}[A-Z]?([0-9]{4})[0-9]{6,7}$/;
+    const licenseRegex = /^[A-Z]{2}[0-9]{2}([A-Z]|0)?[0-9]{4}[0-9]{6,7}$/;
     return licenseRegex.test(license);
   };
   
