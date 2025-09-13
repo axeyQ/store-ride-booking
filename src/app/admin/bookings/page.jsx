@@ -116,35 +116,67 @@ export default function ThemedAllBookingsPage() {
     try {
       setLoading(true);
       
-      // Only use parameters that the API actually supports
-      const params = new URLSearchParams({
-        page: 1, // Get all bookings, we'll paginate client-side
-        limit: 1000, // Large limit to get all bookings
-        search: searchTerm, // API supports search
-        status: statusFilter, // API supports status
-        sortBy: sortBy, // API supports sortBy
-        sortOrder: sortOrder // API supports sortOrder
-      });
-
-      console.log('🔍 Fetching with API-supported params:', Object.fromEntries(params));
-
-      const response = await fetch(`/api/admin/all-bookings?${params}`);
-      const data = await response.json();
-
-      if (data.success) {
-        setAllBookings(data.bookings); // Store all bookings
-        console.log(`✅ Fetched ${data.bookings.length} bookings from API`);
-      } else {
-        console.error('Error fetching bookings:', data.error);
-        // Fallback to basic bookings API
-        const fallbackResponse = await fetch('/api/bookings');
+      // ✅ FIXED: Use smaller batch size to avoid memory limit
+      const BATCH_SIZE = 100; // Reduced from 1000 to 100
+      let allFetchedBookings = [];
+      let currentPage = 1;
+      let hasMore = true;
+      
+      console.log('🔄 Fetching bookings in batches...');
+      
+      // Fetch bookings in batches
+      while (hasMore && allFetchedBookings.length < 500) { // Limit to 500 total
+        const params = new URLSearchParams({
+          page: currentPage,
+          limit: BATCH_SIZE,
+          search: searchTerm,
+          status: statusFilter,
+          sortBy: sortBy,
+          sortOrder: sortOrder
+        });
+  
+        console.log(`📦 Fetching batch ${currentPage} (${BATCH_SIZE} records)...`);
+  
+        const response = await fetch(`/api/admin/all-bookings?${params}`);
+        const data = await response.json();
+  
+        if (data.success && data.bookings.length > 0) {
+          allFetchedBookings = [...allFetchedBookings, ...data.bookings];
+          currentPage++;
+          
+          // Check if there are more pages
+          hasMore = data.bookings.length === BATCH_SIZE;
+          console.log(`✅ Batch ${currentPage - 1}: +${data.bookings.length} bookings (total: ${allFetchedBookings.length})`);
+        } else {
+          hasMore = false;
+          if (!data.success) {
+            console.error('❌ Batch fetch error:', data.error);
+          }
+        }
+        
+        // Small delay between batches to prevent overwhelming the database
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      console.log(`📋 Total fetched: ${allFetchedBookings.length} bookings`);
+      setAllBookings(allFetchedBookings);
+      
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+      
+      // Fallback to basic API with even smaller limit
+      try {
+        console.log('🔄 Trying fallback API...');
+        const fallbackResponse = await fetch('/api/bookings?limit=50');
         const fallbackData = await fallbackResponse.json();
         if (fallbackData.success) {
           setAllBookings(fallbackData.bookings);
+          console.log(`✅ Fallback success: ${fallbackData.bookings.length} bookings`);
         }
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        setAllBookings([]); // Empty state
       }
-    } catch (error) {
-      console.error('Error fetching bookings:', error);
     } finally {
       setLoading(false);
     }
