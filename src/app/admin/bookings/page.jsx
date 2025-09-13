@@ -40,6 +40,7 @@ const CUSTOM_PACKAGES = {
 
 export default function ThemedAllBookingsPage() {
   const [bookings, setBookings] = useState([]);
+  const [allBookings, setAllBookings] = useState([]); // ✅ Store all bookings for client-side filtering
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -51,10 +52,10 @@ export default function ThemedAllBookingsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
   
-  // ✅ NEW: Payment method filter
+  // ✅ NEW: Payment method filter (client-side)
   const [paymentFilter, setPaymentFilter] = useState('all');
   
-  // ✅ NEW: Custom date filter
+  // ✅ NEW: Custom date filter (client-side)
   const [customDateFrom, setCustomDateFrom] = useState('');
   const [customDateTo, setCustomDateTo] = useState('');
   const [useCustomDate, setUseCustomDate] = useState(false);
@@ -90,56 +91,56 @@ export default function ThemedAllBookingsPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // ✅ OPTIMIZED: Remove searchTerm from immediate dependencies
+  // ✅ FIXED: Only use API-supported filters for server calls
   useEffect(() => {
     fetchBookings();
-    fetchTotalStats();
-  }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm, paymentFilter, useCustomDate, customDateFrom, customDateTo]);
+  }, [currentPage, statusFilter, sortBy, sortOrder, searchTerm]);
 
-  // Fetch pricing for all bookings (both advanced and custom)
+  // ✅ NEW: Apply client-side filters when bookings change
+  useEffect(() => {
+    if (allBookings.length > 0) {
+      applyClientSideFilters();
+      fetchPricingForBookings();
+    }
+  }, [allBookings, dateFilter, paymentFilter, useCustomDate, customDateFrom, customDateTo]);
+
+  // Fetch pricing for visible bookings
   useEffect(() => {
     if (bookings.length > 0) {
       fetchPricingForBookings();
     }
   }, [bookings]);
 
-  // ✅ OPTIMIZED: Memoized fetch functions
+  // ✅ FIXED: Only send API-supported parameters
   const fetchBookings = useCallback(async () => {
     try {
       setLoading(true);
+      
+      // Only use parameters that the API actually supports
       const params = new URLSearchParams({
-        page: currentPage,
-        limit: itemsPerPage,
-        search: searchTerm, // Use debounced search term
-        status: statusFilter,
-        dateFilter: useCustomDate ? 'custom' : dateFilter,
-        sortBy: sortBy,
-        sortOrder: sortOrder,
-        paymentMethod: paymentFilter // ✅ NEW: Payment filter
+        page: 1, // Get all bookings, we'll paginate client-side
+        limit: 1000, // Large limit to get all bookings
+        search: searchTerm, // API supports search
+        status: statusFilter, // API supports status
+        sortBy: sortBy, // API supports sortBy
+        sortOrder: sortOrder // API supports sortOrder
       });
 
-      // ✅ NEW: Add custom date parameters
-      if (useCustomDate && customDateFrom) {
-        params.append('customDateFrom', customDateFrom);
-      }
-      if (useCustomDate && customDateTo) {
-        params.append('customDateTo', customDateTo);
-      }
+      console.log('🔍 Fetching with API-supported params:', Object.fromEntries(params));
 
       const response = await fetch(`/api/admin/all-bookings?${params}`);
       const data = await response.json();
 
       if (data.success) {
-        setBookings(data.bookings);
-        setTotalPages(Math.ceil(data.total / itemsPerPage));
+        setAllBookings(data.bookings); // Store all bookings
+        console.log(`✅ Fetched ${data.bookings.length} bookings from API`);
       } else {
         console.error('Error fetching bookings:', data.error);
         // Fallback to basic bookings API
         const fallbackResponse = await fetch('/api/bookings');
         const fallbackData = await fallbackResponse.json();
         if (fallbackData.success) {
-          setBookings(fallbackData.bookings);
-          setTotalPages(Math.ceil(fallbackData.bookings.length / itemsPerPage));
+          setAllBookings(fallbackData.bookings);
         }
       }
     } catch (error) {
@@ -147,44 +148,125 @@ export default function ThemedAllBookingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm, paymentFilter, useCustomDate, customDateFrom, customDateTo]);
+  }, [statusFilter, sortBy, sortOrder, searchTerm]);
 
-  // ✅ OPTIMIZED: Memoized fetchTotalStats
-  const fetchTotalStats = useCallback(async () => {
-    try {
-      setStatsLoading(true);
-      const params = new URLSearchParams({
-        search: searchTerm, // Use debounced search term
-        status: statusFilter,
-        dateFilter: useCustomDate ? 'custom' : dateFilter,
-        paymentMethod: paymentFilter, // ✅ NEW: Payment filter
-        statsOnly: 'true'
+  // ✅ NEW: Client-side filtering function
+  const applyClientSideFilters = useCallback(() => {
+    let filtered = [...allBookings];
+
+    console.log('🔧 Applying client-side filters to', filtered.length, 'bookings');
+
+    // ✅ Date filter (client-side)
+    const now = new Date();
+    
+    if (useCustomDate && customDateFrom && customDateTo) {
+      const fromDate = new Date(customDateFrom);
+      fromDate.setHours(0, 0, 0, 0);
+      const toDate = new Date(customDateTo);
+      toDate.setHours(23, 59, 59, 999);
+      
+      filtered = filtered.filter(booking => {
+        const bookingDate = new Date(booking.createdAt);
+        return bookingDate >= fromDate && bookingDate <= toDate;
       });
-
-      // ✅ NEW: Add custom date parameters
-      if (useCustomDate && customDateFrom) {
-        params.append('customDateFrom', customDateFrom);
-      }
-      if (useCustomDate && customDateTo) {
-        params.append('customDateTo', customDateTo);
-      }
-
-      const response = await fetch(`/api/admin/all-bookings-stats?${params}`);
-      const data = await response.json();
-
-      if (data.success) {
-        setTotalStats(data.stats);
-      } else {
-        console.error('Error fetching total stats:', data.error);
-        setTotalStats(calculatePageStats());
-      }
-    } catch (error) {
-      console.error('Error fetching total stats:', error);
-      setTotalStats(calculatePageStats());
-    } finally {
-      setStatsLoading(false);
+      console.log(`📅 Custom date filter: ${filtered.length} bookings between ${customDateFrom} and ${customDateTo}`);
+      
+    } else if (dateFilter !== 'all') {
+      filtered = filtered.filter(booking => {
+        const bookingDate = new Date(booking.createdAt);
+        
+        switch (dateFilter) {
+          case 'today':
+            const todayStart = new Date(now);
+            todayStart.setHours(0, 0, 0, 0);
+            const todayEnd = new Date(now);
+            todayEnd.setHours(23, 59, 59, 999);
+            return bookingDate >= todayStart && bookingDate <= todayEnd;
+            
+          case 'yesterday':
+            const yesterdayStart = new Date(now);
+            yesterdayStart.setDate(now.getDate() - 1);
+            yesterdayStart.setHours(0, 0, 0, 0);
+            const yesterdayEnd = new Date(now);
+            yesterdayEnd.setDate(now.getDate() - 1);
+            yesterdayEnd.setHours(23, 59, 59, 999);
+            return bookingDate >= yesterdayStart && bookingDate <= yesterdayEnd;
+            
+          case 'week':
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - 7);
+            weekStart.setHours(0, 0, 0, 0);
+            return bookingDate >= weekStart;
+            
+          case 'month':
+            const monthStart = new Date(now);
+            monthStart.setDate(now.getDate() - 30);
+            monthStart.setHours(0, 0, 0, 0);
+            return bookingDate >= monthStart;
+            
+          default:
+            return true;
+        }
+      });
+      console.log(`📅 Date filter '${dateFilter}': ${filtered.length} bookings`);
     }
-  }, [statusFilter, dateFilter, searchTerm, paymentFilter, useCustomDate, customDateFrom, customDateTo]);
+
+    // ✅ Payment method filter (client-side)
+    if (paymentFilter !== 'all') {
+      filtered = filtered.filter(booking => {
+        switch (paymentFilter) {
+          case 'cash':
+            return booking.paymentMethod === 'cash';
+          case 'upi':
+            return booking.paymentMethod === 'upi';
+          case 'pending':
+            return !booking.paymentMethod && booking.status === 'active';
+          default:
+            return true;
+        }
+      });
+      console.log(`💳 Payment filter '${paymentFilter}': ${filtered.length} bookings`);
+    }
+
+    // ✅ Pagination (client-side)
+    const totalFiltered = filtered.length;
+    const totalPagesCalculated = Math.ceil(totalFiltered / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedBookings = filtered.slice(startIndex, endIndex);
+
+    setBookings(paginatedBookings);
+    setTotalPages(totalPagesCalculated);
+
+    console.log(`📄 Pagination: Page ${currentPage}/${totalPagesCalculated}, showing ${paginatedBookings.length}/${totalFiltered} bookings`);
+
+    // ✅ Calculate stats from filtered bookings
+    calculateAndSetStats(filtered);
+
+  }, [allBookings, dateFilter, paymentFilter, useCustomDate, customDateFrom, customDateTo, currentPage]);
+
+  // ✅ NEW: Calculate stats from filtered bookings
+  const calculateAndSetStats = useCallback((filteredBookings) => {
+    const stats = {
+      totalBookings: filteredBookings.length,
+      activeRentals: filteredBookings.filter(b => b.status === 'active').length,
+      completed: filteredBookings.filter(b => b.status === 'completed').length,
+      cancelled: filteredBookings.filter(b => b.status === 'cancelled').length,
+      customBookings: filteredBookings.filter(b => b.isCustomBooking).length,
+      advancedBookings: filteredBookings.filter(b => !b.isCustomBooking).length,
+      totalRevenue: 0 // Will be calculated when pricing data is available
+    };
+
+    setTotalStats(stats);
+    console.log('📊 Updated stats:', stats);
+  }, []);
+
+  // ✅ Update pagination when filters change
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [totalPages]);
 
   // ✅ CRITICAL FIX: Separate pricing calculation that doesn't double-apply adjustments
   const fetchPricingForBookings = async () => {
@@ -243,15 +325,6 @@ export default function ThemedAllBookingsPage() {
       const hasCustomFlag = booking.isCustomBooking === true;
       const hasCustomLabel = booking.customBookingLabel && (booking.customBookingLabel.includes('Day') || booking.customBookingLabel.includes('Package'));
       
-      console.log(`🔍 Booking ${booking.bookingId}:`, {
-        hasCustomType,
-        hasCustomFlag,
-        hasCustomLabel,
-        customBookingType: booking.customBookingType,
-        storedDiscountAmount: discountAmount,
-        storedAdditionalCharges: additionalCharges
-      });
-
       // ✅ HANDLE CUSTOM PACKAGES: Use package rate as raw amount
       if (hasCustomType || hasCustomFlag || hasCustomLabel) {
         const packageType = booking.customBookingType || 'half_day'; // Default to half_day if type missing
@@ -260,8 +333,6 @@ export default function ThemedAllBookingsPage() {
         if (packageInfo) {
           const rawAmount = packageInfo.price;
           const finalAmount = Math.max(0, rawAmount - discountAmount + additionalCharges);
-          
-          console.log(`✅ CUSTOM PACKAGE: ${booking.bookingId} - Raw: ₹${rawAmount}, Final: ₹${finalAmount}`);
           
           setAdvancedPricing(prev => ({
             ...prev,
@@ -288,7 +359,6 @@ export default function ThemedAllBookingsPage() {
           }));
         } else {
           // Fallback for unknown custom booking types
-          console.log(`❌ Unknown custom package type: ${booking.customBookingType}`);
           setAdvancedPricing(prev => ({
             ...prev,
             [bookingId]: {
@@ -355,7 +425,6 @@ export default function ThemedAllBookingsPage() {
         }
       } else {
         // ✅ For completed bookings, calculate RAW advanced pricing then apply adjustments
-        console.log(`⚡ Calculating RAW advanced pricing for completed booking ${booking.bookingId}...`);
         const rawAdvancedAmount = calculateRawAdvancedPricing(booking);
         const finalAmount = Math.max(0, rawAdvancedAmount.totalAmount - discountAmount + additionalCharges);
         
@@ -383,41 +452,24 @@ export default function ThemedAllBookingsPage() {
         const discountAmount = booking.discountAmount || 0;
         const additionalCharges = booking.additionalCharges || 0;
         
-        if (booking.status === 'cancelled') {
-          setAdvancedPricing(prev => ({
-            ...prev,
-            [bookingId]: {
-              rawAmount: 0,
-              finalAmount: 0,
-              discountAmount: discountAmount,
-              additionalCharges: additionalCharges,
-              breakdown: [],
-              totalMinutes: 0,
-              summary: 'Cancelled - No charge',
-              isCustomBooking: booking.isCustomBooking || false,
-              paymentMethod: booking.paymentMethod || null
-            }
-          }));
-        } else {
-          const fallbackAmount = calculateSimpleAmount(booking);
-          const finalAmount = Math.max(0, fallbackAmount - discountAmount + additionalCharges);
-          
-          setAdvancedPricing(prev => ({
-            ...prev,
-            [bookingId]: {
-              rawAmount: fallbackAmount,
-              finalAmount: finalAmount,
-              discountAmount: discountAmount,
-              additionalCharges: additionalCharges,
-              breakdown: [],
-              totalMinutes: 0,
-              summary: 'Error - using fallback',
-              isCustomBooking: booking.isCustomBooking || false,
-              hasAdjustments: discountAmount > 0 || additionalCharges > 0,
-              paymentMethod: booking.paymentMethod || null
-            }
-          }));
-        }
+        const fallbackAmount = calculateSimpleAmount(booking);
+        const finalAmount = Math.max(0, fallbackAmount - discountAmount + additionalCharges);
+        
+        setAdvancedPricing(prev => ({
+          ...prev,
+          [bookingId]: {
+            rawAmount: fallbackAmount,
+            finalAmount: finalAmount,
+            discountAmount: discountAmount,
+            additionalCharges: additionalCharges,
+            breakdown: [],
+            totalMinutes: 0,
+            summary: 'Error - using fallback',
+            isCustomBooking: booking.isCustomBooking || false,
+            hasAdjustments: discountAmount > 0 || additionalCharges > 0,
+            paymentMethod: booking.paymentMethod || null
+          }
+        }));
       }
     } finally {
       setPricingLoading(prev => ({ ...prev, [bookingId]: false }));
@@ -634,41 +686,6 @@ export default function ThemedAllBookingsPage() {
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  // ✅ OPTIMIZED: Memoized page stats calculation
-  const calculatePageStats = useMemo(() => {
-    return () => {
-      const revenueBookings = bookings.filter(booking => booking.status !== 'cancelled');
-      
-      let totalRevenue = 0;
-      for (const booking of revenueBookings) {
-        const finalAmount = getFinalAmount(booking._id);
-        totalRevenue += finalAmount;
-      }
-      
-      const customBookings = bookings.filter(b => b.isCustomBooking);
-      const advancedBookings = bookings.filter(b => !b.isCustomBooking);
-
-      return {
-        totalBookings: bookings.length,
-        activeRentals: bookings.filter(b => b.status === 'active').length,
-        completed: bookings.filter(b => b.status === 'completed').length,
-        cancelled: bookings.filter(b => b.status === 'cancelled').length,
-        withSignatures: bookings.filter(b => b.signature).length,
-        totalRevenue: Math.round(totalRevenue),
-        customBookings: customBookings.length,
-        advancedBookings: advancedBookings.length
-      };
-    };
-  }, [bookings, getFinalAmount]);
-
-  // ✅ OPTIMIZED: Use totalStats from API with memoization
-  const stats = useMemo(() => {
-    if (Object.keys(totalStats).length > 0) {
-      return totalStats;
-    }
-    return calculatePageStats();
-  }, [totalStats, calculatePageStats]);
-
   // ✅ NEW: Clear all filters function
   const clearAllFilters = () => {
     setSearchInput('');
@@ -743,19 +760,19 @@ export default function ThemedAllBookingsPage() {
           </p>
         </div>
 
-        {/* ✅ ENHANCED: Updated Stats Row with total stats from API */}
+        {/* ✅ ENHANCED: Updated Stats Row with total stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <ThemedStatsCard
             title="Total Bookings"
-            value={statsLoading ? "..." : stats.totalBookings}
-            subtitle={statsLoading ? "Loading..." : `${stats.advancedBookings} Advanced + ${stats.customBookings} Custom`}
+            value={totalStats.totalBookings}
+            subtitle={`${totalStats.advancedBookings} Advanced + ${totalStats.customBookings} Custom`}
             colorScheme="bookings"
             icon={<div className="text-4xl mb-2">📋</div>}
           />
           
           <ThemedStatsCard
             title="Active Rentals"
-            value={statsLoading ? "..." : stats.activeRentals}
+            value={totalStats.activeRentals}
             subtitle="Currently out"
             colorScheme="revenue"
             icon={<div className="text-4xl mb-2">🚴</div>}
@@ -763,7 +780,7 @@ export default function ThemedAllBookingsPage() {
           
           <ThemedStatsCard
             title="Completed"
-            value={statsLoading ? "..." : stats.completed}
+            value={totalStats.completed}
             subtitle="Successfully returned"
             colorScheme="customers"
             icon={<div className="text-4xl mb-2">✅</div>}
@@ -771,14 +788,14 @@ export default function ThemedAllBookingsPage() {
 
           <ThemedStatsCard
             title="Total Revenue"
-            value={statsLoading ? "..." : `₹${stats.totalRevenue.toLocaleString('en-IN')}`}
+            value={`₹${totalStats.totalRevenue.toLocaleString('en-IN')}`}
             subtitle="Both pricing systems"
             colorScheme="revenue"
             icon={<div className="text-4xl mb-2">💰</div>}
           />
         </div>
 
-        {/* ✅ ENHANCED: Updated Filters Section */}
+        {/* ✅ WORKING: Updated Filters Section */}
         <ThemedCard title="Search & Filters" description="Find specific bookings quickly" className="mb-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
             {/* ✅ OPTIMIZED: Search input with debouncing */}
@@ -815,7 +832,7 @@ export default function ThemedAllBookingsPage() {
               ]}
             />
 
-            {/* ✅ NEW: Payment Method Filter */}
+            {/* ✅ WORKING: Payment Method Filter */}
             <ThemedSelect
               label="Payment Method"
               value={paymentFilter}
@@ -828,7 +845,7 @@ export default function ThemedAllBookingsPage() {
               ]}
             />
 
-            {/* ✅ ENHANCED: Date Range Filter */}
+            {/* ✅ WORKING: Date Range Filter */}
             <ThemedSelect
               label="Date Range"
               value={useCustomDate ? 'custom' : dateFilter}
@@ -845,14 +862,14 @@ export default function ThemedAllBookingsPage() {
               options={[
                 { value: 'all', label: 'All Time' },
                 { value: 'today', label: 'Today' },
-                { value: 'yesterday', label: 'Yesterday' }, // ✅ NEW
+                { value: 'yesterday', label: 'Yesterday' }, // ✅ WORKING
                 { value: 'week', label: 'This Week' },
                 { value: 'month', label: 'This Month' },
-                { value: 'custom', label: '📅 Custom Date Range' } // ✅ NEW
+                { value: 'custom', label: '📅 Custom Date Range' } // ✅ WORKING
               ]}
             />
 
-            {/* ✅ NEW: Custom Date Range Inputs */}
+            {/* ✅ WORKING: Custom Date Range Inputs */}
             {useCustomDate && (
               <>
                 <div className="space-y-2">
@@ -907,7 +924,7 @@ export default function ThemedAllBookingsPage() {
             </ThemedButton>
             <ThemedButton 
               variant="primary" 
-              onClick={() => { fetchBookings(); fetchTotalStats(); }}
+              onClick={() => fetchBookings()}
             >
               🔄 Refresh
             </ThemedButton>
@@ -939,7 +956,7 @@ export default function ThemedAllBookingsPage() {
         </ThemedCard>
 
         {/* Bookings Table */}
-        <ThemedCard title="📋 Booking Records" description={`Showing ${bookings.length} bookings with dual pricing system`}>
+        <ThemedCard title="📋 Booking Records" description={`Showing ${bookings.length} bookings (${totalStats.totalBookings} total after filters)`}>
           {bookings.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-6xl mb-4">📋</div>
@@ -1239,7 +1256,7 @@ export default function ThemedAllBookingsPage() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-700">
               <div className="text-gray-400">
-                Page {currentPage} of {totalPages}
+                Page {currentPage} of {totalPages} ({totalStats.totalBookings} total filtered)
               </div>
               <div className="flex gap-2">
                 <ThemedButton
