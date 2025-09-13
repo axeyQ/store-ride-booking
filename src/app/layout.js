@@ -3,6 +3,7 @@ import './globals.css'
 import { BusinessErrorBoundary } from '@/components/BusinessErrorBoundary'
 import ServiceRegistry from '@/lib/serviceRegistry'
 import { Analytics } from "@vercel/analytics/next"
+import { SpeedInsights } from "@vercel/speed-insights/next"
 export const metadata = {
   title: 'MR Travels - Bike Rental System',
   description: 'Digital bike and scooter rental management system with enhanced pricing engine',
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
           </ServiceInitializer>
         </BusinessErrorBoundary>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
