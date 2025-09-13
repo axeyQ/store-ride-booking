@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import {
   ThemedLayout,
@@ -43,9 +43,22 @@ export default function ThemedAllBookingsPage() {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [searchTerm, setSearchTerm] = useState('');
+  
+  // ✅ OPTIMIZED: Separate display and search states for debouncing
+  const [searchInput, setSearchInput] = useState(''); // What user types
+  const [searchTerm, setSearchTerm] = useState(''); // What gets sent to API (debounced)
+  
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
+  
+  // ✅ NEW: Payment method filter
+  const [paymentFilter, setPaymentFilter] = useState('all');
+  
+  // ✅ NEW: Custom date filter
+  const [customDateFrom, setCustomDateFrom] = useState('');
+  const [customDateTo, setCustomDateTo] = useState('');
+  const [useCustomDate, setUseCustomDate] = useState(false);
+  
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
   const [showSignatures, setShowSignatures] = useState(true);
@@ -67,10 +80,21 @@ export default function ThemedAllBookingsPage() {
   
   const itemsPerPage = 20;
 
+  // ✅ OPTIMIZED: Debounced search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput);
+      setCurrentPage(1); // Reset to first page when search changes
+    }, 500); // 500ms debounce delay
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // ✅ OPTIMIZED: Remove searchTerm from immediate dependencies
   useEffect(() => {
     fetchBookings();
-    fetchTotalStats(); // ✅ NEW: Fetch total stats separately
-  }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm]);
+    fetchTotalStats();
+  }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm, paymentFilter, useCustomDate, customDateFrom, customDateTo]);
 
   // Fetch pricing for all bookings (both advanced and custom)
   useEffect(() => {
@@ -79,18 +103,28 @@ export default function ThemedAllBookingsPage() {
     }
   }, [bookings]);
 
-  const fetchBookings = async () => {
+  // ✅ OPTIMIZED: Memoized fetch functions
+  const fetchBookings = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams({
         page: currentPage,
         limit: itemsPerPage,
-        search: searchTerm,
+        search: searchTerm, // Use debounced search term
         status: statusFilter,
-        dateFilter: dateFilter,
+        dateFilter: useCustomDate ? 'custom' : dateFilter,
         sortBy: sortBy,
-        sortOrder: sortOrder
+        sortOrder: sortOrder,
+        paymentMethod: paymentFilter // ✅ NEW: Payment filter
       });
+
+      // ✅ NEW: Add custom date parameters
+      if (useCustomDate && customDateFrom) {
+        params.append('customDateFrom', customDateFrom);
+      }
+      if (useCustomDate && customDateTo) {
+        params.append('customDateTo', customDateTo);
+      }
 
       const response = await fetch(`/api/admin/all-bookings?${params}`);
       const data = await response.json();
@@ -113,18 +147,27 @@ export default function ThemedAllBookingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentPage, statusFilter, dateFilter, sortBy, sortOrder, searchTerm, paymentFilter, useCustomDate, customDateFrom, customDateTo]);
 
-  // ✅ NEW: Fetch total stats for all bookings matching current filters
-  const fetchTotalStats = async () => {
+  // ✅ OPTIMIZED: Memoized fetchTotalStats
+  const fetchTotalStats = useCallback(async () => {
     try {
       setStatsLoading(true);
       const params = new URLSearchParams({
-        search: searchTerm,
+        search: searchTerm, // Use debounced search term
         status: statusFilter,
-        dateFilter: dateFilter,
-        statsOnly: 'true' // ✅ NEW: Tell API we only want stats
+        dateFilter: useCustomDate ? 'custom' : dateFilter,
+        paymentMethod: paymentFilter, // ✅ NEW: Payment filter
+        statsOnly: 'true'
       });
+
+      // ✅ NEW: Add custom date parameters
+      if (useCustomDate && customDateFrom) {
+        params.append('customDateFrom', customDateFrom);
+      }
+      if (useCustomDate && customDateTo) {
+        params.append('customDateTo', customDateTo);
+      }
 
       const response = await fetch(`/api/admin/all-bookings-stats?${params}`);
       const data = await response.json();
@@ -133,17 +176,15 @@ export default function ThemedAllBookingsPage() {
         setTotalStats(data.stats);
       } else {
         console.error('Error fetching total stats:', data.error);
-        // Fallback: calculate stats from current page only
         setTotalStats(calculatePageStats());
       }
     } catch (error) {
       console.error('Error fetching total stats:', error);
-      // Fallback: calculate stats from current page only
       setTotalStats(calculatePageStats());
     } finally {
       setStatsLoading(false);
     }
-  };
+  }, [statusFilter, dateFilter, searchTerm, paymentFilter, useCustomDate, customDateFrom, customDateTo]);
 
   // ✅ CRITICAL FIX: Separate pricing calculation that doesn't double-apply adjustments
   const fetchPricingForBookings = async () => {
@@ -506,27 +547,25 @@ export default function ThemedAllBookingsPage() {
     return Math.max(hours * 80, 80); // Minimum ₹80
   };
 
-  // ✅ FIXED: Get final amount (raw + adjustments)
-  const getFinalAmount = (bookingId) => {
+  // ✅ OPTIMIZED: Memoized pricing functions
+  const getFinalAmount = useCallback((bookingId) => {
     const pricing = advancedPricing[bookingId];
     return pricing ? pricing.finalAmount : 0;
-  };
+  }, [advancedPricing]);
 
-  // ✅ NEW: Get raw amount (before adjustments)
-  const getRawAmount = (bookingId) => {
+  const getRawAmount = useCallback((bookingId) => {
     const pricing = advancedPricing[bookingId];
     return pricing ? pricing.rawAmount : 0;
-  };
+  }, [advancedPricing]);
 
-  // ✅ NEW: Get payment method
-  const getPaymentMethod = (bookingId) => {
+  const getPaymentMethod = useCallback((bookingId) => {
     const pricing = advancedPricing[bookingId];
     return pricing?.paymentMethod || null;
-  };
+  }, [advancedPricing]);
 
-  const isPricingLoading = (bookingId) => {
+  const isPricingLoading = useCallback((bookingId) => {
     return pricingLoading[bookingId] || false;
-  };
+  }, [pricingLoading]);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -595,48 +634,53 @@ export default function ThemedAllBookingsPage() {
     return <span className="text-cyan-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  // ✅ FIXED: Correct page stats calculation using final amounts
-  const calculatePageStats = () => {
-    // Filter out cancelled bookings from revenue calculation
-    const revenueBookings = bookings.filter(booking => booking.status !== 'cancelled');
-    
-    // ✅ CRITICAL FIX: Use final amounts (which include adjustments properly applied)
-    let totalRevenue = 0;
-
-    for (const booking of revenueBookings) {
-      const finalAmount = getFinalAmount(booking._id);
-      totalRevenue += finalAmount;
+  // ✅ OPTIMIZED: Memoized page stats calculation
+  const calculatePageStats = useMemo(() => {
+    return () => {
+      const revenueBookings = bookings.filter(booking => booking.status !== 'cancelled');
       
-      console.log(`📊 Frontend stats for ${booking.bookingId}:`, {
-        finalAmount: finalAmount,
-        status: booking.status,
-        isCustomBooking: booking.isCustomBooking
-      });
-    }
-    
-    console.log('📊 Frontend Page Stats Calculation (Correct Final Amounts):', {
-      finalTotalRevenue: Math.round(totalRevenue),
-      revenueBookings: revenueBookings.length
-    });
+      let totalRevenue = 0;
+      for (const booking of revenueBookings) {
+        const finalAmount = getFinalAmount(booking._id);
+        totalRevenue += finalAmount;
+      }
+      
+      const customBookings = bookings.filter(b => b.isCustomBooking);
+      const advancedBookings = bookings.filter(b => !b.isCustomBooking);
 
-    // ✅ NEW: Separate stats for booking types
-    const customBookings = bookings.filter(b => b.isCustomBooking);
-    const advancedBookings = bookings.filter(b => !b.isCustomBooking);
-
-    return {
-      totalBookings: bookings.length,
-      activeRentals: bookings.filter(b => b.status === 'active').length,
-      completed: bookings.filter(b => b.status === 'completed').length,
-      cancelled: bookings.filter(b => b.status === 'cancelled').length,
-      withSignatures: bookings.filter(b => b.signature).length,
-      totalRevenue: Math.round(totalRevenue), // ✅ Correct final amounts
-      customBookings: customBookings.length,
-      advancedBookings: advancedBookings.length
+      return {
+        totalBookings: bookings.length,
+        activeRentals: bookings.filter(b => b.status === 'active').length,
+        completed: bookings.filter(b => b.status === 'completed').length,
+        cancelled: bookings.filter(b => b.status === 'cancelled').length,
+        withSignatures: bookings.filter(b => b.signature).length,
+        totalRevenue: Math.round(totalRevenue),
+        customBookings: customBookings.length,
+        advancedBookings: advancedBookings.length
+      };
     };
-  };
+  }, [bookings, getFinalAmount]);
 
-  // ✅ NEW: Use totalStats from API instead of calculating from current page
-  const stats = totalStats;
+  // ✅ OPTIMIZED: Use totalStats from API with memoization
+  const stats = useMemo(() => {
+    if (Object.keys(totalStats).length > 0) {
+      return totalStats;
+    }
+    return calculatePageStats();
+  }, [totalStats, calculatePageStats]);
+
+  // ✅ NEW: Clear all filters function
+  const clearAllFilters = () => {
+    setSearchInput('');
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDateFilter('all');
+    setPaymentFilter('all');
+    setUseCustomDate(false);
+    setCustomDateFrom('');
+    setCustomDateTo('');
+    setCurrentPage(1);
+  };
 
   // Signature Modal Component - Themed Style
   const SignatureModal = ({ signature, onClose }) => {
@@ -734,15 +778,30 @@ export default function ThemedAllBookingsPage() {
           />
         </div>
 
-        {/* Filters Section */}
+        {/* ✅ ENHANCED: Updated Filters Section */}
         <ThemedCard title="Search & Filters" description="Find specific bookings quickly" className="mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
-            <ThemedInput
-              label="Search Bookings"
-              placeholder="Booking ID, customer name, phone..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+            {/* ✅ OPTIMIZED: Search input with debouncing */}
+            <div className="space-y-2">
+              <ThemedInput
+                label="Search Bookings"
+                placeholder="Booking ID, customer name, phone..."
+                value={searchInput} // Use display search input
+                onChange={(e) => setSearchInput(e.target.value)} // Update display value immediately
+              />
+              {/* ✅ NEW: Search status indicators */}
+              {searchInput !== searchTerm && (
+                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b border-cyan-400"></div>
+                  <span>Searching...</span>
+                </div>
+              )}
+              {searchTerm && (
+                <div className="text-sm text-cyan-400">
+                  🔍 Searching for: "{searchTerm}"
+                </div>
+              )}
+            </div>
             
             <ThemedSelect
               label="Status Filter"
@@ -756,18 +815,74 @@ export default function ThemedAllBookingsPage() {
               ]}
             />
 
+            {/* ✅ NEW: Payment Method Filter */}
             <ThemedSelect
-              label="Date Range"
-              value={dateFilter}
-              onValueChange={(value) => { setDateFilter(value); setCurrentPage(1); }}
+              label="Payment Method"
+              value={paymentFilter}
+              onValueChange={(value) => { setPaymentFilter(value); setCurrentPage(1); }}
               options={[
-                { value: 'all', label: 'All Time' },
-                { value: 'today', label: 'Today' },
-                { value: 'week', label: 'This Week' },
-                { value: 'month', label: 'This Month' }
+                { value: 'all', label: 'All Payments' },
+                { value: 'cash', label: '💵 Cash Only' },
+                { value: 'upi', label: '📱 UPI Only' },
+                { value: 'pending', label: '⏳ Pending Payment' }
               ]}
             />
 
+            {/* ✅ ENHANCED: Date Range Filter */}
+            <ThemedSelect
+              label="Date Range"
+              value={useCustomDate ? 'custom' : dateFilter}
+              onValueChange={(value) => { 
+                if (value === 'custom') {
+                  setUseCustomDate(true);
+                  setDateFilter('all');
+                } else {
+                  setUseCustomDate(false);
+                  setDateFilter(value);
+                }
+                setCurrentPage(1);
+              }}
+              options={[
+                { value: 'all', label: 'All Time' },
+                { value: 'today', label: 'Today' },
+                { value: 'yesterday', label: 'Yesterday' }, // ✅ NEW
+                { value: 'week', label: 'This Week' },
+                { value: 'month', label: 'This Month' },
+                { value: 'custom', label: '📅 Custom Date Range' } // ✅ NEW
+              ]}
+            />
+
+            {/* ✅ NEW: Custom Date Range Inputs */}
+            {useCustomDate && (
+              <>
+                <div className="space-y-2">
+                  <label className="block text-lg font-semibold text-white">From Date</label>
+                  <input
+                    type="date"
+                    value={customDateFrom}
+                    onChange={(e) => {
+                      setCustomDateFrom(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-lg font-semibold text-white">To Date</label>
+                  <input
+                    type="date"
+                    value={customDateTo}
+                    onChange={(e) => {
+                      setCustomDateTo(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Options */}
             <div className="space-y-2">
               <label className="block text-lg font-semibold text-white">Options</label>
               <label className="flex items-center space-x-3 cursor-pointer">
@@ -782,21 +897,44 @@ export default function ThemedAllBookingsPage() {
             </div>
           </div>
 
-          <div className="flex gap-4">
+          {/* ✅ ENHANCED: Filter action buttons */}
+          <div className="flex gap-4 flex-wrap">
             <ThemedButton
               variant="secondary"
-              onClick={() => {
-                setSearchTerm('');
-                setStatusFilter('all');
-                setDateFilter('all');
-                setCurrentPage(1);
-              }}
+              onClick={clearAllFilters}
             >
-              Clear Filters
+              Clear All Filters
             </ThemedButton>
-            <ThemedButton variant="primary" onClick={() => { fetchBookings(); fetchTotalStats(); }}>
+            <ThemedButton 
+              variant="primary" 
+              onClick={() => { fetchBookings(); fetchTotalStats(); }}
+            >
               🔄 Refresh
             </ThemedButton>
+            
+            {/* ✅ NEW: Active filter indicators */}
+            <div className="flex items-center gap-2 ml-4">
+              {searchTerm && (
+                <ThemedBadge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30">
+                  Search: {searchTerm}
+                </ThemedBadge>
+              )}
+              {statusFilter !== 'all' && (
+                <ThemedBadge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+                  Status: {statusFilter}
+                </ThemedBadge>
+              )}
+              {paymentFilter !== 'all' && (
+                <ThemedBadge className="bg-green-500/20 text-green-400 border-green-500/30">
+                  Payment: {paymentFilter}
+                </ThemedBadge>
+              )}
+              {(dateFilter !== 'all' || useCustomDate) && (
+                <ThemedBadge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+                  Date: {useCustomDate ? 'Custom Range' : dateFilter}
+                </ThemedBadge>
+              )}
+            </div>
           </div>
         </ThemedCard>
 
@@ -807,7 +945,7 @@ export default function ThemedAllBookingsPage() {
               <div className="text-6xl mb-4">📋</div>
               <h3 className="text-2xl font-bold text-white mb-4">No Bookings Found</h3>
               <p className="text-gray-400 mb-8">
-                {searchTerm || statusFilter !== 'all' || dateFilter !== 'all'
+                {searchTerm || statusFilter !== 'all' || dateFilter !== 'all' || paymentFilter !== 'all' || useCustomDate
                   ? 'Try adjusting your search or filter criteria'
                   : 'No bookings have been created yet'}
               </p>
@@ -858,7 +996,6 @@ export default function ThemedAllBookingsPage() {
                     <th className="text-left py-4 px-4 font-semibold text-gray-400">
                       Amount
                     </th>
-                    {/* ✅ NEW: Payment Method Column */}
                     <th className="text-left py-4 px-4 font-semibold text-gray-400">
                       Payment
                     </th>
@@ -1009,7 +1146,7 @@ export default function ThemedAllBookingsPage() {
                             </div>
                           )}
                         </td>
-                        {/* ✅ NEW: Payment Method Column */}
+                        {/* Payment Method Column */}
                         <td className="py-4 px-4">
                           {booking.status === 'cancelled' ? (
                             <div className="text-gray-500 text-sm">

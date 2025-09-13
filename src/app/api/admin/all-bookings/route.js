@@ -11,7 +11,10 @@ export async function GET(request) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
     const status = searchParams.get('status') || 'all';
+    const paymentMethod = searchParams.get('paymentMethod') || 'all';
     const dateFilter = searchParams.get('dateFilter') || 'all';
+    const customDateFrom = searchParams.get('customDateFrom') || '';
+    const customDateTo = searchParams.get('customDateTo') || '';
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     
