@@ -639,38 +639,93 @@ export default function EnhancedActiveBookingsPage() {
     const eligibility = getChangeEligibilityReason(booking);
     const withinCancellationWindow = isWithinCancellationWindow(booking);
 
+    // 🚀 NEW: Multiple driver detection
+    const hasMultipleDrivers = booking.actualDriver && !booking.actualDriver.isSameAsLicenseHolder;
+    const driverName = hasMultipleDrivers ? booking.actualDriver.name : booking.customerId.name;
+    const driverPhone = hasMultipleDrivers ? booking.actualDriver.phone : booking.customerId.phone;
+    const licenseHolderName = booking.customerId.name;
+    const licenseHolderPhone = booking.customerId.phone;
+
     const cardClassName = cn(
       "hover:scale-105 transition-all duration-300 border-2",
-      booking.isCustomBooking 
-        ? "border-purple-600/50 hover:border-purple-500/70 bg-gradient-to-br from-purple-900/10 to-purple-800/5"
-        : "border-blue-600/50 hover:border-blue-500/70 bg-gradient-to-br from-blue-900/10 to-blue-800/5"
+      hasMultipleDrivers
+        ? "border-orange-600/50 hover:border-orange-500/70 bg-gradient-to-br from-orange-900/10 to-red-800/5"
+        : booking.isCustomBooking 
+          ? "border-purple-600/50 hover:border-purple-500/70 bg-gradient-to-br from-purple-900/10 to-purple-800/5"
+          : "border-blue-600/50 hover:border-blue-500/70 bg-gradient-to-br from-blue-900/10 to-blue-800/5"
     );
 
     return (
       <ThemedCard className={cardClassName}>
         <div className="p-6">
-          {/* Header */}
+          {/* Header - UPDATED to show actual driver */}
           <div className="flex justify-between items-start mb-6">
             <div>
-              <h3 className="text-xl font-bold text-white">
-                {booking.customerId.name}
-              </h3>
-              <div className="flex items-center gap-2">
-                <p className="text-gray-400">{booking.customerId.phone}</p>
+              {/* 🚀 NEW: Show actual driver prominently */}
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="text-xl font-bold text-white">
+                  {driverName}
+                </h3>
+                {hasMultipleDrivers && (
+                  <div className="flex items-center gap-1">
+                    <ThemedBadge className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+                      🚗 Actual Driver
+                    </ThemedBadge>
+                  </div>
+                )}
+              </div>
+
+              {/* 🚀 NEW: Driver contact info with quick call */}
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-gray-400">{driverPhone}</p>
                 <button
-                  onClick={() => handleDirectCall(booking, 'quick_call')}
+                  onClick={() => handleDirectCall({ customer: { phone: driverPhone } }, 'quick_call')}
                   className="text-green-400 hover:text-green-300 transition-colors"
-                  title="Quick call"
+                  title={`Call ${hasMultipleDrivers ? 'actual driver' : 'customer'}`}
                 >
                   📞
                 </button>
+                {hasMultipleDrivers && (
+                  <span className="text-orange-300 text-sm">
+                    ({booking.actualDriver.relationToLicenseHolder})
+                  </span>
+                )}
               </div>
+
+              {/* 🚀 NEW: License holder info when different */}
+              {hasMultipleDrivers && (
+                <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-3 mb-2">
+                  <div className="text-amber-200 text-sm font-medium mb-1">
+                    📋 License Holder (Legal Responsibility)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-amber-300">{licenseHolderName}</span>
+                    <span className="text-amber-400">•</span>
+                    <span className="text-amber-400">{licenseHolderPhone}</span>
+                    <button
+                      onClick={() => handleDirectCall({ customer: { phone: licenseHolderPhone } }, 'license_holder_call')}
+                      className="text-amber-400 hover:text-amber-300 transition-colors ml-1"
+                      title="Call license holder"
+                    >
+                      📞
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <p className="text-sm text-gray-500 font-mono">ID: {booking.bookingId}</p>
             </div>
             <div className="flex flex-col items-end gap-2">
               <ThemedBadge status="active">
                 🔴 LIVE
               </ThemedBadge>
+              
+              {/* 🚀 NEW: Multiple driver indicator */}
+              {hasMultipleDrivers && (
+                <ThemedBadge className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+                  👥 Multiple Driver
+                </ThemedBadge>
+              )}
               
               <SafeBookingTypeBadge booking={booking} />
             </div>
@@ -693,6 +748,31 @@ export default function EnhancedActiveBookingsPage() {
               </div>
             </div>
           </div>
+
+          {/* 🚀 NEW: Multiple Driver Warning Section */}
+          {hasMultipleDrivers && (
+            <div className="bg-orange-900/20 border border-orange-700/30 rounded-lg p-4 mb-6">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-orange-400">⚠️</span>
+                <span className="text-orange-300 font-semibold">Multiple Driver Active</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-orange-200 font-medium">🚗 Who Has Vehicle:</div>
+                  <div className="text-orange-100">{booking.actualDriver.name}</div>
+                  <div className="text-orange-300">📞 {booking.actualDriver.phone}</div>
+                </div>
+                <div>
+                  <div className="text-orange-200 font-medium">📋 Legal Responsibility:</div>
+                  <div className="text-orange-100">{licenseHolderName}</div>
+                  <div className="text-orange-300">📞 {licenseHolderPhone}</div>
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-orange-400">
+                💰 Enhanced security: ₹{booking.securityDepositAmount} deposit collected
+              </div>
+            </div>
+          )}
 
           {/* Estimated Return Time Section */}
           <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-4 mb-6">
@@ -721,13 +801,26 @@ export default function EnhancedActiveBookingsPage() {
               <div className="text-right">
                 <EstimatedReturnStatus booking={booking} currentTime={currentTime} />
                 
-                <div className="mt-2">
+                <div className="mt-2 flex gap-2">
+                  {/* 🚀 NEW: Smart call button - calls actual driver */}
                   <button
-                    onClick={() => handleDirectCall(booking)}
+                    onClick={() => handleDirectCall({ customer: { phone: driverPhone } })}
                     className="inline-flex items-center px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+                    title={`Call ${hasMultipleDrivers ? 'actual driver' : 'customer'}`}
                   >
-                    📞 Call
+                    📞 Call {hasMultipleDrivers ? 'Driver' : 'Customer'}
                   </button>
+                  
+                  {/* 🚀 NEW: Additional call license holder button for multiple drivers */}
+                  {hasMultipleDrivers && (
+                    <button
+                      onClick={() => handleDirectCall({ customer: { phone: licenseHolderPhone } })}
+                      className="inline-flex items-center px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded-lg transition-colors"
+                      title="Call license holder"
+                    >
+                      📞 License Holder
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -809,12 +902,23 @@ export default function EnhancedActiveBookingsPage() {
                       {progress.overtimeHours}h {progress.overtimeMinutes}m past deadline
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDirectCall(booking, 'overdue_reminder')}
-                    className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-                  >
-                    📞 Call Customer (Overdue)
-                  </button>
+                  {/* 🚀 NEW: Smart overdue calling for multiple drivers */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDirectCall({ customer: { phone: driverPhone } }, 'overdue_reminder')}
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      📞 Call {hasMultipleDrivers ? 'Driver' : 'Customer'} (Overdue)
+                    </button>
+                    {hasMultipleDrivers && (
+                      <button
+                        onClick={() => handleDirectCall({ customer: { phone: licenseHolderPhone } }, 'overdue_reminder')}
+                        className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        📞 Call License Holder
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -882,19 +986,34 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           </div>
 
-          {/* Safety Checklist Status */}
+          {/* 🚀 NEW: Enhanced Safety Checklist Status with Multiple Driver Info */}
           <div className="mb-6">
             <h4 className="text-sm font-medium text-gray-400 mb-3">Safety Checklist</h4>
-            <div className="flex items-center justify-between text-sm">
-              <span className={`flex items-center gap-1 ${booking.helmetProvided ? 'text-green-400' : 'text-red-400'}`}>
-                {booking.helmetProvided ? '✅' : '❌'} Helmet
-              </span>
-              <span className={`flex items-center gap-1 ${booking.aadharCardCollected ? 'text-green-400' : 'text-red-400'}`}>
-                {booking.aadharCardCollected ? '✅' : '❌'} Aadhar
-              </span>
-              <span className={`flex items-center gap-1 ${booking.vehicleInspected ? 'text-green-400' : 'text-red-400'}`}>
-                {booking.vehicleInspected ? '✅' : '❌'} Inspected
-              </span>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="space-y-2">
+                <span className={`flex items-center gap-1 ${booking.helmetProvided ? 'text-green-400' : 'text-red-400'}`}>
+                  {booking.helmetProvided ? '✅' : '❌'} Helmet
+                </span>
+                <span className={`flex items-center gap-1 ${booking.aadharCardCollected ? 'text-green-400' : 'text-red-400'}`}>
+                  {booking.aadharCardCollected ? '✅' : '❌'} Aadhar
+                </span>
+                <span className={`flex items-center gap-1 ${booking.vehicleInspected ? 'text-green-400' : 'text-red-400'}`}>
+                  {booking.vehicleInspected ? '✅' : '❌'} Inspected
+                </span>
+              </div>
+              {hasMultipleDrivers && (
+                <div className="space-y-2">
+                  <span className="flex items-center gap-1 text-orange-400">
+                    👥 Multiple Drivers
+                  </span>
+                  <span className="flex items-center gap-1 text-orange-400">
+                    💰 Enhanced Deposit
+                  </span>
+                  <span className="flex items-center gap-1 text-orange-400">
+                    🆔 {booking.actualDriver.alternateId ? 'Alt ID Collected' : 'Alt ID Missing'}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
