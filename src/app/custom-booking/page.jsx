@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import TermsModal from '@/components/TermsModal';
@@ -23,7 +23,24 @@ const CUSTOM_RATES = {
   night: { label: 'Night Package (10 PM to 9 AM)', price: 600, maxHours: 11 }
 };
 
-export default function EnhancedCustomBookingPage() {
+// Loading component for Suspense boundary
+function CustomBookingLoading() {
+  return (
+    <ThemedLayout>
+      <div className="min-h-screen flex items-center justify-center">
+        <ThemedCard>
+          <div className="flex items-center space-x-3 p-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+            <span className="text-white text-xl">Loading custom booking...</span>
+          </div>
+        </ThemedCard>
+      </div>
+    </ThemedLayout>
+  );
+}
+
+// Main component that uses useSearchParams
+function CustomBookingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentStep, setCurrentStep] = useState(1);
@@ -238,7 +255,7 @@ export default function EnhancedCustomBookingPage() {
     if (customerId) {
       fetchCustomerDetails(customerId);
     }
-  }, []);
+  }, [searchParams]);
 
   // Calculate start time when settings change
   useEffect(() => {
@@ -812,7 +829,7 @@ export default function EnhancedCustomBookingPage() {
           </ThemedCard>
         )}
 
-        {/* Step 3: Customer Information (Same as normal booking) */}
+        {/* Step 3: Customer Information (Enhanced with autocomplete and conflict detection) */}
         {currentStep === 3 && (
           <div className="space-y-8">
             <ThemedCard title="License Holder Information">
@@ -1108,7 +1125,7 @@ export default function EnhancedCustomBookingPage() {
           </div>
         )}
 
-        {/* Step 4: Pre-Rental Checklist (Same as normal booking with multiple driver support) */}
+        {/* Step 4: Pre-Rental Checklist */}
         {currentStep === 4 && (
           <ThemedCard title="Pre-Rental Checklist">
             <div className="space-y-6">
@@ -1574,5 +1591,14 @@ export default function EnhancedCustomBookingPage() {
         </div>
       </div>
     </ThemedLayout>
+  );
+}
+
+// Main export with Suspense wrapper
+export default function EnhancedCustomBookingPage() {
+  return (
+    <Suspense fallback={<CustomBookingLoading />}>
+      <CustomBookingContent />
+    </Suspense>
   );
 }
