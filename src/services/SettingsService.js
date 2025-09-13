@@ -236,16 +236,25 @@ export class SettingsService {
     static async calculateRentalStartTime(bookingTime = new Date()) {
       try {
         const settings = await this.getSettings();
-        const delayMinutes = settings.startDelayMinutes || 5;
         const roundToMinutes = settings.roundToNearestMinutes || 5;
         
-        // Add delay to booking time
-        const startTime = new Date(bookingTime.getTime() + (delayMinutes * 60 * 1000));
+        // 🚀 NEW LOGIC: Round UP to next 5-minute interval (no delay added)
+        const startTime = new Date(bookingTime);
         
-        // Round to nearest specified minutes if requested
         if (roundToMinutes > 1) {
           const minutes = startTime.getMinutes();
-          const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
+          const seconds = startTime.getSeconds();
+          const milliseconds = startTime.getMilliseconds();
+          
+          // If we're exactly on a 5-minute mark with no seconds, use next interval
+          let roundedMinutes;
+          if (minutes % roundToMinutes === 0 && seconds === 0 && milliseconds === 0) {
+            // Exactly on the mark - go to next interval
+            roundedMinutes = minutes + roundToMinutes;
+          } else {
+            // Not exactly on mark - round up to next interval
+            roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
+          }
           
           // Handle hour overflow
           if (roundedMinutes >= 60) {
@@ -255,17 +264,25 @@ export class SettingsService {
             startTime.setMinutes(roundedMinutes, 0, 0);
           }
         } else {
+          // No rounding - just clean up seconds and milliseconds
           startTime.setSeconds(0, 0);
         }
         
         return startTime;
       } catch (error) {
         console.error('Error calculating rental start time:', error);
-        // Fallback: add 5 minutes and round to nearest 5
-        const fallbackStart = new Date(bookingTime.getTime() + (5 * 60 * 1000));
+        // Fallback: round up to next 5-minute mark
+        const fallbackStart = new Date(bookingTime);
         const minutes = fallbackStart.getMinutes();
         const roundedMinutes = Math.ceil(minutes / 5) * 5;
-        fallbackStart.setMinutes(roundedMinutes, 0, 0);
+        
+        if (roundedMinutes >= 60) {
+          fallbackStart.setHours(fallbackStart.getHours() + 1);
+          fallbackStart.setMinutes(0, 0, 0);
+        } else {
+          fallbackStart.setMinutes(roundedMinutes, 0, 0);
+        }
+        
         return fallbackStart;
       }
     }

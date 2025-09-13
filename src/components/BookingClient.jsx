@@ -152,16 +152,22 @@ const [checkingLicense, setCheckingLicense] = useState(false);
   // NEW: Function to calculate and display start time
   const calculateStartTime = () => {
     const now = new Date();
-    const delayMinutes = settings.startDelayMinutes || 5;
     const roundToMinutes = settings.roundToNearestMinutes || 5;
     
-    // Add delay to current time
-    const startTime = new Date(now.getTime() + (delayMinutes * 60 * 1000));
+    // NEW LOGIC: No delay added, just round UP to next interval
+    const startTime = new Date(now);
     
-    // Round to nearest specified minutes
     if (roundToMinutes > 1) {
       const minutes = startTime.getMinutes();
-      const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
+      const seconds = startTime.getSeconds();
+      const milliseconds = startTime.getMilliseconds();
+      
+      let roundedMinutes;
+      if (minutes % roundToMinutes === 0 && seconds === 0 && milliseconds === 0) {
+        roundedMinutes = minutes + roundToMinutes;
+      } else {
+        roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
+      }
       
       if (roundedMinutes >= 60) {
         startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));

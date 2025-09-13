@@ -1,37 +1,47 @@
 /**
- * Calculate rental start time with delay and rounding
+ * Calculate rental start time - UPDATED: Round to next 5-minute interval
  * @param {Date} bookingTime - The time when booking was created (defaults to now)
- * @param {number} delayMinutes - Minutes to add for customer preparation time
+ * @param {number} delayMinutes - DEPRECATED: No longer used (kept for compatibility)
  * @param {number} roundToMinutes - Round to nearest X minutes (1, 5, 10, 15, 30)
  * @returns {Date} Calculated start time
  */
 export function calculateRentalStartTime(
-    bookingTime = new Date(), 
-    delayMinutes = 5, 
-    roundToMinutes = 5
-  ) {
-    // Add delay to booking time
-    const startTime = new Date(bookingTime.getTime() + (delayMinutes * 60 * 1000));
+  bookingTime = new Date(), 
+  delayMinutes = 5, // DEPRECATED - no longer used
+  roundToMinutes = 5
+) {
+  // 🚀 NEW LOGIC: Just round UP to next interval, no delay added
+  const startTime = new Date(bookingTime);
+  
+  if (roundToMinutes > 1) {
+    const minutes = startTime.getMinutes();
+    const seconds = startTime.getSeconds();
+    const milliseconds = startTime.getMilliseconds();
     
-    // Round to nearest specified minutes if requested
-    if (roundToMinutes > 1) {
-      const minutes = startTime.getMinutes();
-      const roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
-      
-      // Handle hour overflow
-      if (roundedMinutes >= 60) {
-        startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));
-        startTime.setMinutes(roundedMinutes % 60, 0, 0); // Set seconds and milliseconds to 0
-      } else {
-        startTime.setMinutes(roundedMinutes, 0, 0); // Set seconds and milliseconds to 0
-      }
+    // If we're exactly on the interval mark, go to next interval
+    let roundedMinutes;
+    if (minutes % roundToMinutes === 0 && seconds === 0 && milliseconds === 0) {
+      // Exactly on the mark - go to next interval  
+      roundedMinutes = minutes + roundToMinutes;
     } else {
-      // Even without rounding, clean up seconds and milliseconds
-      startTime.setSeconds(0, 0);
+      // Not exactly on mark - round up to next interval
+      roundedMinutes = Math.ceil(minutes / roundToMinutes) * roundToMinutes;
     }
     
-    return startTime;
+    // Handle hour overflow
+    if (roundedMinutes >= 60) {
+      startTime.setHours(startTime.getHours() + Math.floor(roundedMinutes / 60));
+      startTime.setMinutes(roundedMinutes % 60, 0, 0);
+    } else {
+      startTime.setMinutes(roundedMinutes, 0, 0);
+    }
+  } else {
+    // No rounding - just clean up seconds and milliseconds
+    startTime.setSeconds(0, 0);
   }
+  
+  return startTime;
+}
   
   /**
    * Get start time configuration from settings API
