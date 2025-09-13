@@ -55,6 +55,10 @@ export default function EnhancedBookingClientPage() {
     alternateId: ''
   });
 
+  const [licenseConflict, setLicenseConflict] = useState(null);
+const [checkingLicense, setCheckingLicense] = useState(false);
+
+
   const [bookingData, setBookingData] = useState({
     vehicleId: '',
     selectedVehicle: null,
@@ -91,6 +95,60 @@ export default function EnhancedBookingClientPage() {
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (bookingData.customer.driverLicense && 
+          bookingData.customer.driverLicense.length >= 10 && 
+          !selectedCustomerId) { // Only check if no customer selected via autocomplete
+        checkLicenseConflict(bookingData.customer.driverLicense);
+      } else {
+        setLicenseConflict(null);
+      }
+    }, 500);
+  
+    return () => clearTimeout(timer);
+  }, [bookingData.customer.driverLicense, selectedCustomerId]);
+  
+  const checkLicenseConflict = async (licenseNumber) => {
+    if (!licenseNumber || selectedCustomerId) return;
+    
+    try {
+      setCheckingLicense(true);
+      const response = await fetch(`/api/customers/check-license?license=${encodeURIComponent(licenseNumber)}`);
+      const data = await response.json();
+      
+      if (data.success && data.exists) {
+        // License exists but customer data doesn't match current input
+        const existingCustomer = data.customer;
+        const currentInput = {
+          name: bookingData.customer.name.trim(),
+          phone: bookingData.customer.phone.trim()
+        };
+        
+        const isDataMatch = existingCustomer.name === currentInput.name && 
+                           existingCustomer.phone === currentInput.phone;
+        
+        if (!isDataMatch) {
+          setLicenseConflict({
+            exists: true,
+            existing: existingCustomer,
+            conflict: true
+          });
+        } else {
+          // Data matches, auto-select this customer
+          selectCustomer(existingCustomer);
+          setLicenseConflict(null);
+        }
+      } else {
+        setLicenseConflict(null);
+      }
+    } catch (error) {
+      console.error('Error checking license conflict:', error);
+    } finally {
+      setCheckingLicense(false);
+    }
+  };
+  
   // NEW: Function to calculate and display start time
   const calculateStartTime = () => {
     const now = new Date();
@@ -818,16 +876,86 @@ export default function EnhancedBookingClientPage() {
                   disabled={selectedCustomerId}
                 />
                 
-                <ThemedInput
-                  label="Driver License Number *"
-                  value={bookingData.customer.driverLicense}
-                  onChange={(e) => handleCustomerChange('driverLicense', e.target.value.toUpperCase())}
-                  placeholder="e.g., MP1420110012345"
-                  error={bookingData.customer.driverLicense && !validateDrivingLicense(bookingData.customer.driverLicense) 
-                    ? 'Please enter a valid driving license number' : ''}
-                  className={selectedCustomerId ? 'border-green-500' : ''}
-                  disabled={selectedCustomerId}
-                />
+                <div className="space-y-2">
+  <ThemedInput
+    label="Driver License Number *"
+    value={bookingData.customer.driverLicense}
+    onChange={(e) => handleCustomerChange('driverLicense', e.target.value.toUpperCase())}
+    placeholder="e.g., MP1420110012345"
+    error={bookingData.customer.driverLicense && !validateDrivingLicense(bookingData.customer.driverLicense) 
+      ? 'Please enter a valid driving license number' : ''}
+    className={selectedCustomerId ? 'border-green-500' : licenseConflict?.conflict ? 'border-red-500' : ''}
+    disabled={selectedCustomerId}
+  />
+  
+  {/* License checking indicator */}
+  {checkingLicense && (
+    <div className="flex items-center space-x-2 text-sm text-gray-400">
+      <div className="animate-spin rounded-full h-3 w-3 border-b border-cyan-400"></div>
+      <span>Checking license number...</span>
+    </div>
+  )}
+  
+  {/* License conflict warning */}
+  {licenseConflict?.conflict && (
+    <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4">
+      <div className="flex items-center space-x-2 mb-3">
+        <span className="text-red-400">⚠️</span>
+        <span className="text-red-300 font-semibold">License Number Conflict</span>
+      </div>
+      
+      <div className="space-y-2 text-sm">
+        <p className="text-red-200">
+          This license number belongs to an existing customer with different details:
+        </p>
+        
+        <div className="bg-red-800/30 rounded p-3">
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            <div>
+              <div className="text-red-300 font-medium">Existing Customer:</div>
+              <div className="text-red-200">📛 {licenseConflict.existing.name}</div>
+              <div className="text-red-200">📞 {licenseConflict.existing.phone}</div>
+              <div className="text-red-200">📅 {licenseConflict.existing.totalBookings} bookings</div>
+            </div>
+            <div>
+              <div className="text-red-300 font-medium">Your Input:</div>
+              <div className="text-red-200">📛 {bookingData.customer.name}</div>
+              <div className="text-red-200">📞 {bookingData.customer.phone}</div>
+              <div className="text-red-200">🆕 New entry</div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex flex-col space-y-2 mt-3">
+          <button
+            onClick={() => {
+              selectCustomer(licenseConflict.existing);
+              setLicenseConflict(null);
+            }}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+          >
+            ✅ Use Existing Customer ({licenseConflict.existing.name})
+          </button>
+          
+          <button
+            onClick={() => {
+              // Clear license number to prevent conflict
+              handleCustomerChange('driverLicense', '');
+              setLicenseConflict(null);
+            }}
+            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+          >
+            🔄 Enter Different License Number
+          </button>
+          
+          <div className="text-red-300 text-xs">
+            ⚠️ Using the same license with different details will overwrite existing customer data
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+</div>
               </div>
             </ThemedCard>
 
