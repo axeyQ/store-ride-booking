@@ -537,13 +537,78 @@ function CustomBookingContent() {
     }
   };
 
-  // FIXED: Enhanced booking completion with proper validation
   const handleCompleteBooking = async () => {
     if (!canProceedFromStep(5)) return;
     
     setSubmitting(true);
     try {
-      // FIXED: Improved date conversion with validation
+      console.log('🚀 Starting custom booking submission...');
+      
+      // STEP 1: Validate all required fields BEFORE conversion
+      console.log('📋 Validating form data:');
+      console.log('- Vehicle ID:', bookingData.vehicleId);
+      console.log('- Package Type:', packageType);
+      console.log('- Custom Start Time:', customStartTime);
+      console.log('- Calculated End Time:', calculatedEndTime);
+      console.log('- Customer Data:', bookingData.customer);
+      console.log('- Selected Customer ID:', selectedCustomerId);
+      console.log('- Signature:', bookingData.signature ? 'Present' : 'Missing');
+      console.log('- Terms Accepted:', bookingData.termsAccepted);
+  
+      // Validate vehicle selection
+      if (!bookingData.vehicleId) {
+        alert('Please select a vehicle for your booking');
+        return;
+      }
+  
+      // Validate package selection
+      if (!packageType) {
+        alert('Please select a package type');
+        return;
+      }
+  
+      // Validate start time
+      if (!customStartTime) {
+        alert('Please select a start time for your package');
+        return;
+      }
+  
+      // Validate end time
+      if (!calculatedEndTime) {
+        alert('Package end time not calculated. Please try selecting the package again.');
+        return;
+      }
+  
+      // Validate customer information
+      if (!selectedCustomerId) {
+        // For new customers, validate all required fields
+        if (!bookingData.customer.name?.trim()) {
+          alert('Please enter customer name');
+          return;
+        }
+        if (!bookingData.customer.phone?.trim()) {
+          alert('Please enter customer phone number');
+          return;
+        }
+        if (!bookingData.customer.driverLicense?.trim()) {
+          alert('Please enter driver license number');
+          return;
+        }
+      }
+  
+      // Validate signature
+      if (!bookingData.signature) {
+        alert('Please provide your digital signature');
+        return;
+      }
+  
+      // Validate terms acceptance
+      if (!bookingData.termsAccepted) {
+        alert('Please accept the terms and conditions');
+        return;
+      }
+  
+      // STEP 2: Convert dates with enhanced validation
       const convertToIST = (localDateTimeString) => {
         if (!localDateTimeString) {
           console.error('convertToIST: No date string provided');
@@ -551,51 +616,33 @@ function CustomBookingContent() {
         }
         
         try {
-          // Validate the input format (should be YYYY-MM-DDTHH:MM)
+          // Validate the input format
           const dateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
           if (!dateRegex.test(localDateTimeString)) {
             console.error('convertToIST: Invalid date format:', localDateTimeString);
             return null;
           }
           
-          // Create date object and validate it
           const localDate = new Date(localDateTimeString);
           
-          // Check if the date is valid
           if (isNaN(localDate.getTime())) {
             console.error('convertToIST: Invalid date created:', localDateTimeString);
             return null;
           }
           
-          // Simple approach: treat as local time and convert to ISO
           return localDate.toISOString();
         } catch (error) {
-          console.error('convertToIST: Error converting date:', error, 'Input:', localDateTimeString);
+          console.error('convertToIST: Error converting date:', error);
           return null;
         }
       };
-
-      // Validate inputs before conversion
-      console.log('Custom booking - validating dates:');
-      console.log('customStartTime:', customStartTime);
-      console.log('calculatedEndTime:', calculatedEndTime);
-      
-      if (!customStartTime) {
-        alert('Please select a start time for your package');
-        return;
-      }
-      
-      if (!calculatedEndTime) {
-        alert('Package end time not calculated. Please try again.');
-        return;
-      }
-      
-      // Convert dates with validation
+  
+      // Convert dates
       const startTimeIST = convertToIST(customStartTime);
       const endTimeIST = convertToIST(calculatedEndTime);
       
       if (!startTimeIST) {
-        alert('Invalid start time selected. Please choose a valid date and time.');
+        alert('Invalid start time. Please select a valid date and time.');
         return;
       }
       
@@ -604,51 +651,116 @@ function CustomBookingContent() {
         return;
       }
       
-      console.log('Converted times:');
-      console.log('startTimeIST:', startTimeIST);
-      console.log('endTimeIST:', endTimeIST);
-
+      console.log('✅ Date conversion successful:');
+      console.log('- Start Time IST:', startTimeIST);
+      console.log('- End Time IST:', endTimeIST);
+  
+      // STEP 3: Prepare the complete booking payload
       const selectedPackage = CUSTOM_RATES[packageType];
-
+      
+      const bookingPayload = {
+        // Required fields
+        vehicleId: bookingData.vehicleId,
+        customerId: selectedCustomerId, // Can be null for new customers
+        signature: bookingData.signature,
+        startTime: startTimeIST,
+        
+        // Customer information (required for new customers)
+        customer: selectedCustomerId ? null : {
+          name: bookingData.customer.name.trim(),
+          phone: bookingData.customer.phone.trim(),
+          driverLicense: bookingData.customer.driverLicense.trim().toUpperCase()
+        },
+        
+        // Custom booking specific fields
+        isCustomBooking: true,
+        customBookingType: packageType,
+        customBookingLabel: selectedPackage.label,
+        finalAmount: selectedPackage.price,
+        endTime: endTimeIST,
+        
+        // Payment information
+        paymentMethod: bookingData.paymentMethod,
+        
+        // Checklist items
+        helmetProvided: bookingData.checklist.helmetProvided,
+        aadharCardCollected: bookingData.checklist.aadharCardCollected,
+        vehicleInspected: bookingData.checklist.vehicleInspected,
+        securityDepositCollected: bookingData.checklist.securityDepositCollected,
+        securityDepositAmount: bookingData.securityDepositAmount || 0,
+        
+        // Additional information
+        additionalNotes: bookingData.additionalNotes || '',
+        
+        // Multiple driver information
+        actualDriver: {
+          isSameAsLicenseHolder: actualDriver.isSameAsLicenseHolder,
+          name: actualDriver.isSameAsLicenseHolder ? null : actualDriver.name?.trim(),
+          phone: actualDriver.isSameAsLicenseHolder ? null : actualDriver.phone?.trim(),
+          relationToLicenseHolder: actualDriver.isSameAsLicenseHolder ? null : actualDriver.relationToLicenseHolder,
+          alternateId: actualDriver.isSameAsLicenseHolder ? null : actualDriver.alternateId?.trim()
+        },
+        
+        // Enhanced security
+        enhancedSecurity: {
+          isRequired: !actualDriver.isSameAsLicenseHolder,
+          reason: !actualDriver.isSameAsLicenseHolder ? 'multiple_driver' : null,
+          additionalDepositAmount: actualDriver.isSameAsLicenseHolder ? 0 : 500
+        }
+      };
+  
+      console.log('📦 Final booking payload:', {
+        vehicleId: bookingPayload.vehicleId,
+        customerId: bookingPayload.customerId,
+        hasSignature: !!bookingPayload.signature,
+        startTime: bookingPayload.startTime,
+        endTime: bookingPayload.endTime,
+        customBookingType: bookingPayload.customBookingType,
+        finalAmount: bookingPayload.finalAmount,
+        hasCustomer: !!bookingPayload.customer
+      });
+  
+      // STEP 4: Submit to API
+      console.log('🌐 Submitting to /api/custom-bookings...');
       const response = await fetch('/api/custom-bookings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vehicleId: bookingData.vehicleId,
-          customerId: selectedCustomerId,
-          customer: bookingData.customer,
-          signature: bookingData.signature,
-          startTime: startTimeIST,
-          endTime: endTimeIST,
-          isCustomBooking: true,
-          customBookingType: packageType,
-          customBookingLabel: selectedPackage.label,
-          finalAmount: selectedPackage.price,
-          paymentMethod: bookingData.paymentMethod,
-          helmetProvided: bookingData.checklist.helmetProvided,
-          aadharCardCollected: bookingData.checklist.aadharCardCollected,
-          vehicleInspected: bookingData.checklist.vehicleInspected,
-          securityDepositCollected: bookingData.checklist.securityDepositCollected,
-          securityDepositAmount: bookingData.securityDepositAmount,
-          additionalNotes: bookingData.additionalNotes,
-          actualDriver: actualDriver,
-          enhancedSecurity: {
-            isRequired: !actualDriver.isSameAsLicenseHolder,
-            reason: 'multiple_driver',
-            additionalDepositAmount: actualDriver.isSameAsLicenseHolder ? 0 : 500
-          }
-        })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(bookingPayload)
       });
-
+  
+      console.log('📡 API Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ API Error Response:', errorText);
+        throw new Error(`Server error: ${response.status}`);
+      }
+  
       const data = await response.json();
+      console.log('📨 API Response data:', data);
+  
       if (data.success) {
+        console.log('✅ Booking created successfully:', data.booking.bookingId);
         router.push(`/booking/confirmation/${data.booking.bookingId}`);
       } else {
+        console.error('❌ Booking creation failed:', data.error);
         alert('Error creating booking: ' + data.error);
       }
+  
     } catch (error) {
-      console.error('Error creating booking:', error);
-      alert('Error creating booking. Please try again.');
+      console.error('💥 Booking submission error:', error);
+      
+      // Provide user-friendly error messages
+      if (error.message.includes('Failed to fetch')) {
+        alert('Network error. Please check your connection and try again.');
+      } else if (error.message.includes('Server error')) {
+        alert('Server error. Please try again in a moment.');
+      } else {
+        alert('Error creating booking: ' + error.message);
+      }
     } finally {
       setSubmitting(false);
     }

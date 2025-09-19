@@ -12,10 +12,11 @@ import {
 } from '@/components/themed';
 import { BlacklistModal } from '@/components/BlacklistModal';
 import { UnblacklistModal } from '@/components/UnblacklistModal';
+import { validatePhoneNumber, validateDrivingLicense } from '@/lib/validations';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-// ✅ FIXED: Add custom package definitions
+// Custom package definitions
 const CUSTOM_PACKAGES = {
   half_day: { 
     label: 'Half Day', 
@@ -40,6 +41,255 @@ const CUSTOM_PACKAGES = {
   }
 };
 
+// Edit Customer Modal Component
+function EditCustomerModal({ isOpen, onClose, customer, onSave }) {
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    driverLicense: ''
+  });
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    if (customer) {
+      setFormData({
+        name: customer.name || '',
+        phone: customer.phone || '',
+        driverLicense: customer.driverLicense || ''
+      });
+      setErrors({});
+    }
+  }, [customer]);
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    if (!formData.name.trim()) {
+      newErrors.name = 'Name is required';
+    }
+    
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Phone number is required';
+    } else if (!validatePhoneNumber(formData.phone)) {
+      newErrors.phone = 'Please enter a valid 10-digit phone number';
+    }
+    
+    if (!formData.driverLicense.trim()) {
+      newErrors.driverLicense = 'Driver license is required';
+    } else if (!validateDrivingLicense(formData.driverLicense)) {
+      newErrors.driverLicense = 'Please enter a valid driving license number';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSave = async () => {
+    if (!validateForm()) return;
+    
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/customers/${customer._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        onSave(data.customer);
+        onClose();
+      } else {
+        alert('Error updating customer: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error updating customer:', error);
+      alert('Error updating customer. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+      <ThemedCard className="w-full max-w-md">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-white">Edit Customer</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <ThemedInput
+              label="Full Name *"
+              value={formData.name}
+              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+              placeholder="Enter customer's full name"
+              error={errors.name}
+            />
+            
+            <ThemedInput
+              label="Phone Number *"
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+              placeholder="Enter 10-digit phone number"
+              maxLength="10"
+              error={errors.phone}
+            />
+            
+            <ThemedInput
+              label="Driver License Number *"
+              value={formData.driverLicense}
+              onChange={(e) => setFormData(prev => ({ ...prev, driverLicense: e.target.value.toUpperCase() }))}
+              placeholder="e.g., MP1420110012345"
+              error={errors.driverLicense}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 mt-6">
+            <ThemedButton
+              variant="secondary"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </ThemedButton>
+            <ThemedButton
+              variant="success"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Saving...
+                </div>
+              ) : (
+                'Save Changes'
+              )}
+            </ThemedButton>
+          </div>
+        </div>
+      </ThemedCard>
+    </div>
+  );
+}
+
+// Delete Confirmation Modal Component
+function DeleteCustomerModal({ isOpen, onClose, customer, onDelete }) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/customers/${customer._id}`, {
+        method: 'DELETE'
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        onDelete(customer._id);
+        onClose();
+      } else {
+        alert('Error deleting customer: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error deleting customer:', error);
+      alert('Error deleting customer. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+      <ThemedCard className="w-full max-w-md">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-red-400">Delete Customer</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="mb-6">
+            <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-3">
+                <span className="text-red-400 text-2xl">⚠️</span>
+                <div>
+                  <h3 className="text-red-300 font-semibold">Permanent Deletion</h3>
+                  <p className="text-red-200 text-sm">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-white mb-4">
+              Are you sure you want to delete <strong>{customer?.name}</strong>?
+            </p>
+            
+            <div className="bg-gray-800 rounded-lg p-3 text-sm">
+              <div className="text-gray-300">Customer Details:</div>
+              <div className="text-gray-400 space-y-1">
+                <div>📞 {customer?.phone}</div>
+                <div>🆔 {customer?.driverLicense}</div>
+                <div>📅 Member since: {customer?.createdAt && new Date(customer.createdAt).toLocaleDateString('en-IN')}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 bg-orange-900/30 border border-orange-700/50 rounded-lg p-3">
+              <p className="text-orange-200 text-sm">
+                <strong>Note:</strong> Deleting this customer will also remove all associated booking history and data.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <ThemedButton
+              variant="secondary"
+              onClick={onClose}
+              disabled={deleting}
+            >
+              Cancel
+            </ThemedButton>
+            <ThemedButton
+              variant="danger"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Deleting...
+                </div>
+              ) : (
+                'Delete Customer'
+              )}
+            </ThemedButton>
+          </div>
+        </div>
+      </ThemedCard>
+    </div>
+  );
+}
+
 export default function OptimizedThemedCustomersPage() {
   const [customers, setCustomers] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -50,15 +300,23 @@ export default function OptimizedThemedCustomersPage() {
   const [sortBy, setSortBy] = useState('lastVisit');
   const [sortOrder, setSortOrder] = useState('desc');
   const [tierFilter, setTierFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all'); // New: all, active, blacklisted
+  const [statusFilter, setStatusFilter] = useState('all');
   const [exporting, setExporting] = useState(false);
   
-  // Blacklist modal states
+  // Modal states
   const [blacklistModal, setBlacklistModal] = useState({
     isOpen: false,
     customer: null
   });
   const [unblacklistModal, setUnblacklistModal] = useState({
+    isOpen: false,
+    customer: null
+  });
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    customer: null
+  });
+  const [deleteModal, setDeleteModal] = useState({
     isOpen: false,
     customer: null
   });
@@ -76,38 +334,31 @@ export default function OptimizedThemedCustomersPage() {
     }
   });
 
-  // ✅ FIXED: Updated revenue calculation to handle both booking types
+  // Revenue calculation function
   const calculateBookingRevenue = useCallback((booking) => {
     try {
-      // ✅ Handle cancelled bookings
       if (booking.status === 'cancelled') {
         return 0;
       }
 
-      // ✅ NEW: Handle custom bookings with fixed package rates
       if (booking.isCustomBooking) {
         const packageInfo = CUSTOM_PACKAGES[booking.customBookingType];
         if (packageInfo) {
-          // Use final amount if available, otherwise use package base price
           return booking.finalAmount || packageInfo.price;
         }
-        // Fallback for unknown custom booking types
         return booking.finalAmount || 0;
       }
 
-      // ✅ For advanced pricing bookings, use existing calculation
       return calculateAdvancedPricingForBooking(booking);
-
     } catch (error) {
       console.error('Error calculating booking revenue:', error);
       return 0;
     }
   }, []);
 
-  // Advanced pricing calculation function (for advanced bookings only)
+  // Advanced pricing calculation function
   const calculateAdvancedPricingForBooking = useCallback((booking) => {
     try {
-      // Advanced pricing settings (should match your API)
       const settings = {
         hourlyRate: 80,
         graceMinutes: 15,
@@ -121,21 +372,19 @@ export default function OptimizedThemedCustomersPage() {
       const totalMinutes = Math.max(0, Math.floor((endTime - startTime) / (1000 * 60)));
       
       if (totalMinutes === 0) {
-        return 80; // Minimum charge
+        return 80;
       }
 
       const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
-      const halfRate = Math.round(hourlyRate / 2); // ₹40
+      const halfRate = Math.round(hourlyRate / 2);
 
       let totalAmount = 0;
       let remainingMinutes = totalMinutes;
       let currentTime = new Date(startTime);
 
-      // First block: 60 minutes + 15 minutes grace = 75 minutes at ₹80
-      const firstBlockMinutes = 60 + graceMinutes; // 75 minutes
+      const firstBlockMinutes = 60 + graceMinutes;
       const firstBlockUsed = Math.min(remainingMinutes, firstBlockMinutes);
       
-      // Check if first block crosses night charge time (22:30)
       const isFirstBlockNight = isNightCharge(currentTime, firstBlockUsed, nightChargeTime);
       const firstBlockRate = isFirstBlockNight ? hourlyRate * nightMultiplier : hourlyRate;
 
@@ -143,7 +392,6 @@ export default function OptimizedThemedCustomersPage() {
       remainingMinutes -= firstBlockUsed;
       currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
 
-      // Subsequent blocks: 30-minute blocks at ₹40 each
       while (remainingMinutes > 0) {
         const blockUsed = Math.min(remainingMinutes, blockMinutes);
         const isNight = isNightCharge(currentTime, blockUsed, nightChargeTime);
@@ -155,19 +403,16 @@ export default function OptimizedThemedCustomersPage() {
       }
 
       return totalAmount;
-
     } catch (error) {
       console.error('Error in advanced pricing calculation:', error);
-      // Fallback to simple calculation
       const startTime = new Date(booking.startTime);
       const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
       const diffMs = endTime - startTime;
       const hours = Math.ceil(diffMs / (1000 * 60 * 60));
-      return Math.max(hours * 80, 80); // Minimum ₹80
+      return Math.max(hours * 80, 80);
     }
   }, []);
 
-  // Helper function to check if a time block crosses night charge threshold
   const isNightCharge = useCallback((startTime, durationMinutes, nightChargeTime) => {
     try {
       const [nightHour, nightMinute] = nightChargeTime.split(':').map(Number);
@@ -175,14 +420,12 @@ export default function OptimizedThemedCustomersPage() {
       const nightThreshold = new Date(startTime);
       nightThreshold.setHours(nightHour, nightMinute, 0, 0);
       
-      // Check if the block crosses or includes the night threshold
       return blockEndTime > nightThreshold && startTime < new Date(nightThreshold.getTime() + 60000);
     } catch (error) {
       return false;
     }
   }, []);
 
-  // Debounce search term to prevent excessive API calls
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
@@ -190,19 +433,16 @@ export default function OptimizedThemedCustomersPage() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Fetch customers and bookings on component mount
   useEffect(() => {
     fetchCustomersAndBookings();
   }, []);
 
-  // Enrich customers with booking data when customers or bookings change
   useEffect(() => {
     if (customers.length > 0 && bookings.length >= 0) {
       enrichCustomersWithBookingData();
     }
   }, [customers, bookings, calculateBookingRevenue]);
 
-  // Filter enriched customers when search term or filters change
   useEffect(() => {
     if (enrichedCustomers.length > 0) {
       updateCustomerStats(enrichedCustomers);
@@ -213,7 +453,6 @@ export default function OptimizedThemedCustomersPage() {
     try {
       setLoading(true);
       
-      // Fetch both customers and bookings in parallel
       const [customersResponse, bookingsResponse] = await Promise.all([
         fetch('/api/customers'),
         fetch('/api/bookings')
@@ -233,7 +472,6 @@ export default function OptimizedThemedCustomersPage() {
       } else {
         console.error('Error fetching bookings:', bookingsData.error);
       }
-
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -243,28 +481,23 @@ export default function OptimizedThemedCustomersPage() {
 
   const enrichCustomersWithBookingData = () => {
     const enriched = customers.map(customer => {
-      // Find all bookings for this customer
       const customerBookings = bookings.filter(booking => 
         booking.customerId && 
         (booking.customerId._id === customer._id || booking.customerId === customer._id)
       );
 
-      // ✅ FIXED: Calculate total revenue using new function that handles both booking types
       const totalRevenue = customerBookings.reduce((sum, booking) => {
         return sum + calculateBookingRevenue(booking);
       }, 0);
 
-      // Calculate statistics
       const totalBookings = customerBookings.length;
       const completedBookings = customerBookings.filter(b => b.status === 'completed').length;
       const activeBookings = customerBookings.filter(b => b.status === 'active').length;
       const cancelledBookings = customerBookings.filter(b => b.status === 'cancelled').length;
       
-      // ✅ NEW: Separate custom and advanced booking stats
       const customBookings = customerBookings.filter(b => b.isCustomBooking).length;
       const advancedBookings = customerBookings.filter(b => !b.isCustomBooking).length;
       
-      // Find most recent booking for last visit
       const mostRecentBooking = customerBookings
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
       
@@ -272,7 +505,6 @@ export default function OptimizedThemedCustomersPage() {
 
       return {
         ...customer,
-        // Enriched data
         totalBookings,
         completedBookings,
         activeBookings,
@@ -281,7 +513,6 @@ export default function OptimizedThemedCustomersPage() {
         advancedBookings,
         totalRevenue,
         lastVisit,
-        // Additional calculated fields
         avgBookingValue: totalBookings > 0 ? Math.round(totalRevenue / totalBookings) : 0,
         hasActiveBooking: activeBookings > 0,
         customerLifetimeValue: totalRevenue,
@@ -289,7 +520,6 @@ export default function OptimizedThemedCustomersPage() {
       };
     });
 
-    // Sort enriched customers
     const sorted = enriched.sort((a, b) => {
       let aValue, bValue;
       
@@ -360,6 +590,21 @@ export default function OptimizedThemedCustomersPage() {
     setSearchTerm(e.target.value);
   };
 
+  // Action handlers
+  const handleEdit = (customer) => {
+    setEditModal({
+      isOpen: true,
+      customer
+    });
+  };
+
+  const handleDelete = (customer) => {
+    setDeleteModal({
+      isOpen: true,
+      customer
+    });
+  };
+
   const handleBlacklist = (customer) => {
     setBlacklistModal({
       isOpen: true,
@@ -372,6 +617,19 @@ export default function OptimizedThemedCustomersPage() {
       isOpen: true,
       customer
     });
+  };
+
+  // Success handlers
+  const onEditSuccess = (updatedCustomer) => {
+    setCustomers(prev => prev.map(c => 
+      c._id === updatedCustomer._id ? updatedCustomer : c
+    ));
+    setEditModal({ isOpen: false, customer: null });
+  };
+
+  const onDeleteSuccess = (deletedCustomerId) => {
+    setCustomers(prev => prev.filter(c => c._id !== deletedCustomerId));
+    setDeleteModal({ isOpen: false, customer: null });
   };
 
   const onBlacklistSuccess = (updatedCustomer) => {
@@ -476,7 +734,6 @@ export default function OptimizedThemedCustomersPage() {
   };
 
   const filteredCustomers = enrichedCustomers.filter(customer => {
-    // Search filter
     const searchMatch = !debouncedSearchTerm || 
       customer.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
       customer.phone.includes(debouncedSearchTerm) ||
@@ -484,11 +741,9 @@ export default function OptimizedThemedCustomersPage() {
 
     if (!searchMatch) return false;
 
-    // Tier filter
     const tier = getCustomerTier(customer.totalBookings);
     const matchesTier = tierFilter === 'all' || tier.label.toLowerCase() === tierFilter.toLowerCase();
     
-    // Status filter
     let matchesStatus = true;
     if (statusFilter === 'active') {
       matchesStatus = !isCustomerBlacklisted(customer);
@@ -544,11 +799,11 @@ export default function OptimizedThemedCustomersPage() {
             Customer <span className={theme.typography.gradient}>Database</span>
           </h2>
           <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Complete customer relationship management with accurate dual pricing analytics
+            Complete customer relationship management with edit, delete, and dual pricing analytics
           </p>
         </div>
 
-        {/* Customer Analytics with Real Data */}
+        {/* Customer Analytics */}
         <div className={theme.layout.grid.stats + " mb-8"}>
           <ThemedStatsCard
             title="Total Customers"
@@ -648,7 +903,6 @@ export default function OptimizedThemedCustomersPage() {
                 ]}
               />
             </div>
-            {/* Search Status Indicator */}
             <div className="flex justify-between items-center mt-4">
               <div className="text-gray-400 text-sm">
                 {loading && debouncedSearchTerm !== searchTerm ? (
@@ -674,7 +928,7 @@ export default function OptimizedThemedCustomersPage() {
         </ThemedCard>
 
         {/* Customers Table */}
-        <ThemedCard title="Customer Database" description="Complete customer records with accurate dual pricing analytics">
+        <ThemedCard title="Customer Database" description="Complete customer records with edit, delete, and dual pricing analytics">
           {filteredCustomers.length === 0 ? (
             <div className="text-center p-12">
               <div className="w-24 h-24 bg-gradient-to-r from-gray-600 to-gray-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -779,14 +1033,12 @@ export default function OptimizedThemedCustomersPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="space-y-2">
-                            {/* Customer Tier */}
                             <div className="flex items-center gap-2">
                               <span className="text-2xl">{tier.icon}</span>
                               <ThemedBadge color={tier.color} className="text-xs">
                                 {tier.label}
                               </ThemedBadge>
                             </div>
-                            {/* Blacklist Status */}
                             {blacklistStatus && (
                               <ThemedBadge color={blacklistStatus.color} className="text-xs">
                                 {blacklistStatus.label}
@@ -797,7 +1049,6 @@ export default function OptimizedThemedCustomersPage() {
                         <td className="px-4 py-3">
                           <div className="text-center">
                             <div className="text-2xl font-bold text-white">{customer.totalBookings}</div>
-                            {/* ✅ ENHANCED: Show booking type breakdown */}
                             <div className="text-gray-400 text-xs space-y-1">
                               {customer.activeBookings > 0 && (
                                 <div className="text-orange-400">{customer.activeBookings} active</div>
@@ -806,7 +1057,7 @@ export default function OptimizedThemedCustomersPage() {
                                 <div className="text-green-400">{customer.completedBookings} completed</div>
                               )}
                               {customer.totalBookings > 0 && (
-                                <div className="flex gap-1 text-xs">
+                                <div className="flex gap-1 text-xs justify-center">
                                   {customer.advancedBookings > 0 && (
                                     <span className="text-cyan-400">⚡{customer.advancedBookings}</span>
                                   )}
@@ -830,7 +1081,6 @@ export default function OptimizedThemedCustomersPage() {
                                 'No revenue'
                               }
                             </div>
-                            {/* ✅ NEW: Show pricing mix indicator */}
                             {customer.totalBookings > 0 && (
                               <div className="text-xs mt-1">
                                 {customer.customBookings > 0 && customer.advancedBookings > 0 ? (
@@ -855,22 +1105,39 @@ export default function OptimizedThemedCustomersPage() {
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-2">
                             {/* Primary Actions */}
-                            <div className="flex gap-2">
+                            <div className="flex gap-1">
                               <Link href={`/customers/${customer._id}`}>
-                                <ThemedButton variant="secondary" className="text-xs px-3 py-1">
-                                  👁️ View
+                                <ThemedButton variant="secondary" className="text-xs px-2 py-1">
+                                  👁️
                                 </ThemedButton>
                               </Link>
-                              {!isBlacklisted && (
-                                <Link href={`/booking?customerId=${customer._id}`}>
-                                  <ThemedButton variant="primary" className="text-xs px-3 py-1">
-                                    📋 Book
-                                  </ThemedButton>
-                                </Link>
-                              )}
+                              <ThemedButton
+                                variant="primary"
+                                onClick={() => handleEdit(customer)}
+                                className="text-xs px-2 py-1"
+                              >
+                                ✏️
+                              </ThemedButton>
+                              <ThemedButton
+                                variant="danger"
+                                onClick={() => handleDelete(customer)}
+                                className="text-xs px-2 py-1"
+                              >
+                                🗑️
+                              </ThemedButton>
                             </div>
+                            
+                            {/* Booking Action */}
+                            {!isBlacklisted && (
+                              <Link href={`/booking?customerId=${customer._id}`}>
+                                <ThemedButton variant="success" className="text-xs px-3 py-1 w-full">
+                                  📋 Book
+                                </ThemedButton>
+                              </Link>
+                            )}
+                            
                             {/* Blacklist Actions */}
-                            <div className="flex gap-2">
+                            <div>
                               {isBlacklisted ? (
                                 <ThemedButton
                                   variant="success"
@@ -924,6 +1191,22 @@ export default function OptimizedThemedCustomersPage() {
           </Link>
         </div>
       </div>
+
+      {/* Edit Customer Modal */}
+      <EditCustomerModal
+        isOpen={editModal.isOpen}
+        onClose={() => setEditModal({ isOpen: false, customer: null })}
+        customer={editModal.customer}
+        onSave={onEditSuccess}
+      />
+
+      {/* Delete Customer Modal */}
+      <DeleteCustomerModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, customer: null })}
+        customer={deleteModal.customer}
+        onDelete={onDeleteSuccess}
+      />
 
       {/* Blacklist Modal */}
       <BlacklistModal
