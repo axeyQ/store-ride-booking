@@ -39,6 +39,39 @@ function CustomBookingLoading() {
   );
 }
 
+// Enhanced datetime validation function
+const validateDateTime = (dateTimeString, fieldName = 'datetime') => {
+  if (!dateTimeString) {
+    console.error(`${fieldName}: No value provided`);
+    return false;
+  }
+  
+  // Check format: YYYY-MM-DDTHH:MM
+  const dateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+  if (!dateRegex.test(dateTimeString)) {
+    console.error(`${fieldName}: Invalid format. Expected YYYY-MM-DDTHH:MM, got:`, dateTimeString);
+    return false;
+  }
+  
+  // Try creating a date object
+  const testDate = new Date(dateTimeString);
+  if (isNaN(testDate.getTime())) {
+    console.error(`${fieldName}: Invalid date created from:`, dateTimeString);
+    return false;
+  }
+  
+  // Check if it's in the future (for start times)
+  if (fieldName.includes('start')) {
+    const now = new Date();
+    if (testDate < now) {
+      console.error(`${fieldName}: Cannot select a time in the past:`, dateTimeString);
+      return false;
+    }
+  }
+  
+  return true;
+};
+
 // Main component that uses useSearchParams
 function CustomBookingContent() {
   const router = useRouter();
@@ -159,15 +192,25 @@ function CustomBookingContent() {
     }
   };
 
-  // Calculate package end time
+  // FIXED: Calculate package end time with validation
   const calculatePackageEndTime = (startTime, packageKey) => {
-    if (!startTime || !packageKey) return '';
+    if (!startTime || !packageKey) {
+      console.error('calculatePackageEndTime: Missing parameters', { startTime, packageKey });
+      return '';
+    }
+    
+    if (!validateDateTime(startTime, 'package start time')) {
+      return '';
+    }
     
     try {
       const start = new Date(startTime);
       const packageInfo = CUSTOM_RATES[packageKey];
       
-      if (!packageInfo) return '';
+      if (!packageInfo) {
+        console.error('calculatePackageEndTime: Invalid package type:', packageKey);
+        return '';
+      }
       
       let end;
       
@@ -181,9 +224,25 @@ function CustomBookingContent() {
         end = new Date(start.getTime() + (packageInfo.maxHours * 60 * 60 * 1000));
       }
       
-      return end.toISOString();
+      // Validate the calculated end time
+      if (isNaN(end.getTime())) {
+        console.error('calculatePackageEndTime: Invalid end date calculated');
+        return '';
+      }
+      
+      // Format back to datetime-local format for display
+      const year = end.getFullYear();
+      const month = String(end.getMonth() + 1).padStart(2, '0');
+      const day = String(end.getDate()).padStart(2, '0');
+      const hours = String(end.getHours()).padStart(2, '0');
+      const minutes = String(end.getMinutes()).padStart(2, '0');
+      
+      const endTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
+      console.log('Calculated end time:', endTimeString);
+      
+      return endTimeString;
     } catch (error) {
-      console.error('Error calculating package end time:', error);
+      console.error('calculatePackageEndTime: Error calculating end time:', error);
       return '';
     }
   };
@@ -478,16 +537,76 @@ function CustomBookingContent() {
     }
   };
 
+  // FIXED: Enhanced booking completion with proper validation
   const handleCompleteBooking = async () => {
     if (!canProceedFromStep(5)) return;
     
     setSubmitting(true);
     try {
+      // FIXED: Improved date conversion with validation
       const convertToIST = (localDateTimeString) => {
-        if (!localDateTimeString) return null;
-        const istDate = new Date(localDateTimeString + '+05:30');
-        return istDate.toISOString();
+        if (!localDateTimeString) {
+          console.error('convertToIST: No date string provided');
+          return null;
+        }
+        
+        try {
+          // Validate the input format (should be YYYY-MM-DDTHH:MM)
+          const dateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+          if (!dateRegex.test(localDateTimeString)) {
+            console.error('convertToIST: Invalid date format:', localDateTimeString);
+            return null;
+          }
+          
+          // Create date object and validate it
+          const localDate = new Date(localDateTimeString);
+          
+          // Check if the date is valid
+          if (isNaN(localDate.getTime())) {
+            console.error('convertToIST: Invalid date created:', localDateTimeString);
+            return null;
+          }
+          
+          // Simple approach: treat as local time and convert to ISO
+          return localDate.toISOString();
+        } catch (error) {
+          console.error('convertToIST: Error converting date:', error, 'Input:', localDateTimeString);
+          return null;
+        }
       };
+
+      // Validate inputs before conversion
+      console.log('Custom booking - validating dates:');
+      console.log('customStartTime:', customStartTime);
+      console.log('calculatedEndTime:', calculatedEndTime);
+      
+      if (!customStartTime) {
+        alert('Please select a start time for your package');
+        return;
+      }
+      
+      if (!calculatedEndTime) {
+        alert('Package end time not calculated. Please try again.');
+        return;
+      }
+      
+      // Convert dates with validation
+      const startTimeIST = convertToIST(customStartTime);
+      const endTimeIST = convertToIST(calculatedEndTime);
+      
+      if (!startTimeIST) {
+        alert('Invalid start time selected. Please choose a valid date and time.');
+        return;
+      }
+      
+      if (!endTimeIST) {
+        alert('Invalid end time calculated. Please try selecting the package again.');
+        return;
+      }
+      
+      console.log('Converted times:');
+      console.log('startTimeIST:', startTimeIST);
+      console.log('endTimeIST:', endTimeIST);
 
       const selectedPackage = CUSTOM_RATES[packageType];
 
@@ -499,8 +618,8 @@ function CustomBookingContent() {
           customerId: selectedCustomerId,
           customer: bookingData.customer,
           signature: bookingData.signature,
-          startTime: convertToIST(customStartTime),
-          endTime: convertToIST(calculatedEndTime),
+          startTime: startTimeIST,
+          endTime: endTimeIST,
           isCustomBooking: true,
           customBookingType: packageType,
           customBookingLabel: selectedPackage.label,
@@ -555,6 +674,20 @@ function CustomBookingContent() {
     if (diffDays === 2) return 'Yesterday';
     if (diffDays <= 7) return `${diffDays} days ago`;
     return visitDate.toLocaleDateString('en-IN');
+  };
+
+  // FIXED: Enhanced datetime input handler
+  const handleStartTimeChange = (e) => {
+    const newStartTime = e.target.value;
+    console.log('Start time changed to:', newStartTime);
+    
+    if (newStartTime && validateDateTime(newStartTime, 'start time')) {
+      setCustomStartTime(newStartTime);
+    } else if (!newStartTime) {
+      setCustomStartTime('');
+    } else {
+      console.error('Invalid start time provided');
+    }
   };
 
   if (loading) {
@@ -732,7 +865,7 @@ function CustomBookingContent() {
           </div>
         )}
 
-        {/* Step 2: Package Timing */}
+        {/* Step 2: Package Timing - FIXED with better validation */}
         {currentStep === 2 && (
           <ThemedCard title="📅 Package Timing">
             <div className="space-y-6">
@@ -746,17 +879,22 @@ function CustomBookingContent() {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Package Start Time */}
+                  {/* Package Start Time - FIXED */}
                   <div className="space-y-2">
                     <label className="text-purple-200 font-medium">Package Start Time</label>
                     <input
                       type="datetime-local"
                       value={customStartTime}
-                      onChange={(e) => setCustomStartTime(e.target.value)}
+                      onChange={handleStartTimeChange}
                       min={calculatedStartTime?.toISOString().slice(0, 16)}
                       required
                       className="w-full bg-gray-800 border border-purple-500 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-purple-400 focus:border-transparent"
                     />
+                    {customStartTime && (
+                      <div className="text-green-400 text-xs">
+                        Selected: {new Date(customStartTime).toLocaleString('en-IN')}
+                      </div>
+                    )}
                   </div>
 
                   {/* Calculated End Time */}
