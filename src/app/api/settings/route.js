@@ -1,62 +1,48 @@
 // src/app/api/settings/route.js
 import { NextResponse } from 'next/server';
+import connectDB from '@/lib/db';
+import Settings from '@/models/Settings';
 import { SettingsService } from '@/services/SettingsService';
 
-// 🎯 In-memory settings storage (can be moved to database later)
-let settings = {
-  // Business settings
-  businessName: 'MR Travels',
-  businessAddress: 'Bhopal, Madhya Pradesh',
-  businessPhone: '',
-  businessEmail: '',
-  gstNumber: '',
-  
-  // Pricing settings
-  hourlyRate: 80,
-  minimumHours: 1,
-  lateFeePerHour: 20,
-  securityDeposit: 500,
-  graceMinutes: 15,
-  blockMinutes: 30,
-  nightChargeTime: '22:30',
-  nightMultiplier: 2,
-  
-  // Start delay settings
-  startDelayMinutes: 5,
-  roundToNearestMinutes: 5,
-  
-  // Operating settings
-  operatingHours: { start: '06:00', end: '22:00' },
-  maxAdvanceBookingDays: 7,
-  reminderTimeBeforeReturn: 30,
-  
-  // Notification settings
-  smsNotifications: true,
-  emailNotifications: false,
-  whatsappNotifications: false,
-  
-  // System settings
-  autoBackup: true,
-  backupFrequency: 'daily',
-  dataRetentionMonths: 12,
-  requireAadharPhoto: true,
-  requireSignature: true,
-  requireLicenseVerification: true,
-  
-  // Metadata
-  version: '1.0.0',
-  lastUpdated: new Date().toISOString()
-};
+const SETTINGS_KEY = 'app';
+
+function toSettingsResponse(doc) {
+  const plain = doc.toObject ? doc.toObject() : doc;
+  const { _id, key, createdAt, updatedAt, __v, ...settings } = plain;
+  return {
+    ...settings,
+    lastUpdated: settings.lastUpdated
+      ? new Date(settings.lastUpdated).toISOString()
+      : new Date().toISOString(),
+  };
+}
+
+async function loadSettings() {
+  await connectDB();
+
+  let doc = await Settings.findOne({ key: SETTINGS_KEY });
+
+  if (!doc) {
+    doc = await Settings.create({
+      key: SETTINGS_KEY,
+      ...SettingsService.DEFAULT_SETTINGS,
+      version: '1.0.0',
+      lastUpdated: new Date(),
+    });
+  }
+
+  return toSettingsResponse(doc);
+}
 
 export async function GET() {
   try {
-    // 🚀 NEW: Use SettingsService for consistency (but still return current settings)
+    const settings = await loadSettings();
     const mergedSettings = { ...SettingsService.DEFAULT_SETTINGS, ...settings };
-    
+
     return NextResponse.json({
       success: true,
       settings: mergedSettings,
-      message: 'Settings retrieved successfully'
+      message: 'Settings retrieved successfully',
     });
   } catch (error) {
     console.error('Settings GET API error:', error);
@@ -70,8 +56,7 @@ export async function GET() {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    
-    // 🚀 NEW: Use SettingsService validation instead of inline validation
+
     const validation = SettingsService.validateSettings(body);
     if (!validation.isValid) {
       return NextResponse.json(
@@ -79,22 +64,30 @@ export async function PUT(request) {
         { status: 400 }
       );
     }
-    
-    // Update settings with validation passed
-    settings = {
-      ...settings,
-      ...body,
-      lastUpdated: new Date().toISOString(),
-      version: settings.version // Preserve version
-    };
-    
-    // 🧹 Clear SettingsService cache when settings are updated
+
+    await connectDB();
+
+    const { key, _id, createdAt, updatedAt, version, ...updates } = body;
+
+    const doc = await Settings.findOneAndUpdate(
+      { key: SETTINGS_KEY },
+      {
+        ...updates,
+        key: SETTINGS_KEY,
+        lastUpdated: new Date(),
+        version: version || '1.0.0',
+      },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+
+    const settings = toSettingsResponse(doc);
+
     SettingsService.clearCache();
-    
+
     return NextResponse.json({
       success: true,
       settings,
-      message: 'Settings updated successfully'
+      message: 'Settings updated successfully',
     });
   } catch (error) {
     console.error('Settings PUT API error:', error);
@@ -105,13 +98,22 @@ export async function PUT(request) {
   }
 }
 
-// 📤 Export current settings for use in other parts of the application
-export function getCurrentSettings() {
-  return settings;
+export async function getCurrentSettings() {
+  return loadSettings();
 }
 
-// 🔄 Update internal settings (for SettingsService to use)
-export function updateInternalSettings(newSettings) {
-  settings = { ...settings, ...newSettings };
-  return settings;
+export async function updateInternalSettings(newSettings) {
+  await connectDB();
+
+  const doc = await Settings.findOneAndUpdate(
+    { key: SETTINGS_KEY },
+    {
+      ...newSettings,
+      key: SETTINGS_KEY,
+      lastUpdated: new Date(),
+    },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+  );
+
+  return toSettingsResponse(doc);
 }
