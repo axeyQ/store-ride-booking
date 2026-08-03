@@ -148,6 +148,25 @@ const actualDriverSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+// Optional passenger details — stored only while booking is active
+const passengerInfoSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    trim: true,
+    maxlength: 100,
+  },
+  phone: {
+    type: String,
+    validate: {
+      validator: function(v) {
+        if (!v) return true;
+        return /^[6-9]\d{9}$/.test(v);
+      },
+      message: 'Please provide a valid 10-digit phone number starting with 6-9',
+    },
+  },
+}, { _id: false });
+
 const bookingSchema = new mongoose.Schema({
   bookingId: {
     type: String,
@@ -328,6 +347,9 @@ const bookingSchema = new mongoose.Schema({
 
   // NEW: Multiple driver support
   actualDriver: actualDriverSchema,
+
+  // Optional passenger info (cleared when booking completes or is cancelled)
+  passengerInfo: passengerInfoSchema,
   
   // NEW: Enhanced security for special cases
   enhancedSecurity: enhancedSecuritySchema,

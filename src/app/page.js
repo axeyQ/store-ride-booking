@@ -43,7 +43,6 @@ function DayOperationsControl({ onStatusChange }) {
     return () => clearInterval(interval);
   }, []);
   
-
   const handleStartDay = async () => {
     setActionLoading('starting');
     try {

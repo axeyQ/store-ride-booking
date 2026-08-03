@@ -1,4 +1,10 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
+
+// Some networks/routers fail SRV lookups required by mongodb+srv:// URIs
+if (typeof dns.setServers === 'function') {
+  dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+}
 
 const MONGODB_URI = process.env.MONGODB_URI;
 

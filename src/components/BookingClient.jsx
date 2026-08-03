@@ -55,6 +55,12 @@ export default function EnhancedBookingClientPage() {
     alternateId: ''
   });
 
+  const [passengerInfo, setPassengerInfo] = useState({
+    include: false,
+    name: '',
+    phone: '',
+  });
+
   const [licenseConflict, setLicenseConflict] = useState(null);
 const [checkingLicense, setCheckingLicense] = useState(false);
 
@@ -425,14 +431,24 @@ const [checkingLicense, setCheckingLicense] = useState(false);
         
         // If different driver, validate their info too
         if (!actualDriver.isSameAsLicenseHolder) {
-          return basicValidation &&
-                 actualDriver.name.trim() &&
-                 validatePhoneNumber(actualDriver.phone) &&
-                 actualDriver.relationToLicenseHolder &&
-                 actualDriver.relationToLicenseHolder.trim() &&
-                 actualDriver.alternateId.trim();
+          if (!basicValidation ||
+              !actualDriver.name.trim() ||
+              !validatePhoneNumber(actualDriver.phone) ||
+              !actualDriver.relationToLicenseHolder ||
+              !actualDriver.relationToLicenseHolder.trim() ||
+              !actualDriver.alternateId.trim()) {
+            return false;
+          }
+        } else if (!basicValidation) {
+          return false;
         }
-        return basicValidation;
+
+        if (passengerInfo.include) {
+          return passengerInfo.name.trim() &&
+                 validatePhoneNumber(passengerInfo.phone);
+        }
+
+        return true;
       case 4:
         const aadharOrDeposit = bookingData.checklist.aadharCardCollected || 
         bookingData.checklist.securityDepositCollected;
@@ -489,7 +505,13 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             isRequired: !actualDriver.isSameAsLicenseHolder,
             reason: 'multiple_driver',
             additionalDepositAmount: actualDriver.isSameAsLicenseHolder ? 0 : 500
-          }
+          },
+          passengerInfo: passengerInfo.include
+            ? {
+                name: passengerInfo.name.trim(),
+                phone: passengerInfo.phone.trim(),
+              }
+            : null,
         })
       });
   
@@ -1072,6 +1094,59 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                 )}
               </div>
             </ThemedCard>
+
+            {/* Optional Passenger Information */}
+            <ThemedCard>
+              <div className="p-6">
+                <h3 className="text-xl font-semibold text-white mb-4">👥 Passenger Information (Optional)</h3>
+
+                <div className="mb-6">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={passengerInfo.include}
+                      onChange={(e) => setPassengerInfo(prev => ({
+                        ...prev,
+                        include: e.target.checked,
+                        name: e.target.checked ? prev.name : '',
+                        phone: e.target.checked ? prev.phone : '',
+                      }))}
+                      className="w-5 h-5 text-cyan-600 border-2 border-gray-300 rounded focus:ring-cyan-500"
+                    />
+                    <span className="text-white font-medium">
+                      Record passenger details for this ride
+                    </span>
+                  </label>
+                  <p className="text-gray-400 text-sm mt-2 ml-8">
+                    Shown in Active Bookings only while the rental is live — not saved as a customer record.
+                  </p>
+                </div>
+
+                {passengerInfo.include && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <ThemedInput
+                      label="Passenger Name *"
+                      value={passengerInfo.name}
+                      onChange={(e) => setPassengerInfo(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Passenger full name"
+                      required
+                    />
+
+                    <ThemedInput
+                      label="Passenger Phone Number *"
+                      type="tel"
+                      value={passengerInfo.phone}
+                      onChange={(e) => setPassengerInfo(prev => ({ ...prev, phone: e.target.value }))}
+                      placeholder="10-digit phone number"
+                      maxLength="10"
+                      required
+                      error={passengerInfo.phone && !validatePhoneNumber(passengerInfo.phone)
+                        ? 'Please enter a valid 10-digit phone number' : ''}
+                    />
+                  </div>
+                )}
+              </div>
+            </ThemedCard>
           </div>
         )}
 
@@ -1314,6 +1389,16 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                         </p>
                         <p className="text-orange-200">
                           <span className="font-medium">Relationship:</span> {actualDriver.relationToLicenseHolder}
+                        </p>
+                      </>
+                    )}
+                    {passengerInfo.include && (
+                      <>
+                        <p className="text-cyan-200 border-t border-cyan-700/30 pt-2 mt-2">
+                          <span className="font-medium">Passenger:</span> {passengerInfo.name}
+                        </p>
+                        <p className="text-cyan-200">
+                          <span className="font-medium">Passenger Phone:</span> {passengerInfo.phone}
                         </p>
                       </>
                     )}
