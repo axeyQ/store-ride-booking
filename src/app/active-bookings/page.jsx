@@ -235,51 +235,7 @@ export default function EnhancedActiveBookingsPage() {
     }
   };
 
-  // NEW: Estimated Return Status Component
-  const EstimatedReturnStatus = ({ booking, currentTime }) => {
-    if (!booking.estimatedReturnTime) {
-      return (
-        <div className="text-gray-500 text-sm">
-          📅 No estimate set
-        </div>
-      );
-    }
 
-    const estimatedTime = new Date(booking.estimatedReturnTime);
-    const current = new Date(currentTime);
-    const diffMinutes = Math.floor((estimatedTime - current) / (1000 * 60));
-    
-    if (diffMinutes > 60) {
-      const hours = Math.floor(diffMinutes / 60);
-      return (
-        <div className="text-green-400 text-sm">
-          ✅ {hours}h remaining
-        </div>
-      );
-    } else if (diffMinutes > 30) {
-      return (
-        <div className="text-yellow-400 text-sm">
-          ⏳ {diffMinutes}m remaining
-        </div>
-      );
-    } else if (diffMinutes > 0) {
-      return (
-        <div className="text-amber-400 text-sm animate-pulse font-medium">
-          ⏰ Due in {diffMinutes}m
-        </div>
-      );
-    } else {
-      const overdueMinutes = Math.abs(diffMinutes);
-      const overdueHours = Math.floor(overdueMinutes / 60);
-      const remainingMinutes = overdueMinutes % 60;
-      
-      return (
-        <div className="text-red-400 text-sm font-bold animate-pulse">
-          🔴 {overdueHours > 0 ? `${overdueHours}h ${remainingMinutes}m` : `${overdueMinutes}m`} overdue
-        </div>
-      );
-    }
-  };
 
   // Direct call handling (no modal)
   const handleDirectCall = (booking, reason = 'follow_up') => {
@@ -795,75 +751,6 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           )}
 
-          {/* Estimated Return Time Section */}
-          <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-4 mb-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="text-amber-200 text-sm font-medium mb-1">📅 Estimated Return</div>
-                <div className="text-amber-400 font-bold">
-                  {booking.estimatedReturnTime 
-                    ? new Date(booking.estimatedReturnTime).toLocaleString('en-IN', {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })
-                    : 'Not set'
-                  }
-                </div>
-                {booking.isCustomBooking && (
-                  <div className="text-amber-300 text-xs mt-1">
-                    📦 Package end time
-                  </div>
-                )}
-              </div>
-              
-              <div className="text-right">
-                <EstimatedReturnStatus booking={booking} currentTime={currentTime} />
-                
-                <div className="mt-2 flex gap-2">
-                  {/* 🚀 NEW: Smart call button - calls actual driver */}
-                  <button
-                    onClick={() => handleDirectCall({ customer: { phone: driverPhone } })}
-                    className="inline-flex items-center px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
-                    title={`Call ${hasMultipleDrivers ? 'actual driver' : 'customer'}`}
-                  >
-                    📞 Call {hasMultipleDrivers ? 'Driver' : 'Customer'}
-                  </button>
-                  
-                  {/* 🚀 NEW: Additional call license holder button for multiple drivers */}
-                  {hasMultipleDrivers && (
-                    <button
-                      onClick={() => handleDirectCall({ customer: { phone: licenseHolderPhone } })}
-                      className="inline-flex items-center px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded-lg transition-colors"
-                      title="Call license holder"
-                    >
-                      📞 License Holder
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {/* Progress Bar for Custom Bookings */}
-            {booking.isCustomBooking && booking.estimatedReturnTime && (
-              <div className="mt-3">
-                <div className="flex justify-between text-xs text-amber-300 mb-1">
-                  <span>Package Progress</span>
-                  <span>{calculatePackageProgress(booking) ? Math.round(calculatePackageProgress(booking).progressPercentage) : 0}%</span>
-                </div>
-                <div className="w-full bg-amber-900/30 rounded-full h-2">
-                  <div 
-                    className="bg-amber-400 h-2 rounded-full transition-all duration-300"
-                    style={{ 
-                      width: `${Math.min(calculatePackageProgress(booking)?.progressPercentage || 0, 100)}%` 
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Dual metrics for different booking types - ALWAYS VISIBLE PRICES */}
           {booking.isCustomBooking ? (
@@ -1007,36 +894,7 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           </div>
 
-          {/* 🚀 NEW: Enhanced Safety Checklist Status with Multiple Driver Info */}
-          <div className="mb-6">
-            <h4 className="text-sm font-medium text-gray-400 mb-3">Safety Checklist</h4>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="space-y-2">
-                <span className={`flex items-center gap-1 ${booking.helmetProvided ? 'text-green-400' : 'text-red-400'}`}>
-                  {booking.helmetProvided ? '✅' : '❌'} Helmet
-                </span>
-                <span className={`flex items-center gap-1 ${booking.aadharCardCollected ? 'text-green-400' : 'text-red-400'}`}>
-                  {booking.aadharCardCollected ? '✅' : '❌'} Multiple Helmets
-                </span>
-                <span className={`flex items-center gap-1 ${booking.vehicleInspected ? 'text-green-400' : 'text-red-400'}`}>
-                  {booking.vehicleInspected ? '✅' : '❌'} Inspected
-                </span>
-              </div>
-              {hasMultipleDrivers && (
-                <div className="space-y-2">
-                  <span className="flex items-center gap-1 text-orange-400">
-                    👥 Multiple Drivers
-                  </span>
-                  <span className="flex items-center gap-1 text-orange-400">
-                    💰 Enhanced Deposit
-                  </span>
-                  <span className="flex items-center gap-1 text-orange-400">
-                    🆔 {booking.actualDriver.alternateId ? 'Alt ID Collected' : 'Alt ID Missing'}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
+
 
           {/* Simplified Action Buttons - Only show available actions */}
           {renderSimplifiedActionButtons(booking, {
@@ -1333,10 +1191,7 @@ export default function EnhancedActiveBookingsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <div>
-                <h3 className="text-lg font-semibold text-white">Enhanced Live Dashboard</h3>
-                <p className="text-gray-400">Estimated return times + customer calling + fleet intelligence</p>
-              </div>
+  
             </div>
             <div className="text-right">
               <div className="text-sm text-gray-400">Current Time</div>

@@ -30,13 +30,11 @@ export default function EnhancedBookingClientPage() {
     roundToNearestMinutes: 5
   });
   const [showTermsModal, setShowTermsModal] = useState(false);
-  
-  // NEW: Calculated start time state
+  const [activeBookingWarning, setActiveBookingWarning] = useState(null);
+
+  // Calculated start time state
   const [calculatedStartTime, setCalculatedStartTime] = useState(null);
   const [startTimeTimer, setStartTimeTimer] = useState(null);
-
-  // NEW: Estimated return time state
-  const [estimatedReturnTime, setEstimatedReturnTime] = useState('');
 
   // Customer autocomplete state
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
@@ -46,7 +44,7 @@ export default function EnhancedBookingClientPage() {
   const nameInputRef = useRef(null);
   const suggestionsRef = useRef(null);
 
-  // NEW: Multiple driver state
+  // Multiple driver state
   const [actualDriver, setActualDriver] = useState({
     isSameAsLicenseHolder: true,
     name: '',
@@ -62,8 +60,7 @@ export default function EnhancedBookingClientPage() {
   });
 
   const [licenseConflict, setLicenseConflict] = useState(null);
-const [checkingLicense, setCheckingLicense] = useState(false);
-
+  const [checkingLicense, setCheckingLicense] = useState(false);
 
   const [bookingData, setBookingData] = useState({
     vehicleId: '',
@@ -85,13 +82,11 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     additionalNotes: ''
   });
 
-  // 🔧 FIXED: Function to calculate suggested return time
   const calculateSuggestedReturnTime = (startTime) => {
     if (!startTime) return '';
     const start = new Date(startTime);
-    const suggested = new Date(start.getTime() + (2 * 60 * 60 * 1000)); // 2 hours later
+    const suggested = new Date(start.getTime() + (2 * 60 * 60 * 1000));
     
-    // Format for datetime-local input (local time)
     const year = suggested.getFullYear();
     const month = String(suggested.getMonth() + 1).padStart(2, '0');
     const day = String(suggested.getDate()).padStart(2, '0');
@@ -105,7 +100,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     const timer = setTimeout(() => {
       if (bookingData.customer.driverLicense && 
           bookingData.customer.driverLicense.length >= 10 && 
-          !selectedCustomerId) { // Only check if no customer selected via autocomplete
+          !selectedCustomerId) {
         checkLicenseConflict(bookingData.customer.driverLicense);
       } else {
         setLicenseConflict(null);
@@ -124,7 +119,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
       const data = await response.json();
       
       if (data.success && data.exists) {
-        // License exists but customer data doesn't match current input
         const existingCustomer = data.customer;
         const currentInput = {
           name: bookingData.customer.name.trim(),
@@ -141,7 +135,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             conflict: true
           });
         } else {
-          // Data matches, auto-select this customer
           selectCustomer(existingCustomer);
           setLicenseConflict(null);
         }
@@ -154,13 +147,35 @@ const [checkingLicense, setCheckingLicense] = useState(false);
       setCheckingLicense(false);
     }
   };
+
+  // Check if customer already has an active booking
+  const checkCustomerStatus = async (customer) => {
+    try {
+      const response = await fetch('/api/customers/check-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverLicense: customer.driverLicense,
+          phone: customer.phone
+        })
+      });
+      const data = await response.json();
+
+      if (data.success && data.status === 'has_active_booking') {
+        setActiveBookingWarning(data.activeBooking);
+      } else {
+        setActiveBookingWarning(null);
+      }
+    } catch (error) {
+      console.error('Error checking customer status:', error);
+      setActiveBookingWarning(null);
+    }
+  };
   
-  // NEW: Function to calculate and display start time
   const calculateStartTime = () => {
     const now = new Date();
     const roundToMinutes = settings.roundToNearestMinutes || 5;
     
-    // NEW LOGIC: No delay added, just round UP to next interval
     const startTime = new Date(now);
     
     if (roundToMinutes > 1) {
@@ -185,14 +200,12 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     
     setCalculatedStartTime(startTime);
     
-    // Auto-set estimated return time if not already set
     if (!estimatedReturnTime) {
       const suggestedReturn = calculateSuggestedReturnTime(startTime.toISOString());
       setEstimatedReturnTime(suggestedReturn);
     }
   };
 
-  // NEW: Duration calculation helper function
   const calculateDuration = (start, end) => {
     if (!start || !end) return '';
     const diffMs = end - start;
@@ -204,7 +217,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     return `${diffHours}h ${diffMinutes}m`;
   };
 
-  // NEW: Calculate required security deposit based on multiple driver scenario
   const calculateRequiredDeposit = () => {
     return actualDriver.isSameAsLicenseHolder ? 500 : 1000;
   };
@@ -218,12 +230,10 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     }
   }, []);
 
-  // NEW: Calculate start time when settings change and update every minute
   useEffect(() => {
     if (settings.startDelayMinutes !== undefined) {
       calculateStartTime();
       
-      // Update start time every minute
       const interval = setInterval(calculateStartTime, 60000);
       setStartTimeTimer(interval);
       
@@ -233,7 +243,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     }
   }, [settings.startDelayMinutes, settings.roundToNearestMinutes]);
 
-  // NEW: Update security deposit when driver changes
   useEffect(() => {
     if (bookingData.checklist.securityDepositCollected) {
       const requiredDeposit = calculateRequiredDeposit();
@@ -244,18 +253,22 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     }
   }, [actualDriver.isSameAsLicenseHolder]);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (startTimeTimer) clearInterval(startTimeTimer);
     };
   }, [startTimeTimer]);
 
-  // Debounce customer search
+  // Debounce customer search (name + phone)
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (bookingData.customer.name.length >= 2) {
-        searchCustomers(bookingData.customer.name);
+      const nameQuery = bookingData.customer.name.trim();
+      const phoneQuery = bookingData.customer.phone.trim();
+
+      if (nameQuery.length >= 2) {
+        searchCustomers(nameQuery);
+      } else if (phoneQuery.length >= 4) {
+        searchCustomers(phoneQuery);
       } else {
         setCustomerSuggestions([]);
         setShowSuggestions(false);
@@ -263,9 +276,8 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [bookingData.customer.name]);
+  }, [bookingData.customer.name, bookingData.customer.phone]);
 
-  // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (suggestionsRef.current && !suggestionsRef.current.contains(event.target) &&
@@ -309,10 +321,15 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     setSelectedCustomerId(customer._id);
     setShowSuggestions(false);
     setCustomerSuggestions([]);
+    setLicenseConflict(null);
+    
+    // Check for active booking
+    checkCustomerStatus(customer);
   };
 
   const clearCustomerSelection = () => {
     setSelectedCustomerId(null);
+    setActiveBookingWarning(null);
     setBookingData(prev => ({
       ...prev,
       customer: {
@@ -349,6 +366,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
           }
         }));
         setSelectedCustomerId(customerId);
+        checkCustomerStatus(data.customer);
       }
     } catch (error) {
       console.error('Error fetching customer:', error);
@@ -386,9 +404,9 @@ const [checkingLicense, setCheckingLicense] = useState(false);
       }
     }));
 
-    // Clear selected customer if name is manually changed
     if (field === 'name' && selectedCustomerId) {
       setSelectedCustomerId(null);
+      setActiveBookingWarning(null);
     }
   };
 
@@ -422,12 +440,14 @@ const [checkingLicense, setCheckingLicense] = useState(false);
       case 1:
         return bookingData.vehicleId;
       case 2:
+        // Block if customer already has an active booking
+        if (activeBookingWarning) return false;
+
         const basicValidation =
           bookingData.customer.name.trim() &&
           validatePhoneNumber(bookingData.customer.phone) &&
           validateDrivingLicense(bookingData.customer.driverLicense);
   
-        // If different driver, validate their info too
         if (!actualDriver.isSameAsLicenseHolder) {
           if (
             !basicValidation ||
@@ -443,7 +463,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
           return false;
         }
   
-        // Passenger validation (optional)
         if (passengerInfo.include) {
           return (
             passengerInfo.name.trim() &&
@@ -465,28 +484,16 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     }
   };
 
-  // 🔧 FIXED: Timezone-aware booking submission
   const handleCompleteBooking = async () => {
     if (!canProceedFromStep(3)) return;
     
     setSubmitting(true);
     try {
-      // 🔧 FIX: Convert datetime-local to proper IST timestamp
       const convertToIST = (localDateTimeString) => {
         if (!localDateTimeString) return null;
-        
-        // datetime-local gives us: "2025-06-28T21:00"
-        // We need to explicitly set this as IST time
-        const istDate = new Date(localDateTimeString + '+05:30'); // Add IST timezone
-        
-        return istDate.toISOString(); // This will be in UTC but represents the correct IST time
+        const istDate = new Date(localDateTimeString + '+05:30');
+        return istDate.toISOString();
       };
-
-      console.log('🕐 Timezone Debug:');
-      console.log('Raw estimatedReturnTime:', estimatedReturnTime);
-      console.log('As IST Date:', new Date(estimatedReturnTime + '+05:30'));
-      console.log('Converting to UTC:', convertToIST(estimatedReturnTime));
-      console.log('Will display as IST:', new Date(convertToIST(estimatedReturnTime)).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
 
       const response = await fetch('/api/bookings', {
         method: 'POST',
@@ -496,14 +503,13 @@ const [checkingLicense, setCheckingLicense] = useState(false);
           customer: bookingData.customer,
           signature: bookingData.signature,
           startTime: calculatedStartTime?.toISOString(),
-          estimatedReturnTime: convertToIST(estimatedReturnTime), // 🔧 FIXED: Convert to proper IST
+          estimatedReturnTime: convertToIST(estimatedReturnTime),
           helmetProvided: bookingData.checklist.helmetProvided,
           aadharCardCollected: bookingData.checklist.aadharCardCollected,
           vehicleInspected: bookingData.checklist.vehicleInspected,
           securityDepositCollected: bookingData.checklist.securityDepositCollected,
           securityDepositAmount: bookingData.securityDepositAmount,
           additionalNotes: bookingData.additionalNotes,
-          // NEW: Multiple driver information
           actualDriver: actualDriver,
           enhancedSecurity: {
             isRequired: !actualDriver.isSameAsLicenseHolder,
@@ -577,7 +583,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             <div>
               <h1 className={theme.typography.title}>New Booking</h1>
               <p className="text-gray-400">Step {currentStep} of 3 - {getStepTitle(currentStep)}</p>
-              {/* NEW: Display calculated start time */}
               {calculatedStartTime && (
                 <div className="mt-2 flex items-center space-x-2">
                   <span className="text-green-400">🕐</span>
@@ -628,7 +633,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
         {currentStep === 1 && (
           <ThemedCard title="Select Vehicle">
             <div className="space-y-8">
-              {/* Vehicle Selection */}
               <div>
                 <h3 className="text-xl font-bold text-white mb-6">Available Vehicles</h3>
                 {availableVehicles.length === 0 ? (
@@ -682,12 +686,12 @@ const [checkingLicense, setCheckingLicense] = useState(false);
           </ThemedCard>
         )}
 
-        {/* Step 2: Customer Information with Smart Autocomplete + Multiple Driver Support */}
+        {/* Step 2: Customer Information */}
         {currentStep === 2 && (
           <div className="space-y-8">
             <ThemedCard title="License Holder Information">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Enhanced Name Input with Autocomplete */}
+                {/* Name with Autocomplete */}
                 <div className="relative">
                   <div ref={nameInputRef}>
                     <ThemedInput
@@ -699,7 +703,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                     />
                   </div>
 
-                  {/* Customer Selection Status */}
                   {selectedCustomerId && (
                     <div className="mt-2 flex items-center justify-between bg-green-500/10 border border-green-500/30 rounded-lg p-3">
                       <div className="flex items-center gap-2">
@@ -715,7 +718,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                     </div>
                   )}
 
-                  {/* Loading indicator */}
                   {searchingCustomers && (
                     <div className="mt-2 text-gray-400 text-sm flex items-center gap-2">
                       <div className="animate-spin rounded-full h-3 w-3 border-b border-cyan-400"></div>
@@ -723,7 +725,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                     </div>
                   )}
 
-                  {/* Customer Suggestions Dropdown */}
                   {showSuggestions && customerSuggestions.length > 0 && (
                     <div 
                       ref={suggestionsRef}
@@ -766,7 +767,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                         </div>
                       ))}
 
-                      {/* Option to create new customer */}
                       <div className="p-4 bg-gray-750 border-t border-gray-600">
                         <div className="flex items-center gap-2 text-cyan-400">
                           <span>➕</span>
@@ -791,89 +791,114 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                 />
                 
                 <div className="space-y-2">
-  <ThemedInput
-    label="Driver License Number *"
-    value={bookingData.customer.driverLicense}
-    onChange={(e) => handleCustomerChange('driverLicense', e.target.value.toUpperCase())}
-    placeholder="e.g., MP1420110012345"
-    error={bookingData.customer.driverLicense && !validateDrivingLicense(bookingData.customer.driverLicense) 
-      ? 'Please enter a valid driving license number' : ''}
-    className={selectedCustomerId ? 'border-green-500' : licenseConflict?.conflict ? 'border-red-500' : ''}
-    disabled={selectedCustomerId}
-  />
-  
-  {/* License checking indicator */}
-  {checkingLicense && (
-    <div className="flex items-center space-x-2 text-sm text-gray-400">
-      <div className="animate-spin rounded-full h-3 w-3 border-b border-cyan-400"></div>
-      <span>Checking license number...</span>
-    </div>
-  )}
-  
-  {/* License conflict warning */}
-  {licenseConflict?.conflict && (
-    <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4">
-      <div className="flex items-center space-x-2 mb-3">
-        <span className="text-red-400">⚠️</span>
-        <span className="text-red-300 font-semibold">License Number Conflict</span>
-      </div>
-      
-      <div className="space-y-2 text-sm">
-        <p className="text-red-200">
-          This license number belongs to an existing customer with different details:
-        </p>
-        
-        <div className="bg-red-800/30 rounded p-3">
-          <div className="grid grid-cols-2 gap-4 text-xs">
-            <div>
-              <div className="text-red-300 font-medium">Existing Customer:</div>
-              <div className="text-red-200">📛 {licenseConflict.existing.name}</div>
-              <div className="text-red-200">📞 {licenseConflict.existing.phone}</div>
-              <div className="text-red-200">📅 {licenseConflict.existing.totalBookings} bookings</div>
-            </div>
-            <div>
-              <div className="text-red-300 font-medium">Your Input:</div>
-              <div className="text-red-200">📛 {bookingData.customer.name}</div>
-              <div className="text-red-200">📞 {bookingData.customer.phone}</div>
-              <div className="text-red-200">🆕 New entry</div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex flex-col space-y-2 mt-3">
-          <button
-            onClick={() => {
-              selectCustomer(licenseConflict.existing);
-              setLicenseConflict(null);
-            }}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
-          >
-            ✅ Use Existing Customer ({licenseConflict.existing.name})
-          </button>
-          
-          <button
-            onClick={() => {
-              // Clear license number to prevent conflict
-              handleCustomerChange('driverLicense', '');
-              setLicenseConflict(null);
-            }}
-            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
-          >
-            🔄 Enter Different License Number
-          </button>
-          
-          <div className="text-red-300 text-xs">
-            ⚠️ Using the same license with different details will overwrite existing customer data
-          </div>
-        </div>
-      </div>
-    </div>
-  )}
-</div>
+                  <ThemedInput
+                    label="Driver License Number *"
+                    value={bookingData.customer.driverLicense}
+                    onChange={(e) => handleCustomerChange('driverLicense', e.target.value.toUpperCase())}
+                    placeholder="e.g., MP1420110012345"
+                    error={bookingData.customer.driverLicense && !validateDrivingLicense(bookingData.customer.driverLicense) 
+                      ? 'Please enter a valid driving license number' : ''}
+                    className={selectedCustomerId ? 'border-green-500' : licenseConflict?.conflict ? 'border-red-500' : ''}
+                    disabled={selectedCustomerId}
+                  />
+                  
+                  {checkingLicense && (
+                    <div className="flex items-center space-x-2 text-sm text-gray-400">
+                      <div className="animate-spin rounded-full h-3 w-3 border-b border-cyan-400"></div>
+                      <span>Checking license number...</span>
+                    </div>
+                  )}
+                  
+                  {/* License conflict warning */}
+                  {licenseConflict?.conflict && (
+                    <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4">
+                      <div className="flex items-center space-x-2 mb-3">
+                        <span className="text-red-400">⚠️</span>
+                        <span className="text-red-300 font-semibold">License Number Conflict</span>
+                      </div>
+                      
+                      <div className="space-y-2 text-sm">
+                        <p className="text-red-200">
+                          This license number belongs to an existing customer with different details:
+                        </p>
+                        
+                        <div className="bg-red-800/30 rounded p-3">
+                          <div className="grid grid-cols-2 gap-4 text-xs">
+                            <div>
+                              <div className="text-red-300 font-medium">Existing Customer:</div>
+                              <div className="text-red-200">📛 {licenseConflict.existing.name}</div>
+                              <div className="text-red-200">📞 {licenseConflict.existing.phone}</div>
+                              <div className="text-red-200">📅 {licenseConflict.existing.totalBookings} bookings</div>
+                            </div>
+                            <div>
+                              <div className="text-red-300 font-medium">Your Input:</div>
+                              <div className="text-red-200">📛 {bookingData.customer.name}</div>
+                              <div className="text-red-200">📞 {bookingData.customer.phone}</div>
+                              <div className="text-red-200">🆕 New entry</div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-col space-y-2 mt-3">
+                          <button
+                            onClick={() => {
+                              selectCustomer(licenseConflict.existing);
+                              setLicenseConflict(null);
+                            }}
+                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                          >
+                            ✅ Use Existing Customer ({licenseConflict.existing.name})
+                          </button>
+                          
+                          <button
+                            onClick={() => {
+                              handleCustomerChange('driverLicense', '');
+                              setLicenseConflict(null);
+                            }}
+                            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                          >
+                            🔄 Enter Different License Number
+                          </button>
+                          
+                          <div className="text-red-300 text-xs">
+                            ⚠️ Using the same license with different details will overwrite existing customer data
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Active Booking Warning */}
+                  {activeBookingWarning && (
+                    <div className="bg-amber-900/30 border border-amber-600/50 rounded-lg p-4 mt-2">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="text-amber-400 text-xl">⚠️</span>
+                        <span className="text-amber-300 font-semibold">Active Booking Found</span>
+                      </div>
+                      <p className="text-amber-200 text-sm mb-3">
+                        {activeBookingWarning.message}
+                      </p>
+                      <div className="text-xs text-amber-300 space-y-1 bg-amber-950/40 rounded p-3">
+                        <div>Booking ID: <span className="font-mono font-medium">{activeBookingWarning.bookingId}</span></div>
+                        <div>Vehicle: {activeBookingWarning.vehicle}</div>
+                        <div>
+                          Started:{' '}
+                          {new Date(activeBookingWarning.startTime).toLocaleString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+                      <p className="text-amber-400 text-xs mt-3 font-medium">
+                        You cannot create a new booking until the current one is completed or cancelled.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </ThemedCard>
-
-
 
             {/* Optional Passenger Information */}
             <ThemedCard>
@@ -929,12 +954,12 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             </ThemedCard>
           </div>
         )}
+
         {/* Step 3: Terms & Digital Signature */}
         {currentStep === 3 && (
           <ThemedCard title="Terms & Digital Signature">
             <div className="space-y-8">
               
-              {/* Final Booking Summary - UPDATED with estimated return time */}
               <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-6`}>
                 <h3 className="text-xl font-bold text-green-200 mb-4">Booking Summary</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -949,7 +974,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                     <p className="text-green-200">
                       <span className="font-medium">License:</span> {bookingData.customer.driverLicense}
                     </p>
-                    {/* NEW: Show actual driver if different */}
                     {!actualDriver.isSameAsLicenseHolder && (
                       <>
                         <p className="text-orange-200 border-t border-orange-700/30 pt-2 mt-2">
@@ -994,19 +1018,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                         })}
                       </p>
                     )}
-                    {/* NEW: Show estimated return time */}
-                    {estimatedReturnTime && (
-                      <p className="text-amber-200">
-                        <span className="font-medium">Estimated Return:</span> {new Date(estimatedReturnTime).toLocaleString('en-IN', {
-                          weekday: 'short',
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    )}
+
                     <p className="text-green-200">
                       <span className="font-medium">Vehicle Inspected:</span>{' '}
                       {bookingData.checklist.vehicleInspected ? 'Yes' : 'Pending'}
@@ -1019,19 +1031,15 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                 </div>
               </div>
 
-              {/* Enhanced Terms & Conditions Section */}
               <div className="space-y-6">
-                
-                {/* Terms Preview */}
                 <div className="bg-blue-900/50 border border-blue-700/50 rounded-lg p-6">
                   <h4 className="text-xl font-semibold text-blue-200 mb-4">📋 Rental Agreement</h4>
                   
-                  {/* Quick Summary */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
                       <h5 className="font-semibold text-blue-300 mb-2">Key Terms</h5>
                       <ul className="text-sm text-blue-200 space-y-1">
-                        <li>• ₹80/hour + ₹40 per 30min block</li>
+                        <li>• ₹{settings.hourlyRate}/hour + ₹{Math.round(settings.hourlyRate / 2)} per 30min block</li>
                         <li>• Night charges: 1.5x after 10 PM</li>
                         <li>• Mandatory helmet provided</li>
                         <li>• Return by 10:30 PM</li>
@@ -1051,7 +1059,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                     </div>
                   </div>
 
-                  {/* NEW: Multiple Driver Warning */}
                   {!actualDriver.isSameAsLicenseHolder && (
                     <div className="bg-orange-900/30 border border-orange-700/50 rounded-lg p-4 mb-6">
                       <div className="flex items-center space-x-2 mb-2">
@@ -1067,7 +1074,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                     </div>
                   )}
 
-                  {/* View Full Terms Button */}
                   <div className="text-center">
                     <button
                       onClick={() => setShowTermsModal(true)}
@@ -1078,7 +1084,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                   </div>
                 </div>
 
-                {/* Acceptance Checkbox */}
                 <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-6">
                   <label className="flex items-start space-x-4 cursor-pointer">
                     <input
@@ -1145,7 +1150,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                   </label>
                 </div>
 
-                {/* Digital Signature */}
                 <div>
                   <h4 className="text-lg font-semibold text-white mb-4">
                     ✍️ {!actualDriver.isSameAsLicenseHolder ? 'License Holder' : 'Customer'} Digital Signature

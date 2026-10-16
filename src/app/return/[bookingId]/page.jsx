@@ -25,7 +25,7 @@ export default function ThemedVehicleReturnPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [paymentReceived, setPaymentReceived] = useState(false);
-
+  const [settings, setSettings] = useState({ hourlyRate: 80 });
   // Advanced pricing state
   const [advancedPricing, setAdvancedPricing] = useState({
     totalAmount: 0,
@@ -33,6 +33,21 @@ export default function ThemedVehicleReturnPage() {
     totalMinutes: 0,
     summary: ''
   });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+        if (data.success) {
+          setSettings(data.settings);
+        }
+      } catch (error) {
+        console.error('Error fetching settings:', error);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   // UPI Configuration
   const UPI_ID = 'MAB.037327046010001@axisbank';
@@ -137,7 +152,7 @@ export default function ThemedVehicleReturnPage() {
         console.error('Error fetching advanced pricing:', data.error);
         // Fallback to simple calculation
         const duration = calculateDuration(booking.startTime, currentTime);
-        const baseAmount = duration.totalHours * 80;
+        const baseAmount = duration.totalHours * (settings.hourlyRate || 80);
         setAdvancedPricing({
           totalAmount: baseAmount,
           breakdown: [],

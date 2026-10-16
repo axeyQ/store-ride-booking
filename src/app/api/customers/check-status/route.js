@@ -1,5 +1,6 @@
 import connectDB from '@/lib/db';
 import Customer from '@/models/Customer';
+import Booking from '@/models/Booking';
 import { NextResponse } from 'next/server';
 
 export async function POST(request) {
@@ -46,8 +47,40 @@ export async function POST(request) {
         await customer.save();
       }
     }
+
+    // NEW: Check if customer already has an active booking
+    const activeBooking = await Booking.findOne({
+      customerId: customer._id,
+      status: 'active'
+    })
+    .populate('vehicleId', 'type model plateNumber')
+    .lean();
+
+    if (activeBooking) {
+      return NextResponse.json({
+        success: true,
+        canBook: false,
+        status: 'has_active_booking',
+        customer: {
+          _id: customer._id,
+          name: customer.name,
+          phone: customer.phone,
+          driverLicense: customer.driverLicense,
+          totalBookings: customer.totalBookings,
+          lastVisit: customer.lastVisit
+        },
+        activeBooking: {
+          bookingId: activeBooking.bookingId,
+          vehicle: activeBooking.vehicleId
+            ? `${activeBooking.vehicleId.model} (${activeBooking.vehicleId.plateNumber})`
+            : 'Unknown vehicle',
+          startTime: activeBooking.startTime,
+          message: `⚠️ This customer already has an active booking (${activeBooking.bookingId}) on ${activeBooking.vehicleId?.model || 'a vehicle'}. Please complete or cancel the current rental before creating a new one.`
+        }
+      });
+    }
     
-    // Check current status
+    // Check blacklist status
     if (!customer.isBlacklisted || !customer.blacklistDetails?.isActive) {
       return NextResponse.json({
         success: true,
