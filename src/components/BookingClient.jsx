@@ -199,11 +199,7 @@ export default function EnhancedBookingClientPage() {
     }
     
     setCalculatedStartTime(startTime);
-    
-    if (!estimatedReturnTime) {
-      const suggestedReturn = calculateSuggestedReturnTime(startTime.toISOString());
-      setEstimatedReturnTime(suggestedReturn);
-    }
+ 
   };
 
   const calculateDuration = (start, end) => {
@@ -503,7 +499,6 @@ export default function EnhancedBookingClientPage() {
           customer: bookingData.customer,
           signature: bookingData.signature,
           startTime: calculatedStartTime?.toISOString(),
-          estimatedReturnTime: convertToIST(estimatedReturnTime),
           helmetProvided: bookingData.checklist.helmetProvided,
           aadharCardCollected: bookingData.checklist.aadharCardCollected,
           vehicleInspected: bookingData.checklist.vehicleInspected,
