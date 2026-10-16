@@ -32,11 +32,10 @@ export default function EnhancedBookingClientPage() {
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [activeBookingWarning, setActiveBookingWarning] = useState(null);
 
-  // Calculated start time state
   const [calculatedStartTime, setCalculatedStartTime] = useState(null);
   const [startTimeTimer, setStartTimeTimer] = useState(null);
+  const [estimatedReturnTime, setEstimatedReturnTime] = useState('');
 
-  // Customer autocomplete state
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchingCustomers, setSearchingCustomers] = useState(false);
@@ -44,7 +43,6 @@ export default function EnhancedBookingClientPage() {
   const nameInputRef = useRef(null);
   const suggestionsRef = useRef(null);
 
-  // Multiple driver state
   const [actualDriver, setActualDriver] = useState({
     isSameAsLicenseHolder: true,
     name: '',
@@ -148,7 +146,6 @@ export default function EnhancedBookingClientPage() {
     }
   };
 
-  // Check if customer already has an active booking
   const checkCustomerStatus = async (customer) => {
     try {
       const response = await fetch('/api/customers/check-status', {
@@ -199,18 +196,10 @@ export default function EnhancedBookingClientPage() {
     }
     
     setCalculatedStartTime(startTime);
- 
-  };
-
-  const calculateDuration = (start, end) => {
-    if (!start || !end) return '';
-    const diffMs = end - start;
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
     
-    if (diffHours === 0) return `${diffMinutes} minutes`;
-    if (diffMinutes === 0) return `${diffHours} hours`;
-    return `${diffHours}h ${diffMinutes}m`;
+    // Always set estimated return time
+    const suggestedReturn = calculateSuggestedReturnTime(startTime.toISOString());
+    setEstimatedReturnTime(suggestedReturn);
   };
 
   const calculateRequiredDeposit = () => {
@@ -227,7 +216,7 @@ export default function EnhancedBookingClientPage() {
   }, []);
 
   useEffect(() => {
-    if (settings.startDelayMinutes !== undefined) {
+    if (settings.roundToNearestMinutes !== undefined) {
       calculateStartTime();
       
       const interval = setInterval(calculateStartTime, 60000);
@@ -255,7 +244,7 @@ export default function EnhancedBookingClientPage() {
     };
   }, [startTimeTimer]);
 
-  // Debounce customer search (name + phone)
+  // Search by name or phone
   useEffect(() => {
     const timer = setTimeout(() => {
       const nameQuery = bookingData.customer.name.trim();
@@ -318,8 +307,6 @@ export default function EnhancedBookingClientPage() {
     setShowSuggestions(false);
     setCustomerSuggestions([]);
     setLicenseConflict(null);
-    
-    // Check for active booking
     checkCustomerStatus(customer);
   };
 
@@ -416,13 +403,6 @@ export default function EnhancedBookingClientPage() {
     }));
   };
 
-  const handleSignatureChange = (signatureData) => {
-    setBookingData(prev => ({
-      ...prev,
-      signature: signatureData
-    }));
-  };
-
   const handleNext = () => {
     setCurrentStep(prev => Math.min(prev + 1, 3));
   };
@@ -436,7 +416,6 @@ export default function EnhancedBookingClientPage() {
       case 1:
         return bookingData.vehicleId;
       case 2:
-        // Block if customer already has an active booking
         if (activeBookingWarning) return false;
 
         const basicValidation =
@@ -480,55 +459,82 @@ export default function EnhancedBookingClientPage() {
     }
   };
 
+  // ✅ FIXED: Always sends a valid estimatedReturnTime
   const handleCompleteBooking = async () => {
     if (!canProceedFromStep(3)) return;
-    
+
     setSubmitting(true);
     try {
-      const convertToIST = (localDateTimeString) => {
-        if (!localDateTimeString) return null;
-        const istDate = new Date(localDateTimeString + '+05:30');
-        return istDate.toISOString();
+      const startTime = calculatedStartTime || new Date();
+
+      // Always build a valid return time (start + 2 hours)
+      let returnDate;
+      if (estimatedReturnTime) {
+        const raw = estimatedReturnTime;
+        if (raw.includes('T') && !raw.includes('Z') && !raw.includes('+')) {
+          returnDate = new Date(raw + '+05:30');
+        } else {
+          returnDate = new Date(raw);
+        }
+      }
+
+      if (!returnDate || isNaN(returnDate.getTime())) {
+        returnDate = new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
+      }
+
+      if (returnDate <= startTime) {
+        returnDate = new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
+      }
+
+      const payload = {
+        vehicleId: bookingData.vehicleId,
+        customer: bookingData.customer,
+        signature: bookingData.signature,
+        startTime: startTime.toISOString(),
+        estimatedReturnTime: returnDate.toISOString(),
+        helmetProvided: bookingData.checklist.helmetProvided,
+        aadharCardCollected: bookingData.checklist.aadharCardCollected,
+        vehicleInspected: bookingData.checklist.vehicleInspected,
+        securityDepositCollected: bookingData.checklist.securityDepositCollected,
+        securityDepositAmount: bookingData.securityDepositAmount || 0,
+        additionalNotes: bookingData.additionalNotes || '',
+        actualDriver: actualDriver,
+        enhancedSecurity: {
+          isRequired: !actualDriver.isSameAsLicenseHolder,
+          reason: 'multiple_driver',
+          additionalDepositAmount: actualDriver.isSameAsLicenseHolder ? 0 : 500
+        },
+        passengerInfo: passengerInfo.include
+          ? {
+              name: passengerInfo.name.trim(),
+              phone: passengerInfo.phone.trim(),
+            }
+          : null,
       };
+
+      console.log('📤 Booking payload:', {
+        ...payload,
+        signature: payload.signature ? '[SIGNATURE]' : null
+      });
 
       const response = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vehicleId: bookingData.vehicleId,
-          customer: bookingData.customer,
-          signature: bookingData.signature,
-          startTime: calculatedStartTime?.toISOString(),
-          helmetProvided: bookingData.checklist.helmetProvided,
-          aadharCardCollected: bookingData.checklist.aadharCardCollected,
-          vehicleInspected: bookingData.checklist.vehicleInspected,
-          securityDepositCollected: bookingData.checklist.securityDepositCollected,
-          securityDepositAmount: bookingData.securityDepositAmount,
-          additionalNotes: bookingData.additionalNotes,
-          actualDriver: actualDriver,
-          enhancedSecurity: {
-            isRequired: !actualDriver.isSameAsLicenseHolder,
-            reason: 'multiple_driver',
-            additionalDepositAmount: actualDriver.isSameAsLicenseHolder ? 0 : 500
-          },
-          passengerInfo: passengerInfo.include
-            ? {
-                name: passengerInfo.name.trim(),
-                phone: passengerInfo.phone.trim(),
-              }
-            : null,
-        })
+        body: JSON.stringify(payload)
       });
-  
-      const data = await response.json();
-      if (data.success) {
-        router.push(`/booking/confirmation/${data.booking.bookingId}`);
-      } else {
-        alert('Error creating booking: ' + data.error);
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        console.error('❌ API error:', data);
+        alert('Error creating booking: ' + (data.error || `Server error ${response.status}`));
+        return;
       }
+
+      router.push(`/booking/confirmation/${data.booking.bookingId}`);
     } catch (error) {
       console.error('Error creating booking:', error);
-      alert('Error creating booking. Please try again.');
+      alert('Error creating booking: ' + (error.message || 'Please try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -686,7 +692,6 @@ export default function EnhancedBookingClientPage() {
           <div className="space-y-8">
             <ThemedCard title="License Holder Information">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Name with Autocomplete */}
                 <div className="relative">
                   <div ref={nameInputRef}>
                     <ThemedInput
@@ -804,7 +809,6 @@ export default function EnhancedBookingClientPage() {
                     </div>
                   )}
                   
-                  {/* License conflict warning */}
                   {licenseConflict?.conflict && (
                     <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4">
                       <div className="flex items-center space-x-2 mb-3">
@@ -854,10 +858,6 @@ export default function EnhancedBookingClientPage() {
                           >
                             🔄 Enter Different License Number
                           </button>
-                          
-                          <div className="text-red-300 text-xs">
-                            ⚠️ Using the same license with different details will overwrite existing customer data
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -969,19 +969,6 @@ export default function EnhancedBookingClientPage() {
                     <p className="text-green-200">
                       <span className="font-medium">License:</span> {bookingData.customer.driverLicense}
                     </p>
-                    {!actualDriver.isSameAsLicenseHolder && (
-                      <>
-                        <p className="text-orange-200 border-t border-orange-700/30 pt-2 mt-2">
-                          <span className="font-medium">Actual Driver:</span> {actualDriver.name}
-                        </p>
-                        <p className="text-orange-200">
-                          <span className="font-medium">Driver Phone:</span> {actualDriver.phone}
-                        </p>
-                        <p className="text-orange-200">
-                          <span className="font-medium">Relationship:</span> {actualDriver.relationToLicenseHolder}
-                        </p>
-                      </>
-                    )}
                     {passengerInfo.include && (
                       <>
                         <p className="text-cyan-200 border-t border-cyan-700/30 pt-2 mt-2">
@@ -1013,7 +1000,18 @@ export default function EnhancedBookingClientPage() {
                         })}
                       </p>
                     )}
-
+                    {estimatedReturnTime && (
+                      <p className="text-amber-200">
+                        <span className="font-medium">Estimated Return:</span> {new Date(estimatedReturnTime).toLocaleString('en-IN', {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    )}
                     <p className="text-green-200">
                       <span className="font-medium">Vehicle Inspected:</span>{' '}
                       {bookingData.checklist.vehicleInspected ? 'Yes' : 'Pending'}
@@ -1047,27 +1045,9 @@ export default function EnhancedBookingClientPage() {
                         <li>• Valid driving license</li>
                         <li>• Vehicle inspection required</li>
                         <li>• Customer liability for damages</li>
-                        {!actualDriver.isSameAsLicenseHolder && (
-                          <li className="text-orange-300">• Enhanced security for multiple drivers</li>
-                        )}
                       </ul>
                     </div>
                   </div>
-
-                  {!actualDriver.isSameAsLicenseHolder && (
-                    <div className="bg-orange-900/30 border border-orange-700/50 rounded-lg p-4 mb-6">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <span className="text-orange-400">⚠️</span>
-                        <span className="text-orange-300 font-semibold">Multiple Driver Agreement</span>
-                      </div>
-                      <ul className="text-orange-200 text-sm space-y-1">
-                        <li>• License holder remains fully legally responsible</li>
-                        <li>• Both persons have signed this agreement</li>
-                        <li>• Enhanced security measures are in effect</li>
-                        <li>• Both contact numbers must remain active</li>
-                      </ul>
-                    </div>
-                  )}
 
                   <div className="text-center">
                     <button
@@ -1090,21 +1070,11 @@ export default function EnhancedBookingClientPage() {
                     <div>
                       <span className="text-lg font-bold text-white">
                         I have read and agree to all rental terms and conditions
-                        {!actualDriver.isSameAsLicenseHolder && ' including multiple driver policy'}
                       </span>
                       <p className="text-red-200 text-sm mt-1">
                         By checking this box, I confirm that I have reviewed the complete terms and conditions 
                         and agree to be legally bound by this rental agreement under Indian law.
-                        {!actualDriver.isSameAsLicenseHolder && (
-                          <span className="block mt-1 text-orange-300">
-                            As the license holder, I remain fully responsible for all actions of the actual driver.
-                          </span>
-                        )}
                       </p>
-                      <div className="mt-2 text-xs text-red-300">
-                        <p>✓ Governed by Indian Contract Act, 1872 & IT Act, 2000</p>
-                        <p>✓ Jurisdiction: Bhopal District Courts, Madhya Pradesh</p>
-                      </div>
                     </div>
                   </label>
                 </div>
@@ -1147,7 +1117,7 @@ export default function EnhancedBookingClientPage() {
 
                 <div>
                   <h4 className="text-lg font-semibold text-white mb-4">
-                    ✍️ {!actualDriver.isSameAsLicenseHolder ? 'License Holder' : 'Customer'} Digital Signature
+                    ✍️ Customer Digital Signature
                   </h4>
                   <SignatureCanvas
                     onSignatureChange={(signatureData) => 
@@ -1155,11 +1125,6 @@ export default function EnhancedBookingClientPage() {
                     }
                     signature={bookingData.signature}
                   />
-                  {!actualDriver.isSameAsLicenseHolder && (
-                    <p className="text-orange-300 text-sm mt-2">
-                      Note: Both license holder and actual driver signatures will be collected during vehicle handover
-                    </p>
-                  )}
                 </div>
               </div>
             </div>

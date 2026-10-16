@@ -33,14 +33,11 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
     
-    // Build query based on status filter
     let query = {};
     if (status === 'active') {
       query.status = 'active';
-      console.log('Filtering bookings by status:', status);
     }
     
-    console.log('Query:', query);
     const bookings = await Booking.find(query)
       .populate('vehicleId', 'type model plateNumber')
       .populate('customerId', 'name phone driverLicense')
@@ -50,7 +47,6 @@ export async function GET(request) {
       booking.status !== 'cancelled'
     );
     
-    console.log(`Found ${bookings.length} bookings with query:`, query);
     return NextResponse.json({ success: true, bookings: filteredBookings });
   } catch (error) {
     console.error('Bookings API error:', error);
@@ -70,10 +66,11 @@ export async function POST(request) {
       vehicleId: body.vehicleId,
       customer: body.customer,
       hasSignature: !!body.signature,
-      hasMultipleDriver: body.actualDriver && !body.actualDriver.isSameAsLicenseHolder
+      hasMultipleDriver: body.actualDriver && !body.actualDriver.isSameAsLicenseHolder,
+      estimatedReturnTime: body.estimatedReturnTime
     });
 
-    // ADD VALIDATION FOR ESTIMATED RETURN TIME
+    // Validate estimated return time
     if (!body.estimatedReturnTime) {
       return NextResponse.json(
         { success: false, error: 'Estimated return time is required' },
@@ -81,9 +78,15 @@ export async function POST(request) {
       );
     }
     
-    // Validate estimated return time
     const startTime = new Date(body.startTime || new Date());
     const estimatedReturn = new Date(body.estimatedReturnTime);
+    
+    if (isNaN(estimatedReturn.getTime())) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid estimated return time' },
+        { status: 400 }
+      );
+    }
     
     if (estimatedReturn <= startTime) {
       return NextResponse.json(
@@ -92,7 +95,7 @@ export async function POST(request) {
       );
     }
     
-    // Validate only essential required fields
+    // Validate required fields
     if (!body.vehicleId || !body.customer || !body.signature) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields: vehicleId, customer, or signature' },
@@ -100,7 +103,6 @@ export async function POST(request) {
       );
     }
     
-    // Validate customer has required fields
     if (!body.customer.name || !body.customer.phone || !body.customer.driverLicense) {
       return NextResponse.json(
         { success: false, error: 'Missing customer details: name, phone, or driverLicense' },
@@ -108,13 +110,10 @@ export async function POST(request) {
       );
     }
 
-    // NEW: Validate multiple driver information if provided
+    // Multiple driver validation
     const actualDriver = body.actualDriver || { isSameAsLicenseHolder: true };
     
     if (!actualDriver.isSameAsLicenseHolder) {
-      console.log('🔍 Validating multiple driver information');
-      
-      // Validate actual driver details
       if (!actualDriver.name || !actualDriver.phone || !actualDriver.relationToLicenseHolder || !actualDriver.alternateId) {
         return NextResponse.json({
           success: false,
@@ -122,7 +121,6 @@ export async function POST(request) {
         }, { status: 400 });
       }
 
-      // Validate phone number
       if (!validatePhoneNumber(actualDriver.phone)) {
         return NextResponse.json({
           success: false,
@@ -130,7 +128,6 @@ export async function POST(request) {
         }, { status: 400 });
       }
 
-      // Validate alternate ID (Aadhar or PAN)
       const isValidAadhar = validateAadharNumber(actualDriver.alternateId);
       const isValidPan = validatePanNumber(actualDriver.alternateId);
       
@@ -141,7 +138,6 @@ export async function POST(request) {
         }, { status: 400 });
       }
 
-      // NEW: Validate enhanced security requirements for multiple drivers
       const hasEnhancedSecurity = body.aadharCardCollected || 
         (body.securityDepositCollected && body.securityDepositAmount >= 1000);
 
@@ -151,15 +147,9 @@ export async function POST(request) {
           error: 'Enhanced security required for multiple drivers: Either collect both Aadhar cards OR ₹1000 security deposit'
         }, { status: 400 });
       }
-
-      console.log('✅ Multiple driver validation passed:', {
-        actualDriverName: actualDriver.name,
-        relationship: actualDriver.relationToLicenseHolder,
-        enhancedSecurity: hasEnhancedSecurity
-      });
     }
 
-    // Validate optional passenger information
+    // Optional passenger information
     let passengerInfo = null;
     if (body.passengerInfo?.name || body.passengerInfo?.phone) {
       const passengerName = body.passengerInfo.name?.trim();
@@ -192,16 +182,12 @@ export async function POST(request) {
       driverLicense: body.customer.driverLicense.trim().toUpperCase()
     };
     
-    console.log('🔍 Looking for existing customer with license:', cleanCustomerData.driverLicense);
-    
-    // Find or create customer with better error handling
+    // Find or create customer
     let customer = await Customer.findOne({ 
       driverLicense: cleanCustomerData.driverLicense 
     });
     
     if (!customer) {
-      console.log('🆕 Creating new customer:', cleanCustomerData.name);
-      // Create new customer
       customer = new Customer({
         ...cleanCustomerData,
         totalBookings: 0,
@@ -210,23 +196,18 @@ export async function POST(request) {
       
       try {
         await customer.save();
-        console.log('✅ New customer created with ID:', customer._id);
       } catch (customerSaveError) {
-        console.error('❌ Error saving new customer:', customerSaveError);
         return NextResponse.json(
           { success: false, error: 'Failed to create customer: ' + customerSaveError.message },
           { status: 500 }
         );
       }
     } else {
-      console.log('👤 Found existing customer:', customer.name, 'ID:', customer._id);
-      
-      // Check blacklist status
+      // Check blacklist
       if (customer.isBlacklisted && customer.blacklistDetails?.isActive) {
         const blacklistDetails = customer.blacklistDetails;
         const severity = blacklistDetails.severity;
         
-        // Auto-unblacklist expired temporary bans
         if (severity === 'temporary_ban' && blacklistDetails.unblacklistAt) {
           const now = new Date();
           if (now > blacklistDetails.unblacklistAt) {
@@ -235,11 +216,9 @@ export async function POST(request) {
             customer.blacklistDetails.unblacklistedBy = 'system';
             customer.blacklistDetails.unblacklistReason = 'Temporary ban expired automatically';
             await customer.save();
-            console.log('✅ Auto-unblacklisted expired temporary ban for customer:', customer.name);
           }
         }
         
-        // Check current status after auto-unblacklist
         if (customer.isBlacklisted && customer.blacklistDetails?.isActive) {
           if (severity === 'permanent_ban') {
             return NextResponse.json({ 
@@ -270,11 +249,10 @@ export async function POST(request) {
               }
             }, { status: 403 });
           }
-          // For warnings, continue with booking but add warning
         }
       }
       
-      // Update customer info and increment booking count
+      // Update customer
       customer.name = cleanCustomerData.name;
       customer.phone = cleanCustomerData.phone;
       customer.driverLicense = cleanCustomerData.driverLicense;
@@ -283,9 +261,7 @@ export async function POST(request) {
       
       try {
         await customer.save();
-        console.log('✅ Customer updated successfully:', customer.name);
       } catch (customerUpdateError) {
-        console.error('❌ Error updating customer:', customerUpdateError);
         return NextResponse.json(
           { success: false, error: 'Failed to update customer: ' + customerUpdateError.message },
           { status: 500 }
@@ -293,18 +269,34 @@ export async function POST(request) {
       }
     }
     
-    // Verify customer has valid _id
     if (!customer._id) {
-      console.error('❌ Customer ID is missing after save operation');
       return NextResponse.json(
         { success: false, error: 'Customer creation failed - missing ID' },
         { status: 500 }
       );
     }
+
+    // NEW: Block if customer already has an active booking
+    const existingActiveBooking = await Booking.findOne({
+      customerId: customer._id,
+      status: 'active'
+    }).populate('vehicleId', 'model plateNumber');
+
+    if (existingActiveBooking) {
+      return NextResponse.json({
+        success: false,
+        error: `This customer already has an active booking (${existingActiveBooking.bookingId}) on ${existingActiveBooking.vehicleId?.model || 'a vehicle'}. Please complete or cancel it first.`,
+        activeBooking: {
+          bookingId: existingActiveBooking.bookingId,
+          vehicle: existingActiveBooking.vehicleId
+            ? `${existingActiveBooking.vehicleId.model} (${existingActiveBooking.vehicleId.plateNumber})`
+            : 'Unknown',
+          startTime: existingActiveBooking.startTime
+        }
+      }, { status: 400 });
+    }
     
-    console.log('✅ Customer ready for booking. Customer ID:', customer._id);
-    
-    // Check if vehicle is available
+    // Check vehicle availability
     const vehicle = await Vehicle.findById(body.vehicleId);
     if (!vehicle) {
       return NextResponse.json(
@@ -320,21 +312,20 @@ export async function POST(request) {
       );
     }
     
-    console.log('🚗 Vehicle available:', vehicle.model, vehicle.plateNumber);
-    
-    // 🚀 NEW: Use SettingsService instead of duplicated function
+    // Calculate rental start time from settings
     const rentalStartTime = await SettingsService.calculateRentalStartTime();
-    console.log('⏰ Calculated start time using SettingsService:', rentalStartTime);
     
-    // NEW: Prepare enhanced security information
+    // Enhanced security
     const enhancedSecurity = body.enhancedSecurity || {};
     if (!actualDriver.isSameAsLicenseHolder) {
       enhancedSecurity.isRequired = true;
       enhancedSecurity.reason = 'multiple_driver';
-      enhancedSecurity.additionalDepositAmount = body.securityDepositAmount > 500 ? body.securityDepositAmount - 500 : 0;
+      enhancedSecurity.additionalDepositAmount = body.securityDepositAmount > 500 
+        ? body.securityDepositAmount - 500 
+        : 0;
     }
     
-    // Create booking with enhanced data including multiple driver support
+    // Create booking
     const bookingData = {
       vehicleId: body.vehicleId,
       customerId: customer._id,
@@ -346,10 +337,9 @@ export async function POST(request) {
       securityDepositCollected: body.securityDepositCollected || false,
       securityDepositAmount: body.securityDepositAmount || 0,
       startTime: rentalStartTime,
-      estimatedReturnTime: estimatedReturn,
+      estimatedReturnTime: estimatedReturn,   // ← correctly uses the declared variable
       createdAt: new Date(),
       
-      // NEW: Multiple driver information
       actualDriver: {
         isSameAsLicenseHolder: actualDriver.isSameAsLicenseHolder,
         name: actualDriver.isSameAsLicenseHolder ? null : actualDriver.name?.trim(),
@@ -358,49 +348,25 @@ export async function POST(request) {
         alternateId: actualDriver.isSameAsLicenseHolder ? null : actualDriver.alternateId?.trim().toUpperCase()
       },
       
-      // NEW: Enhanced security tracking
       enhancedSecurity: enhancedSecurity.isRequired ? {
         isRequired: true,
         reason: enhancedSecurity.reason || 'multiple_driver',
         additionalDepositAmount: enhancedSecurity.additionalDepositAmount || 0,
         requiredAt: new Date(),
-        notes: !actualDriver.isSameAsLicenseHolder ? 
-          `Multiple driver booking: ${actualDriver.name} (${actualDriver.relationToLicenseHolder})` : null
+        notes: !actualDriver.isSameAsLicenseHolder 
+          ? `Multiple driver booking: ${actualDriver.name} (${actualDriver.relationToLicenseHolder})` 
+          : null
       } : {
         isRequired: false
       },
 
-      // Optional passenger info (active bookings only)
       ...(passengerInfo ? { passengerInfo } : {}),
     };
-    
-    console.log('📋 Creating booking with enhanced data:', {
-      ...bookingData,
-      signature: '[SIGNATURE_DATA]', // Don't log the actual signature
-      actualDriver: actualDriver.isSameAsLicenseHolder ? 'Same as license holder' : {
-        name: actualDriver.name,
-        relationship: actualDriver.relationToLicenseHolder,
-        hasAlternateId: !!actualDriver.alternateId
-      }
-    });
     
     const booking = new Booking(bookingData);
     
     try {
       await booking.save();
-      console.log('✅ Booking created with ID:', booking._id, 'Booking ID:', booking.bookingId);
-      
-      // NEW: Log multiple driver booking for analytics
-      if (!actualDriver.isSameAsLicenseHolder) {
-        console.log('📊 Multiple driver booking created:', {
-          bookingId: booking.bookingId,
-          licenseHolder: customer.name,
-          actualDriver: actualDriver.name,
-          relationship: actualDriver.relationToLicenseHolder,
-          enhancedDeposit: bookingData.securityDepositAmount
-        });
-      }
-      
     } catch (bookingSaveError) {
       console.error('❌ Error saving booking:', bookingSaveError);
       return NextResponse.json(
@@ -409,7 +375,7 @@ export async function POST(request) {
       );
     }
     
-    // 🚀 NEW: Use BookingService for safe vehicle status update
+    // Update vehicle status
     try {
       const vehicleUpdateResult = await BookingService.updateVehicleStatusSafely(
         body.vehicleId, 
@@ -419,38 +385,28 @@ export async function POST(request) {
       
       if (!vehicleUpdateResult.success) {
         console.error('❌ Vehicle status update failed:', vehicleUpdateResult.error);
-        // Continue with booking but log the issue
-      } else {
-        console.log('✅ Vehicle status updated to rented via BookingService');
       }
     } catch (vehicleUpdateError) {
-      console.error('❌ Error updating vehicle status via service:', vehicleUpdateError);
-      // Fallback to direct update
+      console.error('❌ Error updating vehicle status:', vehicleUpdateError);
       try {
         await Vehicle.findByIdAndUpdate(body.vehicleId, { status: 'rented' });
-        console.log('✅ Vehicle status updated to rented (fallback)');
       } catch (fallbackError) {
         console.error('❌ Fallback vehicle update also failed:', fallbackError);
       }
     }
     
-    // Populate the booking for response with error handling
+    // Populate booking for response
     let populatedBooking;
     try {
       populatedBooking = await Booking.findById(booking._id)
         .populate('vehicleId', 'type model plateNumber')
         .populate('customerId', 'name phone driverLicense');
       
-      console.log('✅ Booking populated successfully');
-      
-      // Verify population worked
       if (!populatedBooking) {
         throw new Error('Booking not found after creation');
       }
       
       if (!populatedBooking.customerId) {
-        console.error('❌ Customer population failed');
-        // Manually attach customer data if population failed
         populatedBooking = {
           ...booking.toObject(),
           customerId: {
@@ -464,13 +420,11 @@ export async function POST(request) {
       }
       
       if (!populatedBooking.vehicleId) {
-        console.error('❌ Vehicle population failed');
         populatedBooking.vehicleId = vehicle;
       }
       
     } catch (populationError) {
       console.error('❌ Error populating booking:', populationError);
-      // Return booking with manually attached data
       populatedBooking = {
         ...booking.toObject(),
         customerId: {
@@ -488,7 +442,7 @@ export async function POST(request) {
       };
     }
     
-    // Include warning if customer has warning status
+    // Warning info
     let warningInfo = null;
     if (customer.isBlacklisted && 
         customer.blacklistDetails?.isActive && 
@@ -502,7 +456,7 @@ export async function POST(request) {
       };
     }
     
-    // NEW: Add multiple driver warning if applicable
+    // Multiple driver info
     let multipleDriverInfo = null;
     if (!actualDriver.isSameAsLicenseHolder) {
       multipleDriverInfo = {
@@ -512,8 +466,6 @@ export async function POST(request) {
         message: `Multiple driver booking: ${actualDriver.name} (${actualDriver.relationToLicenseHolder}) will be driving. Enhanced security measures are in effect.`
       };
     }
-    
-    console.log('✅ Booking creation completed successfully');
     
     const response = {
       success: true,

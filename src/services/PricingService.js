@@ -35,7 +35,6 @@ export class PricingService {
 
   /**
    * MAIN PRICING CALCULATION - Single source of truth
-   * Replaces all duplicated pricing logic across the app
    */
   static async calculateAdvancedPricing(startTime, endTime = new Date()) {
     try {
@@ -43,7 +42,6 @@ export class PricingService {
       const start = new Date(startTime);
       const end = new Date(endTime);
       
-      // Handle future start times
       if (end < start) {
         const minutesUntilStart = Math.ceil((start - end) / (1000 * 60));
         return {
@@ -58,7 +56,6 @@ export class PricingService {
       
       const totalMinutes = Math.max(0, Math.floor((end - start) / (1000 * 60)));
       
-      // Just started case
       if (totalMinutes === 0) {
         return {
           totalAmount: 0,
@@ -69,19 +66,16 @@ export class PricingService {
         };
       }
       
-      // Calculate detailed breakdown
       return this.calculatePricingBreakdown(start, totalMinutes, settings);
       
     } catch (error) {
       console.error('Pricing calculation error:', error);
-      // Fallback calculation
       return this.calculateFallbackPricing(startTime, endTime);
     }
   }
 
   /**
    * DETAILED PRICING BREAKDOWN
-   * Enhanced version with night charge support
    */
   static calculatePricingBreakdown(startTime, totalMinutes, settings) {
     const { baseRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
@@ -92,7 +86,7 @@ export class PricingService {
     let remainingMinutes = totalMinutes;
     let currentTime = new Date(startTime);
     
-    // First block: Base hour + grace period (75 minutes default)
+    // First block: Base hour + grace period
     const firstBlockMinutes = 60 + graceMinutes;
     const firstBlockUsed = Math.min(remainingMinutes, firstBlockMinutes);
     
@@ -116,7 +110,7 @@ export class PricingService {
     remainingMinutes -= firstBlockUsed;
     currentTime = this.addMinutes(currentTime, firstBlockUsed);
     
-    // Subsequent blocks: 30-minute increments (default)
+    // Subsequent blocks
     let blockNumber = 2;
     while (remainingMinutes > 0) {
       const blockUsed = Math.min(remainingMinutes, blockMinutes);
@@ -152,21 +146,23 @@ export class PricingService {
   }
 
   /**
-   * FALLBACK PRICING - Simple calculation when detailed fails
-   * Matches your current booking completion API logic
+   * FALLBACK PRICING - Now uses settings instead of hardcoded 80
    */
-  static calculateFallbackPricing(startTime, endTime) {
+  static async calculateFallbackPricing(startTime, endTime) {
     try {
+      const settings = await this.getPricingSettings();
+      const baseRate = settings.baseRate || this.DEFAULT_PRICING.baseRate;
+
       const start = new Date(startTime);
       const end = new Date(endTime);
       const totalMinutes = Math.max(0, Math.floor((end - start) / (1000 * 60)));
       
       if (totalMinutes === 0) {
-        return { totalAmount: 80, breakdown: [], totalMinutes: 0 };
+        return { totalAmount: baseRate, breakdown: [], totalMinutes: 0 };
       }
       
       const hours = Math.ceil(totalMinutes / 60);
-      const totalAmount = Math.max(hours * 80, 80);
+      const totalAmount = Math.max(hours * baseRate, baseRate);
       
       return {
         totalAmount,
@@ -176,13 +172,17 @@ export class PricingService {
       };
     } catch (error) {
       console.error('Fallback pricing failed:', error);
-      return { totalAmount: 80, breakdown: [], totalMinutes: 0, summary: 'Minimum charge' };
+      return { 
+        totalAmount: this.DEFAULT_PRICING.baseRate, 
+        breakdown: [], 
+        totalMinutes: 0, 
+        summary: 'Minimum charge' 
+      };
     }
   }
 
   /**
-   * SIMPLIFIED PRICING - For API routes that need basic calculation
-   * Maintains compatibility with existing booking completion API
+   * SIMPLIFIED PRICING
    */
   static async calculateSimplePricing(startTime, endTime) {
     try {
@@ -211,7 +211,7 @@ export class PricingService {
   }
 
   /**
-   * CURRENT AMOUNT CALCULATION - For live booking tracking
+   * CURRENT AMOUNT CALCULATION
    */
   static async calculateCurrentAmount(booking) {
     const startTime = new Date(booking.startTime);
@@ -229,7 +229,7 @@ export class PricingService {
   }
 
   /**
-   * PRICING PREVIEW - For UI previews (duration in minutes)
+   * PRICING PREVIEW
    */
   static async calculatePricingPreview(durationMinutes, startTime = new Date()) {
     if (durationMinutes <= 0) {
@@ -241,12 +241,12 @@ export class PricingService {
   }
 
   /**
-   * PRICING EXAMPLES - For settings page and UI displays
+   * PRICING EXAMPLES
    */
   static async getPricingExamples() {
     const settings = await this.getPricingSettings();
     const now = new Date();
-    now.setHours(14, 0, 0, 0); // 2 PM for day examples
+    now.setHours(14, 0, 0, 0);
     
     const examples = [
       { label: '30 minutes', minutes: 30 },
@@ -267,7 +267,6 @@ export class PricingService {
       })
     );
     
-    // Night examples (starting at 9:30 PM)
     const nightTime = new Date();
     nightTime.setHours(21, 30, 0, 0);
     
