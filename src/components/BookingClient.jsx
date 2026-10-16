@@ -422,34 +422,44 @@ const [checkingLicense, setCheckingLicense] = useState(false);
       case 1:
         return bookingData.vehicleId;
       case 2:
-        const basicValidation = bookingData.customer.name.trim() &&
-               validatePhoneNumber(bookingData.customer.phone) &&
-               validateDrivingLicense(bookingData.customer.driverLicense);
-        
+        const basicValidation =
+          bookingData.customer.name.trim() &&
+          validatePhoneNumber(bookingData.customer.phone) &&
+          validateDrivingLicense(bookingData.customer.driverLicense);
+  
         // If different driver, validate their info too
         if (!actualDriver.isSameAsLicenseHolder) {
-          if (!basicValidation ||
-              !actualDriver.name.trim() ||
-              !validatePhoneNumber(actualDriver.phone) ||
-              !actualDriver.relationToLicenseHolder ||
-              !actualDriver.relationToLicenseHolder.trim() ||
-              !actualDriver.alternateId.trim()) {
+          if (
+            !basicValidation ||
+            !actualDriver.name.trim() ||
+            !validatePhoneNumber(actualDriver.phone) ||
+            !actualDriver.relationToLicenseHolder ||
+            !actualDriver.relationToLicenseHolder.trim() ||
+            !actualDriver.alternateId.trim()
+          ) {
             return false;
           }
         } else if (!basicValidation) {
           return false;
         }
-
+  
+        // Passenger validation (optional)
         if (passengerInfo.include) {
-          return passengerInfo.name.trim() &&
-                 validatePhoneNumber(passengerInfo.phone);
+          return (
+            passengerInfo.name.trim() &&
+            validatePhoneNumber(passengerInfo.phone)
+          );
         }
-
+  
         return true;
+  
       case 3:
-        return bookingData.signature &&
+        return (
+          bookingData.signature &&
           bookingData.termsAccepted &&
-          bookingData.checklist.vehicleInspected;
+          bookingData.checklist.vehicleInspected
+        );
+  
       default:
         return true;
     }
@@ -863,8 +873,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
               </div>
             </ThemedCard>
 
-            {/* NEW: Multiple Driver Section */}
-           
+
 
             {/* Optional Passenger Information */}
             <ThemedCard>

@@ -5,9 +5,7 @@ import mongoose from 'mongoose';
 if (typeof dns.setServers === 'function') {
   dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
 }
-if (typeof dns.setDefaultResultOrder === 'function') {
-  dns.setDefaultResultOrder('ipv4first');
-}
+
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
