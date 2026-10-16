@@ -53,6 +53,7 @@ export async function PATCH(request, { params }) {
       withinWindow: withinWindow,
       manualOverride: manualOverride
     };
+    booking.passengerInfo = undefined;
 
     await booking.save();
 

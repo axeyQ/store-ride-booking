@@ -128,6 +128,7 @@ export async function PATCH(request, { params }) {
     if (body.discountAmount) booking.discountAmount = body.discountAmount;
     if (body.additionalCharges) booking.additionalCharges = body.additionalCharges;
     booking.pricingBreakdown = pricingResult.breakdown;
+    booking.passengerInfo = undefined;
 
     await booking.save();
     console.log(`✅ Booking ${booking.bookingId} marked as completed`);

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "seed": "node scripts/seedVehicles.js",
+    "seed:admin": "node scripts/seedAdmin.js",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",

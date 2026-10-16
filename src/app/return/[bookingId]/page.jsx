@@ -35,7 +35,7 @@ export default function ThemedVehicleReturnPage() {
   });
 
   // UPI Configuration
-  const UPI_ID = 'paytm.s1hau05@pty'; // Your test UPI ID
+  const UPI_ID = 'MAB.037327046010001@axisbank'; // Your test UPI ID
   const BUSINESS_NAME = 'MR Travels';
 
   // Return form state

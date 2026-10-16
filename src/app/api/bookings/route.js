@@ -158,6 +158,32 @@ export async function POST(request) {
         enhancedSecurity: hasEnhancedSecurity
       });
     }
+
+    // Validate optional passenger information
+    let passengerInfo = null;
+    if (body.passengerInfo?.name || body.passengerInfo?.phone) {
+      const passengerName = body.passengerInfo.name?.trim();
+      const passengerPhone = body.passengerInfo.phone?.trim();
+
+      if (!passengerName || !passengerPhone) {
+        return NextResponse.json({
+          success: false,
+          error: 'Both passenger name and phone are required when passenger information is provided',
+        }, { status: 400 });
+      }
+
+      if (!validatePhoneNumber(passengerPhone)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Please provide a valid phone number for the passenger',
+        }, { status: 400 });
+      }
+
+      passengerInfo = {
+        name: passengerName,
+        phone: passengerPhone,
+      };
+    }
     
     // Clean customer data
     const cleanCustomerData = {
@@ -342,7 +368,10 @@ export async function POST(request) {
           `Multiple driver booking: ${actualDriver.name} (${actualDriver.relationToLicenseHolder})` : null
       } : {
         isRequired: false
-      }
+      },
+
+      // Optional passenger info (active bookings only)
+      ...(passengerInfo ? { passengerInfo } : {}),
     };
     
     console.log('📋 Creating booking with enhanced data:', {

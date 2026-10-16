@@ -55,6 +55,12 @@ export default function EnhancedBookingClientPage() {
     alternateId: ''
   });
 
+  const [passengerInfo, setPassengerInfo] = useState({
+    include: false,
+    name: '',
+    phone: '',
+  });
+
   const [licenseConflict, setLicenseConflict] = useState(null);
 const [checkingLicense, setCheckingLicense] = useState(false);
 
@@ -404,42 +410,46 @@ const [checkingLicense, setCheckingLicense] = useState(false);
   };
 
   const handleNext = () => {
-    setCurrentStep(prev => Math.min(prev + 1, 5)); // Updated to 5 steps
+    setCurrentStep(prev => Math.min(prev + 1, 3));
   };
 
   const handlePrevious = () => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
 
-  // UPDATED: Enhanced validation including estimated return time
   const canProceedFromStep = (step) => {
     switch (step) {
       case 1:
         return bookingData.vehicleId;
       case 2:
-        return estimatedReturnTime && new Date(estimatedReturnTime) > (calculatedStartTime || new Date());
-      case 3:
         const basicValidation = bookingData.customer.name.trim() &&
                validatePhoneNumber(bookingData.customer.phone) &&
                validateDrivingLicense(bookingData.customer.driverLicense);
         
         // If different driver, validate their info too
         if (!actualDriver.isSameAsLicenseHolder) {
-          return basicValidation &&
-                 actualDriver.name.trim() &&
-                 validatePhoneNumber(actualDriver.phone) &&
-                 actualDriver.relationToLicenseHolder &&
-                 actualDriver.relationToLicenseHolder.trim() &&
-                 actualDriver.alternateId.trim();
+          if (!basicValidation ||
+              !actualDriver.name.trim() ||
+              !validatePhoneNumber(actualDriver.phone) ||
+              !actualDriver.relationToLicenseHolder ||
+              !actualDriver.relationToLicenseHolder.trim() ||
+              !actualDriver.alternateId.trim()) {
+            return false;
+          }
+        } else if (!basicValidation) {
+          return false;
         }
-        return basicValidation;
-      case 4:
-        const aadharOrDeposit = bookingData.checklist.aadharCardCollected || 
-        bookingData.checklist.securityDepositCollected;
 
-        return bookingData.checklist.vehicleInspected && aadharOrDeposit;
-      case 5:
-        return bookingData.signature && bookingData.termsAccepted;
+        if (passengerInfo.include) {
+          return passengerInfo.name.trim() &&
+                 validatePhoneNumber(passengerInfo.phone);
+        }
+
+        return true;
+      case 3:
+        return bookingData.signature &&
+          bookingData.termsAccepted &&
+          bookingData.checklist.vehicleInspected;
       default:
         return true;
     }
@@ -447,7 +457,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
 
   // 🔧 FIXED: Timezone-aware booking submission
   const handleCompleteBooking = async () => {
-    if (!canProceedFromStep(5)) return;
+    if (!canProceedFromStep(3)) return;
     
     setSubmitting(true);
     try {
@@ -489,7 +499,13 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             isRequired: !actualDriver.isSameAsLicenseHolder,
             reason: 'multiple_driver',
             additionalDepositAmount: actualDriver.isSameAsLicenseHolder ? 0 : 500
-          }
+          },
+          passengerInfo: passengerInfo.include
+            ? {
+                name: passengerInfo.name.trim(),
+                phone: passengerInfo.phone.trim(),
+              }
+            : null,
         })
       });
   
@@ -507,14 +523,11 @@ const [checkingLicense, setCheckingLicense] = useState(false);
     }
   };
   
-  // UPDATED: Step titles for 5 steps
   const getStepTitle = (step) => {
     switch (step) {
       case 1: return 'Select Vehicle';
-      case 2: return 'Estimated Return Time';
-      case 3: return 'Customer Information';
-      case 4: return 'Pre-Rental Checklist';
-      case 5: return 'Terms & Digital Signature';
+      case 2: return 'Customer Information';
+      case 3: return 'Terms & Digital Signature';
       default: return 'Booking';
     }
   };
@@ -553,7 +566,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
           <div className="flex justify-between items-center p-6">
             <div>
               <h1 className={theme.typography.title}>New Booking</h1>
-              <p className="text-gray-400">Step {currentStep} of 5 - {getStepTitle(currentStep)}</p>
+              <p className="text-gray-400">Step {currentStep} of 3 - {getStepTitle(currentStep)}</p>
               {/* NEW: Display calculated start time */}
               {calculatedStartTime && (
                 <div className="mt-2 flex items-center space-x-2">
@@ -571,14 +584,13 @@ const [checkingLicense, setCheckingLicense] = useState(false);
               )}
             </div>
             <ThemedBadge color="cyan">
-              {currentStep}/5 Complete
+              {currentStep}/3 Complete
             </ThemedBadge>
           </div>
           
-          {/* Progress Bar - Updated to 5 steps */}
           <div className="px-6 pb-6">
             <div className="flex items-center">
-              {[1, 2, 3, 4, 5].map((step) => (
+              {[1, 2, 3].map((step) => (
                 <div key={step} className="flex items-center flex-1">
                   <div className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all",
@@ -588,7 +600,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                   )}>
                     {step}
                   </div>
-                  {step < 5 && (
+                  {step < 3 && (
                     <div className={cn(
                       "flex-1 h-2 mx-3 rounded-full transition-all",
                       step < currentStep 
@@ -660,122 +672,8 @@ const [checkingLicense, setCheckingLicense] = useState(false);
           </ThemedCard>
         )}
 
-        {/* NEW Step 2: Estimated Return Time */}
+        {/* Step 2: Customer Information with Smart Autocomplete + Multiple Driver Support */}
         {currentStep === 2 && (
-          <ThemedCard title="📅 Estimated Return Time">
-            <div className="space-y-6">
-              <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-6">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="text-3xl">⏰</div>
-                  <div>
-                    <h3 className="text-xl font-bold text-amber-200">When do you plan to return?</h3>
-                    <p className="text-amber-300">This helps us manage our fleet better and provide better service</p>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Current Start Time Display */}
-                  <div className="space-y-2">
-                    <label className="text-green-200 font-medium">Rental Start Time</label>
-                    <div className="bg-green-900/30 border border-green-700/50 rounded-lg p-4">
-                      <div className="text-green-400 font-bold text-lg">
-                        {calculatedStartTime?.toLocaleString('en-IN', {
-                          weekday: 'short',
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Estimated Return Time Input */}
-                  <div className="space-y-2">
-                    <label className="text-amber-200 font-medium">Estimated Return Time*</label>
-                    <input
-                      type="datetime-local"
-                      value={estimatedReturnTime}
-                      onChange={(e) => setEstimatedReturnTime(e.target.value)}
-                      min={calculatedStartTime?.toISOString().slice(0, 16)}
-                      required
-                      className="w-full bg-gray-800 border border-amber-500 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-amber-400 focus:border-transparent"
-                    />
-                    {estimatedReturnTime && calculatedStartTime && (
-                      <div className="text-amber-300 text-sm">
-                        Duration: {calculateDuration(calculatedStartTime, new Date(estimatedReturnTime))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 🔧 FIXED: Quick Duration Buttons */}
-                <div className="mt-6">
-                  <div className="text-amber-200 font-medium mb-3">Quick Select:</div>
-                  <div className="flex flex-wrap gap-3">
-                    {[
-                      { label: '2 Hours', hours: 2 },
-                      { label: '4 Hours', hours: 4 },
-                      { label: '6 Hours', hours: 6 },
-                      { label: '8 Hours', hours: 8 },
-                      { label: 'Half Day (12h)', hours: 12 },
-                      { label: 'Full Day (24h)', hours: 24 }
-                    ].map((duration) => (
-                      <button
-                        key={duration.hours}
-                        type="button"
-                        onClick={() => {
-                          if (calculatedStartTime) {
-                            const returnTime = new Date(calculatedStartTime.getTime() + (duration.hours * 60 * 60 * 1000));
-                            
-                            // 🔧 FIX: Format as local datetime string for input
-                            const year = returnTime.getFullYear();
-                            const month = String(returnTime.getMonth() + 1).padStart(2, '0');
-                            const day = String(returnTime.getDate()).padStart(2, '0');
-                            const hours = String(returnTime.getHours()).padStart(2, '0');
-                            const minutes = String(returnTime.getMinutes()).padStart(2, '0');
-                            
-                            const localTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
-                            
-                            console.log(`Setting ${duration.label}:`, {
-                              returnTime: returnTime.toLocaleString('en-IN'),
-                              localTimeString: localTimeString
-                            });
-                            
-                            setEstimatedReturnTime(localTimeString);
-                          }
-                        }}
-                        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-medium transition-colors"
-                      >
-                        {duration.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Important Note */}
-                <div className="mt-6 bg-blue-900/20 border border-blue-700/30 rounded-lg p-4">
-                  <div className="flex items-start space-x-3">
-                    <div className="text-blue-400 text-xl">💡</div>
-                    <div className="text-blue-200 text-sm">
-                      <div className="font-medium mb-1">Important Notes:</div>
-                      <ul className="space-y-1 text-blue-300">
-                        <li>• This is an estimate - you can return earlier or later</li>
-                        <li>• Billing is calculated based on actual return time</li>
-                        <li>• We'll use this to better plan vehicle availability</li>
-                        <li>• Store closes at 10:30 PM - late returns incur additional charges</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </ThemedCard>
-        )}
-
-        {/* Step 3: Customer Information with Smart Autocomplete + Multiple Driver Support */}
-        {currentStep === 3 && (
           <div className="space-y-8">
             <ThemedCard title="License Holder Information">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -966,325 +864,64 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             </ThemedCard>
 
             {/* NEW: Multiple Driver Section */}
+           
+
+            {/* Optional Passenger Information */}
             <ThemedCard>
               <div className="p-6">
-                <h3 className="text-xl font-semibold text-white mb-4">🚗 Driver Information</h3>
-                
-                {/* Same person checkbox */}
+                <h3 className="text-xl font-semibold text-white mb-4">👥 Passenger Information (Optional)</h3>
+
                 <div className="mb-6">
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={actualDriver.isSameAsLicenseHolder}
-                      onChange={(e) => setActualDriver(prev => ({
+                      checked={passengerInfo.include}
+                      onChange={(e) => setPassengerInfo(prev => ({
                         ...prev,
-                        isSameAsLicenseHolder: e.target.checked,
-                        name: e.target.checked ? '' : prev.name,
-                        phone: e.target.checked ? '' : prev.phone,
-                        relationToLicenseHolder: e.target.checked ? '' : prev.relationToLicenseHolder,
-                        alternateId: e.target.checked ? '' : prev.alternateId
+                        include: e.target.checked,
+                        name: e.target.checked ? prev.name : '',
+                        phone: e.target.checked ? prev.phone : '',
                       }))}
-                      className="w-5 h-5 text-green-600 border-2 border-gray-300 rounded focus:ring-green-500"
+                      className="w-5 h-5 text-cyan-600 border-2 border-gray-300 rounded focus:ring-cyan-500"
                     />
                     <span className="text-white font-medium">
-                      License holder will drive the vehicle themselves
+                      Record passenger details for this ride
                     </span>
                   </label>
+                  <p className="text-gray-400 text-sm mt-2 ml-8">
+                    Shown in Active Bookings only while the rental is live — not saved as a customer record.
+                  </p>
                 </div>
 
-                {/* Different driver form */}
-                {!actualDriver.isSameAsLicenseHolder && (
-                  <div className="space-y-6">
-                    <div className="bg-orange-900/20 border border-orange-700/30 rounded-lg p-4">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <span className="text-orange-400">⚠️</span>
-                        <span className="text-orange-300 font-semibold">Different Driver Policy</span>
-                      </div>
-                      <ul className="text-orange-200 text-sm space-y-1">
-                        <li>• Both license holder AND actual driver must be present</li>
-                        <li>• Higher security deposit required (₹1000)</li>
-                        <li>• Both persons will sign the rental agreement</li>
-                        <li>• License holder remains legally responsible</li>
-                      </ul>
-                    </div>
+                {passengerInfo.include && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <ThemedInput
+                      label="Passenger Name *"
+                      value={passengerInfo.name}
+                      onChange={(e) => setPassengerInfo(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Passenger full name"
+                      required
+                    />
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <ThemedInput
-                        label="Actual Driver Name *"
-                        value={actualDriver.name}
-                        onChange={(e) => setActualDriver(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="Person who will drive"
-                        required={!actualDriver.isSameAsLicenseHolder}
-                      />
-                      
-                      <ThemedInput
-                        label="Driver Phone Number *"
-                        type="tel"
-                        value={actualDriver.phone}
-                        onChange={(e) => setActualDriver(prev => ({ ...prev, phone: e.target.value }))}
-                        placeholder="10-digit phone number"
-                        maxLength="10"
-                        required={!actualDriver.isSameAsLicenseHolder}
-                        error={actualDriver.phone && !validatePhoneNumber(actualDriver.phone) 
-                          ? 'Please enter a valid 10-digit phone number' : ''}
-                      />
-                      
-                      <ThemedSelect
-                        label="Relationship to License Holder *"
-                        value={actualDriver.relationToLicenseHolder}
-                        onValueChange={(value) => setActualDriver(prev => ({ ...prev, relationToLicenseHolder: value }))}
-                        options={[
-                          { value: 'brother', label: 'Brother' },
-                          { value: 'sister', label: 'Sister' },
-                          { value: 'friend', label: 'Friend' },
-                          { value: 'spouse', label: 'Spouse' },
-                          { value: 'father', label: 'Father' },
-                          { value: 'mother', label: 'Mother' },
-                          { value: 'cousin', label: 'Cousin' },
-                          { value: 'colleague', label: 'Colleague' },
-                          { value: 'other', label: 'Other' }
-                        ]}
-                        placeholder="Select relationship"
-                        required={!actualDriver.isSameAsLicenseHolder}
-                      />
-                      
-                      <ThemedInput
-                        label="Alternate ID (Aadhar/PAN) *"
-                        value={actualDriver.alternateId}
-                        onChange={(e) => setActualDriver(prev => ({ ...prev, alternateId: e.target.value.toUpperCase() }))}
-                        placeholder="e.g., 1234 5678 9012 or ABCDE1234F"
-                        required={!actualDriver.isSameAsLicenseHolder}
-                      />
-                    </div>
-
-                    {/* Enhanced security deposit notice */}
-                    <div className="bg-red-900/20 border border-red-700/30 rounded-lg p-4">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <span className="text-red-400">💰</span>
-                        <span className="text-red-300 font-semibold">Enhanced Security Required</span>
-                      </div>
-                      <p className="text-red-200 text-sm">
-                        Security deposit increased to ₹1000 when different person drives. 
-                        Both Aadhar cards will be collected OR higher deposit paid.
-                      </p>
-                    </div>
+                    <ThemedInput
+                      label="Passenger Phone Number *"
+                      type="tel"
+                      value={passengerInfo.phone}
+                      onChange={(e) => setPassengerInfo(prev => ({ ...prev, phone: e.target.value }))}
+                      placeholder="10-digit phone number"
+                      maxLength="10"
+                      required
+                      error={passengerInfo.phone && !validatePhoneNumber(passengerInfo.phone)
+                        ? 'Please enter a valid 10-digit phone number' : ''}
+                    />
                   </div>
                 )}
               </div>
             </ThemedCard>
           </div>
         )}
-
-        {/* Step 4: Pre-Rental Checklist - UPDATED for Multiple Driver */}
-        {currentStep === 4 && (
-          <ThemedCard title="Pre-Rental Checklist">
-            <div className="space-y-6">
-              
-              {/* Helmet Provided - OPTIONAL */}
-              <ThemedCard
-                className={cn(
-                  "cursor-pointer transition-all",
-                  bookingData.checklist.helmetProvided
-                    ? 'border-green-500 bg-green-500/10'
-                    : 'border-gray-600 hover:border-gray-500'
-                )}
-                onClick={() => handleChecklistChange('helmetProvided', 
-                  !bookingData.checklist.helmetProvided)}
-              >
-                <div className="flex items-center justify-between p-6">
-                  <div className="flex items-center space-x-4">
-                    <span className="text-3xl">🪖</span>
-                    <div>
-                      <h3 className="text-xl font-semibold text-white">
-                        Helmet Provided
-                      </h3>
-                      <p className="text-gray-400">Optional - Customer choice</p>
-                    </div>
-                  </div>
-                  <div className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center",
-                    bookingData.checklist.helmetProvided
-                      ? 'bg-green-500 text-white'
-                      : 'bg-gray-600 text-gray-300'
-                  )}>
-                    {bookingData.checklist.helmetProvided ? '✓' : '○'}
-                  </div>
-                </div>
-              </ThemedCard>
-
-              {/* Identity Verification - UPDATED for Multiple Driver */}
-              <div className="bg-gradient-to-r from-orange-900/50 to-orange-800/50 border border-orange-700/50 rounded-xl p-6">
-                <h4 className="text-xl font-semibold text-orange-200 mb-4">
-                  🆔 Identity Verification (Required - Choose One)
-                  {!actualDriver.isSameAsLicenseHolder && (
-                    <span className="text-sm font-normal text-orange-300 block mt-1">
-                      Enhanced security required for multiple drivers
-                    </span>
-                  )}
-                </h4>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Aadhar Card Option */}
-                  <ThemedCard
-                    className={cn(
-                      "cursor-pointer transition-all",
-                      bookingData.checklist.aadharCardCollected
-                        ? 'border-green-500 bg-green-500/10'
-                        : 'border-gray-600 hover:border-gray-500'
-                    )}
-                    onClick={() => {
-                      handleChecklistChange('aadharCardCollected', !bookingData.checklist.aadharCardCollected);
-                      if (!bookingData.checklist.aadharCardCollected) {
-                        // If selecting Aadhar, unselect security deposit
-                        handleChecklistChange('securityDepositCollected', false);
-                        setBookingData(prev => ({ ...prev, securityDepositAmount: 0 }));
-                      }
-                    }}
-                  >
-                    <div className="flex items-center justify-between p-4">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-2xl">📄</span>
-                        <div>
-                          <h4 className="font-semibold text-white">
-                            Aadhar Card{!actualDriver.isSameAsLicenseHolder && 's'}
-                          </h4>
-                          <p className="text-sm text-gray-400">
-                            {!actualDriver.isSameAsLicenseHolder 
-                              ? 'Both persons\' documents' 
-                              : 'Collect original document'
-                            }
-                          </p>
-                        </div>
-                      </div>
-                      <div className={cn(
-                        "w-6 h-6 rounded-full flex items-center justify-center",
-                        bookingData.checklist.aadharCardCollected
-                          ? 'bg-green-500 text-white'
-                          : 'bg-gray-600 text-gray-300'
-                      )}>
-                        {bookingData.checklist.aadharCardCollected ? '✓' : '○'}
-                      </div>
-                    </div>
-                  </ThemedCard>
-
-                  {/* Security Deposit Option - UPDATED amount */}
-                  <ThemedCard
-                    className={cn(
-                      "cursor-pointer transition-all",
-                      bookingData.checklist.securityDepositCollected
-                        ? 'border-green-500 bg-green-500/10'
-                        : 'border-gray-600 hover:border-gray-500'
-                    )}
-                    onClick={() => {
-                      const newValue = !bookingData.checklist.securityDepositCollected;
-                      handleChecklistChange('securityDepositCollected', newValue);
-                      if (newValue) {
-                        // If selecting deposit, unselect Aadhar and set amount
-                        handleChecklistChange('aadharCardCollected', false);
-                        const requiredDeposit = calculateRequiredDeposit();
-                        setBookingData(prev => ({ ...prev, securityDepositAmount: requiredDeposit }));
-                      } else {
-                        setBookingData(prev => ({ ...prev, securityDepositAmount: 0 }));
-                      }
-                    }}
-                  >
-                    <div className="flex items-center justify-between p-4">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-2xl">💰</span>
-                        <div>
-                          <h4 className="font-semibold text-white">Security Deposit</h4>
-                          <p className="text-sm text-gray-400">
-                            ₹{calculateRequiredDeposit()} refundable
-                            {!actualDriver.isSameAsLicenseHolder && (
-                              <span className="text-orange-400 block">Enhanced amount</span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      <div className={cn(
-                        "w-6 h-6 rounded-full flex items-center justify-center",
-                        bookingData.checklist.securityDepositCollected
-                          ? 'bg-green-500 text-white'
-                          : 'bg-gray-600 text-gray-300'
-                      )}>
-                        {bookingData.checklist.securityDepositCollected ? '✓' : '○'}
-                      </div>
-                    </div>
-                  </ThemedCard>
-                </div>
-
-                {/* Show selected option info */}
-                {bookingData.checklist.aadharCardCollected && (
-                  <div className="mt-4 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
-                    <p className="text-green-300 text-sm">
-                      ✓ {!actualDriver.isSameAsLicenseHolder 
-                          ? 'Both Aadhar cards will be collected and returned upon vehicle return'
-                          : 'Aadhar card will be collected and returned upon vehicle return'
-                        }
-                    </p>
-                  </div>
-                )}
-                
-                {bookingData.checklist.securityDepositCollected && (
-                  <div className="mt-4 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
-                    <p className="text-green-300 text-sm">
-                      ✓ Security deposit of ₹{calculateRequiredDeposit()} will be collected and refunded upon safe vehicle return
-                      {!actualDriver.isSameAsLicenseHolder && (
-                        <span className="block text-orange-300 mt-1">
-                          Enhanced deposit due to multiple driver policy
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                )}
-                
-                {!bookingData.checklist.aadharCardCollected && !bookingData.checklist.securityDepositCollected && (
-                  <div className="mt-4 p-3 bg-red-900/20 border border-red-700/30 rounded-lg">
-                    <p className="text-red-300 text-sm">
-                      ⚠️ Please select either Aadhar card collection or security deposit to proceed
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Vehicle Inspected - REQUIRED */}
-              <ThemedCard
-                className={cn(
-                  "cursor-pointer transition-all",
-                  bookingData.checklist.vehicleInspected
-                    ? 'border-green-500 bg-green-500/10'
-                    : 'border-red-600 hover:border-red-500'
-                )}
-                onClick={() => handleChecklistChange('vehicleInspected', 
-                  !bookingData.checklist.vehicleInspected)}
-              >
-                <div className="flex items-center justify-between p-6">
-                  <div className="flex items-center space-x-4">
-                    <span className="text-3xl">🔍</span>
-                    <div>
-                      <h3 className="text-xl font-semibold text-white">
-                        Vehicle Inspected
-                      </h3>
-                      <p className="text-red-400 font-medium">Required - Safety check completed</p>
-                    </div>
-                  </div>
-                  <div className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center",
-                    bookingData.checklist.vehicleInspected
-                      ? 'bg-green-500 text-white'
-                      : 'bg-red-600 text-white'
-                  )}>
-                    {bookingData.checklist.vehicleInspected ? '✓' : '!'}
-                  </div>
-                </div>
-              </ThemedCard>
-
-            </div>
-          </ThemedCard>
-        )}
-
-        {/* Step 5: Terms & Digital Signature - UPDATED for Multiple Driver */}
-        {currentStep === 5 && (
+        {/* Step 3: Terms & Digital Signature */}
+        {currentStep === 3 && (
           <ThemedCard title="Terms & Digital Signature">
             <div className="space-y-8">
               
@@ -1314,6 +951,16 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                         </p>
                         <p className="text-orange-200">
                           <span className="font-medium">Relationship:</span> {actualDriver.relationToLicenseHolder}
+                        </p>
+                      </>
+                    )}
+                    {passengerInfo.include && (
+                      <>
+                        <p className="text-cyan-200 border-t border-cyan-700/30 pt-2 mt-2">
+                          <span className="font-medium">Passenger:</span> {passengerInfo.name}
+                        </p>
+                        <p className="text-cyan-200">
+                          <span className="font-medium">Passenger Phone:</span> {passengerInfo.phone}
                         </p>
                       </>
                     )}
@@ -1352,14 +999,12 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                       </p>
                     )}
                     <p className="text-green-200">
-                      <span className="font-medium">Security:</span> {
-                        bookingData.checklist.aadharCardCollected 
-                          ? 'Aadhar Card' 
-                          : `₹${bookingData.securityDepositAmount} Deposit`
-                      }
-                      {!actualDriver.isSameAsLicenseHolder && (
-                        <span className="text-orange-300 block text-sm">Enhanced for multiple drivers</span>
-                      )}
+                      <span className="font-medium">Vehicle Inspected:</span>{' '}
+                      {bookingData.checklist.vehicleInspected ? 'Yes' : 'Pending'}
+                    </p>
+                    <p className="text-green-200">
+                      <span className="font-medium">Helmet Provided:</span>{' '}
+                      {bookingData.checklist.helmetProvided ? 'Yes' : 'No'}
                     </p>
                   </div>
                 </div>
@@ -1455,6 +1100,42 @@ const [checkingLicense, setCheckingLicense] = useState(false);
                   </label>
                 </div>
 
+                <div className="bg-cyan-900/20 border border-cyan-700/50 rounded-lg p-6 space-y-4">
+                  <label className="flex items-start space-x-4 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bookingData.checklist.vehicleInspected}
+                      onChange={(e) => handleChecklistChange('vehicleInspected', e.target.checked)}
+                      className="w-6 h-6 text-cyan-600 border-2 border-cyan-300 rounded focus:ring-cyan-500 mt-1"
+                    />
+                    <div>
+                      <span className="text-lg font-bold text-white">
+                        Vehicle inspected
+                      </span>
+                      <p className="text-cyan-200 text-sm mt-1">
+                        Confirm that the vehicle has been inspected and is ready for rental.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start space-x-4 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bookingData.checklist.helmetProvided}
+                      onChange={(e) => handleChecklistChange('helmetProvided', e.target.checked)}
+                      className="w-6 h-6 text-cyan-600 border-2 border-cyan-300 rounded focus:ring-cyan-500 mt-1"
+                    />
+                    <div>
+                      <span className="text-lg font-bold text-white">
+                        Helmet provided
+                      </span>
+                      <p className="text-cyan-200 text-sm mt-1">
+                        Confirm that a helmet has been provided to the rider.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
                 {/* Digital Signature */}
                 <div>
                   <h4 className="text-lg font-semibold text-white mb-4">
@@ -1486,7 +1167,6 @@ const [checkingLicense, setCheckingLicense] = useState(false);
           }}
         />
 
-        {/* Navigation Buttons - Updated for 5 steps */}
         <div className="flex justify-between mt-8 gap-4">
           <ThemedButton
             variant="secondary"
@@ -1497,7 +1177,7 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             ← Previous
           </ThemedButton>
 
-          {currentStep < 5 ? (
+          {currentStep < 3 ? (
             <ThemedButton
               variant="primary"
               onClick={handleNext}
@@ -1510,8 +1190,8 @@ const [checkingLicense, setCheckingLicense] = useState(false);
             <ThemedButton
               variant="success"
               onClick={handleCompleteBooking}
-              disabled={!canProceedFromStep(5) || submitting}
-              className={(!canProceedFromStep(5) || submitting) ? 'opacity-50 cursor-not-allowed' : ''}
+              disabled={!canProceedFromStep(3) || submitting}
+              className={(!canProceedFromStep(3) || submitting) ? 'opacity-50 cursor-not-allowed' : ''}
             >
               {submitting ? (
                 <div className="flex items-center">

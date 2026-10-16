@@ -645,6 +645,7 @@ export default function EnhancedActiveBookingsPage() {
     const driverPhone = hasMultipleDrivers ? booking.actualDriver.phone : booking.customerId.phone;
     const licenseHolderName = booking.customerId.name;
     const licenseHolderPhone = booking.customerId.phone;
+    const hasPassengerInfo = !!(booking.passengerInfo?.name && booking.passengerInfo?.phone);
 
     const cardClassName = cn(
       "hover:scale-105 transition-all duration-300 border-2",
@@ -706,6 +707,26 @@ export default function EnhancedActiveBookingsPage() {
                       onClick={() => handleDirectCall({ customer: { phone: licenseHolderPhone } }, 'license_holder_call')}
                       className="text-amber-400 hover:text-amber-300 transition-colors ml-1"
                       title="Call license holder"
+                    >
+                      📞
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {hasPassengerInfo && (
+                <div className="bg-cyan-900/20 border border-cyan-700/30 rounded-lg p-3 mb-2">
+                  <div className="text-cyan-200 text-sm font-medium mb-1">
+                    👥 Passenger
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-cyan-300">{booking.passengerInfo.name}</span>
+                    <span className="text-cyan-400">•</span>
+                    <span className="text-cyan-400">{booking.passengerInfo.phone}</span>
+                    <button
+                      onClick={() => handleDirectCall({ customer: { phone: booking.passengerInfo.phone } }, 'passenger_call')}
+                      className="text-cyan-400 hover:text-cyan-300 transition-colors ml-1"
+                      title="Call passenger"
                     >
                       📞
                     </button>
@@ -980,7 +1001,7 @@ export default function EnhancedActiveBookingsPage() {
               <span className="font-medium text-white">
                 {booking.isCustomBooking 
                   ? `₹${progress?.packageInfo.price || 0} fixed`
-                  : '₹80/hour'
+                  : '₹70/hour'
                 }
               </span>
             </div>
@@ -995,7 +1016,7 @@ export default function EnhancedActiveBookingsPage() {
                   {booking.helmetProvided ? '✅' : '❌'} Helmet
                 </span>
                 <span className={`flex items-center gap-1 ${booking.aadharCardCollected ? 'text-green-400' : 'text-red-400'}`}>
-                  {booking.aadharCardCollected ? '✅' : '❌'} Aadhar
+                  {booking.aadharCardCollected ? '✅' : '❌'} Multiple Helmets
                 </span>
                 <span className={`flex items-center gap-1 ${booking.vehicleInspected ? 'text-green-400' : 'text-red-400'}`}>
                   {booking.vehicleInspected ? '✅' : '❌'} Inspected
