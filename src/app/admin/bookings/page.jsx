@@ -65,6 +65,14 @@ export default function ThemedAllBookingsPage() {
   const [selectedSignature, setSelectedSignature] = useState(null);
   const [advancedPricing, setAdvancedPricing] = useState({});
   const [pricingLoading, setPricingLoading] = useState({});
+
+  const [settings, setSettings] = useState({
+    hourlyRate: 80,
+    graceMinutes: 15,
+    blockMinutes: 30,
+    nightChargeTime: '22:30',
+    nightMultiplier: 2
+  });
   
   // ✅ NEW: Separate state for total stats (all bookings matching filters)
   const [totalStats, setTotalStats] = useState({
@@ -79,6 +87,33 @@ export default function ThemedAllBookingsPage() {
   const [statsLoading, setStatsLoading] = useState(false);
   
   const itemsPerPage = 20;
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        if (data.success && data.settings) {
+          setSettings({
+            hourlyRate: data.settings.hourlyRate || 80,
+            graceMinutes: data.settings.graceMinutes ?? 15,
+            blockMinutes: data.settings.blockMinutes ?? 30,
+            nightChargeTime: data.settings.nightChargeTime || '22:30',
+            nightMultiplier: data.settings.nightMultiplier || 2
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching settings:', e);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
+    if (bookings.length > 0 && settings.hourlyRate) {
+      fetchPricingForBookings();
+    }
+  }, [settings.hourlyRate]);
 
   // ✅ OPTIMIZED: Debounced search effect
   useEffect(() => {
@@ -427,96 +462,79 @@ export default function ThemedAllBookingsPage() {
   // ✅ CRITICAL FIX: Calculate RAW advanced pricing WITHOUT any stored adjustments
   const calculateRawAdvancedPricing = (booking) => {
     try {
-      // Advanced pricing settings (should match your API)
-      const settings = {
-        hourlyRate: 80,
-        graceMinutes: 15,
-        blockMinutes: 30,
-        nightChargeTime: '22:30',
-        nightMultiplier: 2
-      };
-
+      const {
+        hourlyRate = 80,
+        graceMinutes = 15,
+        blockMinutes = 30,
+        nightChargeTime = '22:30',
+        nightMultiplier = 2
+      } = settings;
+  
       const startTime = new Date(booking.startTime);
       const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
       const totalMinutes = Math.max(0, Math.floor((endTime - startTime) / (1000 * 60)));
-      
+  
       if (totalMinutes === 0) {
         return {
-          totalAmount: 80, // Minimum charge
+          totalAmount: hourlyRate,
           breakdown: [],
           totalMinutes: 0,
           summary: 'No duration - minimum charge'
         };
       }
-
-      const { hourlyRate, graceMinutes, blockMinutes, nightChargeTime, nightMultiplier } = settings;
-      const halfRate = Math.round(hourlyRate / 2); // ₹40
-
+  
+      const halfRate = Math.round(hourlyRate / 2);
       let totalAmount = 0;
       let breakdown = [];
       let remainingMinutes = totalMinutes;
       let currentTime = new Date(startTime);
-
-      // First block: 60 minutes + 15 minutes grace = 75 minutes at ₹80
-      const firstBlockMinutes = 60 + graceMinutes; // 75 minutes
+  
+      const firstBlockMinutes = 60 + graceMinutes;
       const firstBlockUsed = Math.min(remainingMinutes, firstBlockMinutes);
-      
-      // Check if first block crosses night charge time (22:30)
       const isFirstBlockNight = isNightCharge(currentTime, firstBlockUsed, nightChargeTime);
       const firstBlockRate = isFirstBlockNight ? hourlyRate * nightMultiplier : hourlyRate;
-
+  
       breakdown.push({
-        period: `First ${Math.floor(firstBlockMinutes/60)}h ${firstBlockMinutes%60}m`,
+        period: `First ${Math.floor(firstBlockMinutes / 60)}h ${firstBlockMinutes % 60}m`,
         minutes: firstBlockUsed,
         rate: firstBlockRate,
         isNightCharge: isFirstBlockNight
       });
-
+  
       totalAmount += firstBlockRate;
       remainingMinutes -= firstBlockUsed;
       currentTime = new Date(currentTime.getTime() + firstBlockUsed * 60000);
-
-      // Subsequent blocks: 30-minute blocks at ₹40 each
+  
       let blockNumber = 2;
       while (remainingMinutes > 0) {
         const blockUsed = Math.min(remainingMinutes, blockMinutes);
         const isNight = isNightCharge(currentTime, blockUsed, nightChargeTime);
         const blockRate = isNight ? halfRate * nightMultiplier : halfRate;
-
+  
         breakdown.push({
           period: `Block ${blockNumber} (${blockMinutes}min)`,
           minutes: blockUsed,
           rate: blockRate,
           isNightCharge: isNight
         });
-
+  
         totalAmount += blockRate;
         remainingMinutes -= blockUsed;
         currentTime = new Date(currentTime.getTime() + blockUsed * 60000);
         blockNumber++;
       }
-
+  
       const hours = Math.floor(totalMinutes / 60);
       const minutes = totalMinutes % 60;
       const nightBlocks = breakdown.filter(b => b.isNightCharge).length;
-
       let summary = `${hours}h ${minutes}m total`;
-      if (nightBlocks > 0) {
-        summary += ` (${nightBlocks} night-rate blocks)`;
-      }
-
-      return {
-        totalAmount: totalAmount,  // ✅ RAW calculated amount (NO adjustments applied here)
-        breakdown: breakdown,
-        totalMinutes: totalMinutes,
-        summary: summary
-      };
-
+      if (nightBlocks > 0) summary += ` (${nightBlocks} night-rate blocks)`;
+  
+      return { totalAmount, breakdown, totalMinutes, summary };
     } catch (error) {
       console.error('Error in raw advanced pricing calculation:', error);
-      
       return {
-        totalAmount: calculateSimpleAmount(booking), // Fallback to simple calculation
+        totalAmount: calculateSimpleAmount(booking),
         breakdown: [],
         totalMinutes: 0,
         summary: 'Calculation error - fallback'
@@ -544,7 +562,8 @@ export default function ThemedAllBookingsPage() {
     const endTime = booking.endTime ? new Date(booking.endTime) : new Date();
     const diffMs = endTime - startTime;
     const hours = Math.ceil(diffMs / (1000 * 60 * 60));
-    return Math.max(hours * 80, 80); // Minimum ₹80
+    const rate = settings.hourlyRate || 80;
+    return Math.max(hours * rate, rate);
   };
 
   // ✅ OPTIMIZED: Memoized pricing functions
