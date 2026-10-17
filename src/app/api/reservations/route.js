@@ -185,23 +185,19 @@ export async function POST(request) {
     }
 
     // Default advance = hourly rate from settings
-    let finalAdvance = advanceAmount;
-    if (finalAdvance == null || finalAdvance === '') {
-      try {
-        const settings = await SettingsService.getSettings();
-        finalAdvance = settings.hourlyRate || 80;
-      } catch {
-        finalAdvance = 80;
-      }
-    }
+// Default advance = 0 (staff enters amount only if they collect money)
+let finalAdvance = advanceAmount;
+if (finalAdvance == null || finalAdvance === '') {
+  finalAdvance = 0;
+}
 
-    finalAdvance = Number(finalAdvance);
-    if (isNaN(finalAdvance) || finalAdvance < 0) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid advance amount' },
-        { status: 400 }
-      );
-    }
+finalAdvance = Number(finalAdvance);
+if (isNaN(finalAdvance) || finalAdvance < 0) {
+  return NextResponse.json(
+    { success: false, error: 'Invalid advance amount' },
+    { status: 400 }
+  );
+}
 
     const reservation = new Reservation({
       customerId: customerDoc._id,

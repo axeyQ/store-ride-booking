@@ -20,7 +20,7 @@ export default function ReservationsPage() {
   // List state
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('reserved');
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -45,7 +45,7 @@ export default function ReservationsPage() {
   const [form, setForm] = useState({
     preferredType: 'any',
     pickupTime: '',
-    advanceAmount: '',
+    advanceAmount: 0,
     advancePaymentMethod: 'cash',
     notes: ''
   });
@@ -146,7 +146,7 @@ export default function ReservationsPage() {
     setForm(prev => ({
       ...prev,
       pickupTime: getDefaultPickupTime(),
-      advanceAmount: settings.hourlyRate || 80,
+      advanceAmount: 0,
       preferredType: 'any',
       advancePaymentMethod: 'cash',
       notes: ''
@@ -402,31 +402,36 @@ export default function ReservationsPage() {
                       </td>
                       <td className="py-4 px-4">
                         <div className="flex flex-wrap gap-2">
-                          {r.status === 'reserved' && (
-                            <>
-                              <ThemedButton
-                                variant="success"
-                                className="text-xs px-3 py-1"
-                                onClick={() => handleConvert(r)}
-                              >
-                                Start Rental
-                              </ThemedButton>
-                              <ThemedButton
-                                variant="secondary"
-                                className="text-xs px-3 py-1"
-                                onClick={() => handleStatusAction(r._id, 'no_show')}
-                              >
-                                No-Show
-                              </ThemedButton>
-                              <ThemedButton
-                                variant="secondary"
-                                className="text-xs px-3 py-1 text-red-400"
-                                onClick={() => handleStatusAction(r._id, 'cancel')}
-                              >
-                                Cancel
-                              </ThemedButton>
-                            </>
-                          )}
+                        {r.status === 'reserved' && (
+  <>
+    <a href={`tel:${r.customerPhone}`}>
+      <ThemedButton variant="secondary" className="text-xs px-3 py-1">
+        📞 Call
+      </ThemedButton>
+    </a>
+    <ThemedButton
+      variant="success"
+      className="text-xs px-3 py-1"
+      onClick={() => handleConvert(r)}
+    >
+      Start Rental
+    </ThemedButton>
+    <ThemedButton
+      variant="secondary"
+      className="text-xs px-3 py-1"
+      onClick={() => handleStatusAction(r._id, 'no_show')}
+    >
+      No-Show
+    </ThemedButton>
+    <ThemedButton
+      variant="secondary"
+      className="text-xs px-3 py-1 text-red-400"
+      onClick={() => handleStatusAction(r._id, 'cancel')}
+    >
+      Cancel
+    </ThemedButton>
+  </>
+)}
                           {r.status === 'converted' && r.bookingId && (
                             <Link href={`/active-bookings/${r.bookingId.bookingId || r.bookingId}`}>
                               <ThemedButton variant="secondary" className="text-xs px-3 py-1">
