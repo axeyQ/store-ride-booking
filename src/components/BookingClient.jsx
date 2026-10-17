@@ -19,6 +19,12 @@ import { cn } from '@/lib/utils';
 export default function EnhancedBookingClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Reservation convert params
+  const reservationId = searchParams.get('reservationId');
+  const advanceFromReservation = searchParams.get('advance');
+  const customerIdFromUrl = searchParams.get('customerId');
+
   const [currentStep, setCurrentStep] = useState(1);
   const [availableVehicles, setAvailableVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,6 +65,11 @@ export default function EnhancedBookingClientPage() {
 
   const [licenseConflict, setLicenseConflict] = useState(null);
   const [checkingLicense, setCheckingLicense] = useState(false);
+
+  // Advance from reservation (shown on Step 3)
+  const [reservationAdvance] = useState(
+    advanceFromReservation ? Number(advanceFromReservation) : 0
+  );
 
   const [bookingData, setBookingData] = useState({
     vehicleId: '',
@@ -197,7 +208,6 @@ export default function EnhancedBookingClientPage() {
     
     setCalculatedStartTime(startTime);
     
-    // Always set estimated return time
     const suggestedReturn = calculateSuggestedReturnTime(startTime.toISOString());
     setEstimatedReturnTime(suggestedReturn);
   };
@@ -244,7 +254,6 @@ export default function EnhancedBookingClientPage() {
     };
   }, [startTimeTimer]);
 
-  // Search by name or phone
   useEffect(() => {
     const timer = setTimeout(() => {
       const nameQuery = bookingData.customer.name.trim();
@@ -459,7 +468,6 @@ export default function EnhancedBookingClientPage() {
     }
   };
 
-  // ✅ FIXED: Always sends a valid estimatedReturnTime
   const handleCompleteBooking = async () => {
     if (!canProceedFromStep(3)) return;
 
@@ -467,7 +475,6 @@ export default function EnhancedBookingClientPage() {
     try {
       const startTime = calculatedStartTime || new Date();
 
-      // Always build a valid return time (start + 2 hours)
       let returnDate;
       if (estimatedReturnTime) {
         const raw = estimatedReturnTime;
@@ -529,6 +536,23 @@ export default function EnhancedBookingClientPage() {
         console.error('❌ API error:', data);
         alert('Error creating booking: ' + (data.error || `Server error ${response.status}`));
         return;
+      }
+
+      // ✅ Mark reservation as converted (if opened from Start Rental)
+      if (reservationId && data.booking?._id) {
+        try {
+          await fetch(`/api/reservations/${reservationId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'convert',
+              bookingId: data.booking._id
+            })
+          });
+        } catch (err) {
+          console.error('Could not update reservation status:', err);
+          // Booking already succeeded — don't block the user
+        }
       }
 
       router.push(`/booking/confirmation/${data.booking.bookingId}`);
@@ -595,6 +619,15 @@ export default function EnhancedBookingClientPage() {
                       day: 'numeric',
                       month: 'short'
                     })}
+                  </span>
+                </div>
+              )}
+              {/* Reservation badge */}
+              {reservationId && (
+                <div className="mt-2 flex items-center space-x-2">
+                  <span className="text-amber-400">📅</span>
+                  <span className="text-amber-300 text-sm font-medium">
+                    From reservation · Advance ₹{(reservationAdvance || 0).toLocaleString('en-IN')} collected
                   </span>
                 </div>
               )}
@@ -787,7 +820,7 @@ export default function EnhancedBookingClientPage() {
                     ? 'Please enter a valid 10-digit phone number' : ''}
                   maxLength="10"
                   className={selectedCustomerId ? 'border-green-500' : ''}
-                  disabled={selectedCustomerId}
+                  disabled={!!selectedCustomerId}
                 />
                 
                 <div className="space-y-2">
@@ -799,7 +832,7 @@ export default function EnhancedBookingClientPage() {
                     error={bookingData.customer.driverLicense && !validateDrivingLicense(bookingData.customer.driverLicense) 
                       ? 'Please enter a valid driving license number' : ''}
                     className={selectedCustomerId ? 'border-green-500' : licenseConflict?.conflict ? 'border-red-500' : ''}
-                    disabled={selectedCustomerId}
+                    disabled={!!selectedCustomerId}
                   />
                   
                   {checkingLicense && (
@@ -863,7 +896,6 @@ export default function EnhancedBookingClientPage() {
                     </div>
                   )}
 
-                  {/* Active Booking Warning */}
                   {activeBookingWarning && (
                     <div className="bg-amber-900/30 border border-amber-600/50 rounded-lg p-4 mt-2">
                       <div className="flex items-center space-x-2 mb-2">
@@ -895,7 +927,6 @@ export default function EnhancedBookingClientPage() {
               </div>
             </ThemedCard>
 
-            {/* Optional Passenger Information */}
             <ThemedCard>
               <div className="p-6">
                 <h3 className="text-xl font-semibold text-white mb-4">👥 Passenger Information (Optional)</h3>
@@ -954,6 +985,20 @@ export default function EnhancedBookingClientPage() {
         {currentStep === 3 && (
           <ThemedCard title="Terms & Digital Signature">
             <div className="space-y-8">
+
+              {/* ✅ Advance from reservation banner */}
+              {reservationId && reservationAdvance > 0 && (
+                <div className="bg-amber-900/30 border border-amber-600/50 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-amber-400 text-lg">₹</span>
+                    <span className="text-amber-200 font-semibold">Advance already collected</span>
+                  </div>
+                  <p className="text-amber-100 text-sm">
+                    ₹{reservationAdvance.toLocaleString('en-IN')} paid at reservation time.
+                    Adjust the final amount on return if needed.
+                  </p>
+                </div>
+              )}
               
               <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-6`}>
                 <h3 className="text-xl font-bold text-green-200 mb-4">Booking Summary</h3>
