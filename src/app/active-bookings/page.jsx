@@ -1239,7 +1239,7 @@ export default function EnhancedActiveBookingsPage() {
       </div>
 
       <div className="flex flex-wrap gap-2 shrink-0">
-        <Link href="/reservations">
+        <Link href="/admin/reservations">
           <ThemedButton variant="secondary" className="text-sm">
             View all
           </ThemedButton>
