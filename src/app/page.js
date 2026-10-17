@@ -919,7 +919,7 @@ function MRTravelsDashboard() {
           </Link>
 
           {/* Bike Reservations */}
-<Link href="/reservations" className="group">
+<Link href="/admin/reservations" className="group">
   <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-amber-500/50 transition-all duration-300 hover:scale-105 h-full">
     <CardContent className="p-8 text-center h-full flex flex-col justify-center">
       <div className="w-16 h-16 bg-gradient-to-r from-amber-500 to-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
