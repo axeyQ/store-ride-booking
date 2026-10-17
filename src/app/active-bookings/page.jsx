@@ -62,6 +62,7 @@ export default function EnhancedActiveBookingsPage() {
   // NEW: Fleet forecast state
   const [forecastData, setForecastData] = useState([]);
   const [forecastLoading, setForecastLoading] = useState(false);
+  const [todayReservations, setTodayReservations] = useState([]);
 
   const [vehicleChangeModal, setVehicleChangeModal] = useState({
     isOpen: false,
@@ -142,14 +143,19 @@ export default function EnhancedActiveBookingsPage() {
   useEffect(() => {
     fetchActiveBookings();
     fetchFleetForecast();
+    fetchTodayReservations();
+  
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
-    
+  
+    const reservationInterval = setInterval(fetchTodayReservations, 60 * 1000);
+  
     const forecastInterval = setInterval(fetchFleetForecast, 5 * 60 * 1000);
-    
+  
     return () => {
       clearInterval(timeInterval);
+      clearInterval(reservationInterval);
       clearInterval(forecastInterval);
     };
   }, []);
@@ -234,7 +240,17 @@ export default function EnhancedActiveBookingsPage() {
       setLoading(false);
     }
   };
-
+  const fetchTodayReservations = async () => {
+    try {
+      const res = await fetch('/api/reservations?status=reserved');
+      const data = await res.json();
+      if (data.success) {
+        setTodayReservations(data.reservations || []);
+      }
+    } catch (e) {
+      console.error('Error fetching reservations:', e);
+    }
+  };
 
 
   // Direct call handling (no modal)
@@ -1140,6 +1156,105 @@ export default function EnhancedActiveBookingsPage() {
             Real-time monitoring with estimated return times + customer calling + fleet forecasting
           </p>
         </div>
+
+        {/* Today's Reservations Reminder */}
+{todayReservations.length > 0 && (() => {
+  const now = currentTime.getTime();
+  const sorted = [...todayReservations].sort(
+    (a, b) => new Date(a.pickupTime) - new Date(b.pickupTime)
+  );
+  const next = sorted[0];
+  const nextMs = new Date(next.pickupTime).getTime() - now;
+  const isOverdue = nextMs < 0;
+  const isDueSoon = nextMs >= 0 && nextMs <= 30 * 60 * 1000; // 30 min
+
+  const formatPickup = (d) =>
+    new Date(d).toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+  const typeLabel =
+    next.preferredType === 'scooty'
+      ? 'Scooty'
+      : next.preferredType === 'bike'
+      ? 'Bike'
+      : 'Any';
+
+  return (
+    <div
+      className={cn(
+        'mb-8 rounded-xl border p-4 md:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4',
+        isOverdue
+          ? 'bg-red-900/30 border-red-600/50'
+          : isDueSoon
+          ? 'bg-amber-900/30 border-amber-500/50'
+          : 'bg-blue-900/30 border-blue-600/40'
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <span className="text-2xl mt-0.5">
+          {isOverdue ? '🚨' : isDueSoon ? '⏰' : '📅'}
+        </span>
+        <div>
+          <div
+            className={cn(
+              'font-semibold text-lg',
+              isOverdue
+                ? 'text-red-200'
+                : isDueSoon
+                ? 'text-amber-200'
+                : 'text-blue-200'
+            )}
+          >
+            {todayReservations.length} reservation
+            {todayReservations.length > 1 ? 's' : ''} today
+            {isOverdue && ' · Overdue'}
+            {isDueSoon && !isOverdue && ' · Due soon'}
+          </div>
+          <div
+            className={cn(
+              'text-sm mt-1',
+              isOverdue
+                ? 'text-red-300'
+                : isDueSoon
+                ? 'text-amber-300'
+                : 'text-blue-300'
+            )}
+          >
+            Next: <span className="font-medium text-white">{next.customerName}</span>
+            {' · '}
+            {formatPickup(next.pickupTime)}
+            {' · '}
+            {typeLabel}
+            {' · '}
+            ₹{Number(next.advanceAmount || 0).toLocaleString('en-IN')} advance
+          </div>
+          {todayReservations.length > 1 && (
+            <div className="text-xs text-gray-400 mt-1">
+              +{todayReservations.length - 1} more — open list to see all
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 shrink-0">
+        <Link href="/reservations">
+          <ThemedButton variant="secondary" className="text-sm">
+            View all
+          </ThemedButton>
+        </Link>
+        <Link
+          href={`/booking?customerId=${next.customerId?._id || next.customerId}&reservationId=${next._id}&advance=${next.advanceAmount || 0}`}
+        >
+          <ThemedButton variant="success" className="text-sm">
+            Start next rental
+          </ThemedButton>
+        </Link>
+      </div>
+    </div>
+  );
+})()}
 
         {/* Stats with booking type breakdown + REVENUE TOGGLE (only here) */}
         <div className={theme.layout.grid.stats + " mb-8"}>
