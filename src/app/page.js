@@ -392,7 +392,12 @@ function MRTravelsDashboard() {
   // User Management State
   const [showUserRegistration, setShowUserRegistration] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
-
+  const [settings, setSettings] = useState({
+    branchName: '',
+    otherBranchName: '',
+    otherBranchUrl: '',
+    businessName: 'MR Travels'
+  });
   // Save revenue visibility preference
   useEffect(() => {
     localStorage.setItem('mr-travels-show-revenue', showRevenue.toString());
@@ -400,6 +405,26 @@ function MRTravelsDashboard() {
 
   useEffect(() => {
     fetchStats();
+  }, []);
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        if (data.success && data.settings) {
+          setSettings((prev) => ({
+            ...prev,
+            ...data.settings,
+            branchName: data.settings.branchName || data.settings.businessName || 'MR Travels',
+            otherBranchName: data.settings.otherBranchName || '',
+            otherBranchUrl: data.settings.otherBranchUrl || ''
+          }));
+        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    };
+    loadSettings();
   }, []);
 
   // 🔒 Revenue formatting helper
@@ -746,6 +771,36 @@ function MRTravelsDashboard() {
           <DayOperationsControl onStatusChange={handleDayOperationChange} />
         </div>
 
+                {/* Branch name + switcher */}
+                <div className="mb-6 p-4 rounded-xl bg-gray-800/60 border border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <div className="text-xs text-gray-400 uppercase tracking-wide">Current branch</div>
+            <div className="text-white font-semibold text-lg">
+              {settings?.branchName || settings?.businessName || 'MR Travels'}
+            </div>
+          </div>
+
+          {settings?.otherBranchUrl ? (
+            <a
+              href={settings.otherBranchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button
+                variant="outline"
+                className="border-gray-600 text-gray-200 hover:bg-gray-700"
+              >
+                Switch to {settings.otherBranchName || 'other branch'} →
+              </Button>
+            </a>
+          ) : null}
+        </div>
+
+        {/* Day Operations Control */}
+        <div className="mb-8">
+          <DayOperationsControl onStatusChange={handleDayOperationChange} />
+        </div>
+
         {/* Quick Stats with Revenue Toggle */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
           <Card className="bg-gradient-to-r from-green-900/50 to-green-800/50 border-green-700/50 hover:scale-105 transition-transform">
@@ -917,28 +972,6 @@ function MRTravelsDashboard() {
               </CardContent>
             </Card>
           </Link>
-
-          {/* Bike Reservations */}
-<Link href="/admin/reservations" className="group">
-  <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-amber-500/50 transition-all duration-300 hover:scale-105 h-full">
-    <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-      <div className="w-16 h-16 bg-gradient-to-r from-amber-500 to-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
-        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-      </div>
-      <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-amber-400 transition-colors">
-        Reservations
-      </CardTitle>
-      <CardDescription className="text-gray-400 text-lg">
-        Hold a bike for later today
-      </CardDescription>
-      <Badge className="mt-4 bg-amber-500/20 text-amber-400 border-amber-500/30">
-        Same-day holds
-      </Badge>
-    </CardContent>
-  </Card>
-</Link>
 
           {/* Vehicle Management */}
           <Link href="/vehicles" className="group">

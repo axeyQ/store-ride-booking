@@ -58,6 +58,7 @@ export async function PUT(request) {
     const body = await request.json();
 
     const validation = SettingsService.validateSettings(body);
+    
     if (!validation.isValid) {
       return NextResponse.json(
         { success: false, error: validation.errors.join(', ') },

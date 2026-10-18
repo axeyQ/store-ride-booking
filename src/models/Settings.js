@@ -12,6 +12,18 @@ const settingsSchema = new mongoose.Schema({
   businessPhone: { type: String, default: '' },
   businessEmail: { type: String, default: '' },
   gstNumber: { type: String, default: '' },
+  branchName: {
+      type: String,
+      default: 'MR Travels',
+    },
+  otherBranchName: {
+      type: String,
+      default: '',
+    },
+  otherBranchUrl: {
+      type: String,
+      default: '',
+    },
   hourlyRate: { type: Number, default: 80 },
   minimumHours: { type: Number, default: 1 },
   lateFeePerHour: { type: Number, default: 20 },

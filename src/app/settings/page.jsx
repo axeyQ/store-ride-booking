@@ -389,6 +389,47 @@ export default function ThemedSettingsPage() {
                     onChange={(e) => handleInputChange('gstNumber', e.target.value)}
                     placeholder="Enter GST number (optional)"
                   />
+
+<ThemedInput
+                    label="GST Number"
+                    value={settings.gstNumber}
+                    onChange={(e) => handleInputChange('gstNumber', e.target.value)}
+                    placeholder="Enter GST number (optional)"
+                  />
+
+                  {/* ===== Branch switcher ===== */}
+                  <div className="md:col-span-2 border-t border-gray-700 pt-6 mt-2">
+                    <h4 className="text-lg font-semibold text-white mb-1">Branch switcher</h4>
+                    <p className="text-sm text-gray-400 mb-4">
+                      Name of this location and link to the other branch app (other domain / database).
+                    </p>
+                  </div>
+
+                  <ThemedInput
+                    label="This branch name"
+                    value={settings.branchName || ''}
+                    onChange={(e) => handleInputChange('branchName', e.target.value)}
+                    placeholder="e.g. MR Travels - Square One"
+                  />
+
+                  <ThemedInput
+                    label="Other branch name"
+                    value={settings.otherBranchName || ''}
+                    onChange={(e) => handleInputChange('otherBranchName', e.target.value)}
+                    placeholder="e.g. MR Travels - City Center"
+                  />
+
+                  <div className="md:col-span-2">
+                    <ThemedInput
+                      label="Other branch URL"
+                      value={settings.otherBranchUrl || ''}
+                      onChange={(e) => handleInputChange('otherBranchUrl', e.target.value)}
+                      placeholder="https://your-other-branch-domain.com"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Full URL of the other branch website. Leave empty to hide the switch button on Home.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

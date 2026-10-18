@@ -486,6 +486,34 @@ export async function POST(request) {
         message: 'Enhanced security measures are in effect for this booking.'
       };
     }
+
+    // Auto-convert today's open reservation for this customer (if any)
+try {
+  const Reservation = (await import('@/models/Reservation')).default;
+
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+
+  const openReservation = await Reservation.findOne({
+    customerId: booking.customerId, // or customerDoc._id — same id used on the booking
+    status: 'reserved',
+    pickupTime: { $gte: startOfToday, $lte: endOfToday }
+  });
+
+  if (openReservation) {
+    openReservation.status = 'converted';
+    openReservation.bookingId = booking._id;
+    openReservation.convertedAt = new Date();
+    await openReservation.save();
+    console.log(`✅ Auto-converted reservation ${openReservation.reservationId} → booking ${booking.bookingId}`);
+  }
+} catch (resErr) {
+  console.error('Could not auto-convert reservation:', resErr);
+  // Do not fail the booking — rental already created
+}
     
     return NextResponse.json(response);
     

@@ -11,6 +11,11 @@ export class SettingsService {
     static CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   
     static DEFAULT_SETTINGS = {
+      // Branch switcher (two deployments, two DBs)
+      branchName: 'MR Travels',
+      otherBranchName: '',
+      otherBranchUrl: '',
+      
       // Business settings
       businessName: 'MR Travels',
       businessAddress: 'Bhopal, Madhya Pradesh',
