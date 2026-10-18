@@ -543,9 +543,7 @@ export default function EnhancedActiveBookingsPage() {
     } else {
       return (
         <div className="flex items-center gap-2">
-          <ThemedBadge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
-            ⚡ Advanced Pricing
-          </ThemedBadge>
+         
         </div>
       );
     }
@@ -706,12 +704,10 @@ export default function EnhancedActiveBookingsPage() {
                 </div>
               )}
 
-              <p className="text-sm text-gray-500 font-mono">ID: {booking.bookingId}</p>
+              
             </div>
             <div className="flex flex-col items-end gap-2">
-              <ThemedBadge status="active">
-                🔴 LIVE
-              </ThemedBadge>
+
               
               {/* 🚀 NEW: Multiple driver indicator */}
               {hasMultipleDrivers && (
@@ -899,15 +895,7 @@ export default function EnhancedActiveBookingsPage() {
               <span className="text-gray-400">Created:</span>
               <span className="font-medium text-white">{formatTime(booking.createdAt)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Rate:</span>
-              <span className="font-medium text-white">
-                {booking.isCustomBooking 
-                  ? `₹${progress?.packageInfo.price || 0} fixed`
-                  : 'Hourly rate'
-                }
-              </span>
-            </div>
+           
           </div>
 
 
