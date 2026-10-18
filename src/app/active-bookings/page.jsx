@@ -867,13 +867,11 @@ export default function EnhancedActiveBookingsPage() {
                   <div className="text-2xl font-bold text-blue-400">
                     {duration.hours}h {duration.minutes}m
                   </div>
-                  <div className="text-blue-200 text-sm">Live Duration</div>
                 </div>
                 <div className="bg-green-900/20 border border-green-700/30 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-green-400 mb-2">
                     ₹{currentAmount.toLocaleString('en-IN')}
                   </div>
-                  <div className="text-green-200 text-sm">Advanced Pricing</div>
                 </div>
               </div>
             </>
