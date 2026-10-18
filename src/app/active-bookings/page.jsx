@@ -620,7 +620,7 @@ export default function EnhancedActiveBookingsPage() {
     const hasPassengerInfo = !!(booking.passengerInfo?.name && booking.passengerInfo?.phone);
 
     const cardClassName = cn(
-      "hover:scale-105 transition-all duration-300 border-2",
+      "md:hover:scale-[1.02] transition-all duration-300 border-2",
       hasMultipleDrivers
         ? "border-orange-600/50 hover:border-orange-500/70 bg-gradient-to-br from-orange-900/10 to-red-800/5"
         : booking.isCustomBooking 
@@ -630,13 +630,13 @@ export default function EnhancedActiveBookingsPage() {
 
     return (
       <ThemedCard className={cardClassName}>
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {/* Header - UPDATED to show actual driver */}
-          <div className="flex justify-between items-start mb-6">
+          <div className="flex justify-between items-start mb-4 sm:mb-6 gap-2">
             <div>
               {/* 🚀 NEW: Show actual driver prominently */}
               <div className="flex items-center gap-3 mb-2">
-                <h3 className="text-xl font-bold text-white">
+                <h3 className="text-lg sm:text-xl font-bold text-white">
                   {driverName}
                 </h3>
                 {hasMultipleDrivers && (
@@ -772,7 +772,7 @@ export default function EnhancedActiveBookingsPage() {
           {booking.isCustomBooking ? (
             <>
               {/* Custom Package Metrics */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-2 gap-2 sm:gap-4 mb-4 sm:mb-6">
                 <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-purple-400">
                     {progress ? `${progress.elapsed.hours}h ${progress.elapsed.minutes}m` : '0h 0m'}
@@ -866,7 +866,7 @@ export default function EnhancedActiveBookingsPage() {
           ) : (
             <>
               {/* Advanced Pricing Metrics */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-2 gap-2 sm:gap-4 mb-4 sm:mb-6">
                 <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-blue-400">
                     {duration.hours}h {duration.minutes}m
@@ -904,7 +904,7 @@ export default function EnhancedActiveBookingsPage() {
               <span className="font-medium text-white">
                 {booking.isCustomBooking 
                   ? `₹${progress?.packageInfo.price || 0} fixed`
-                  : '₹70/hour'
+                  : 'Hourly rate'
                 }
               </span>
             </div>
@@ -997,44 +997,44 @@ export default function EnhancedActiveBookingsPage() {
     const cancellationEligibility = isWithinCancellationWindow(booking);
     
     return (
-      <div className="space-y-3">
-        {/* Always show these buttons */}
-        <div className="flex gap-3">
+      <div className="space-y-2 sm:space-y-3">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <Link href={`/active-bookings/${booking.bookingId}`} className="flex-1">
-            <ThemedButton variant="secondary" className="w-full">
+            <ThemedButton variant="secondary" className="w-full min-h-11">
               👁️ View Details
             </ThemedButton>
           </Link>
           
           <Link href={`/return/${booking.bookingId}`} className="flex-1">
-            <ThemedButton variant="success" className="w-full">
+            <ThemedButton variant="success" className="w-full min-h-11">
               ✅ Process Return
             </ThemedButton>
           </Link>
         </div>
 
-        {/* Only show available actions */}
-        <div className="flex gap-2">
-          {eligibility.canChange && (
-            <ThemedButton 
-              variant="warning"
-              onClick={() => handlers.openVehicleChange(booking)}
-              className="flex-1 text-sm bg-orange-600 hover:bg-orange-700 text-white"
-            >
-              🔄 Change Vehicle
-            </ThemedButton>
-          )}
-          
-          {cancellationEligibility && (
-            <ThemedButton 
-              variant="danger" 
-              onClick={() => handlers.openCancellation(booking)}
-              className="flex-1 text-sm"
-            >
-              🚫 Cancel (Free)
-            </ThemedButton>
-          )}
-        </div>
+        {(eligibility.canChange || cancellationEligibility) && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            {eligibility.canChange && (
+              <ThemedButton 
+                variant="warning"
+                onClick={() => handlers.openVehicleChange(booking)}
+                className="flex-1 text-sm min-h-11 bg-orange-600 hover:bg-orange-700 text-white"
+              >
+                🔄 Change Vehicle
+              </ThemedButton>
+            )}
+            
+            {cancellationEligibility && (
+              <ThemedButton 
+                variant="danger" 
+                onClick={() => handlers.openCancellation(booking)}
+                className="flex-1 text-sm min-h-11"
+              >
+                🚫 Cancel (Free)
+              </ThemedButton>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -1146,14 +1146,14 @@ export default function EnhancedActiveBookingsPage() {
 
   return (
     <ThemedLayout>
-      <div className="container mx-auto px-6 py-8">
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Hero Section */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-6 sm:mb-8 px-1">
           <h2 className={theme.typography.hero}>
             Active <span className={theme.typography.gradient}>Bookings</span>
           </h2>
-          <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-4`}>
-            Real-time monitoring with estimated return times + customer calling + fleet forecasting
+          <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-2 sm:mt-4 text-sm sm:text-base`}>
+            Real-time monitoring · returns · calling · fleet
           </p>
         </div>
 
@@ -1238,16 +1238,17 @@ export default function EnhancedActiveBookingsPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 shrink-0">
-        <Link href="/admin/reservations">
-          <ThemedButton variant="secondary" className="text-sm">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full sm:w-auto">
+        <Link href="/admin/reservations" className="w-full sm:w-auto">
+          <ThemedButton variant="secondary" className="text-sm w-full min-h-11">
             View all
           </ThemedButton>
         </Link>
         <Link
           href={`/booking?customerId=${next.customerId?._id || next.customerId}&reservationId=${next._id}&advance=${next.advanceAmount || 0}`}
+          className="w-full sm:w-auto"
         >
-          <ThemedButton variant="success" className="text-sm">
+          <ThemedButton variant="success" className="text-sm w-full min-h-11">
             Start next rental
           </ThemedButton>
         </Link>
@@ -1257,7 +1258,7 @@ export default function EnhancedActiveBookingsPage() {
 })()}
 
         {/* Stats with booking type breakdown + REVENUE TOGGLE (only here) */}
-        <div className={theme.layout.grid.stats + " mb-8"}>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
           <ThemedStatsCard
             title="Total Active"
             value={bookings.length}
@@ -1298,8 +1299,8 @@ export default function EnhancedActiveBookingsPage() {
         </div>
 
         {/* Live Time Display */}
-        <ThemedCard className="mb-8">
-          <div className="flex items-center justify-between p-6">
+        <ThemedCard className="mb-6 sm:mb-8">
+          <div className="flex items-center justify-between p-4 sm:p-6">
             <div className="flex items-center space-x-4">
               <div className={`${theme.components.icon.small} ${theme.colors.primary.cyan.bg}`}>
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1309,8 +1310,8 @@ export default function EnhancedActiveBookingsPage() {
   
             </div>
             <div className="text-right">
-              <div className="text-sm text-gray-400">Current Time</div>
-              <div className="text-2xl font-bold text-cyan-400">
+              <div className="text-xs sm:text-sm text-gray-400">Current Time</div>
+              <div className="text-xl sm:text-2xl font-bold text-cyan-400">
                 {currentTime.toLocaleTimeString('en-IN', {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -1322,10 +1323,10 @@ export default function EnhancedActiveBookingsPage() {
         </ThemedCard>
 
         {/* Search and Filter */}
-        <ThemedCard className="mb-8">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Search & Filter</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <ThemedCard className="mb-6 sm:mb-8">
+          <div className="p-4 sm:p-6">
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">Search & Filter</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
               <ThemedInput
                 label="Search Bookings"
                 placeholder="Name, phone, license, or plate number..."
@@ -1392,7 +1393,7 @@ export default function EnhancedActiveBookingsPage() {
             </div>
           </ThemedCard>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
             {filteredBookings.map((booking) => (
               <EnhancedBookingCard key={booking._id} booking={booking} />
             ))}
@@ -1400,34 +1401,34 @@ export default function EnhancedActiveBookingsPage() {
         )}
 
         {/* Quick Actions */}
-        <div className="flex flex-col md:flex-row gap-4">
+        <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:flex-wrap">
           <ThemedButton
             variant="primary"
             onClick={fetchActiveBookings}
-            className="flex items-center justify-center gap-2"
+            className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             Refresh Bookings
           </ThemedButton>
-          <Link href="/booking" className="flex-1 md:flex-initial">
-            <ThemedButton variant="primary" className="w-full">
+          <Link href="/booking" className="w-full sm:w-auto">
+            <ThemedButton variant="primary" className="w-full min-h-11">
               ⚡ Advanced Booking
             </ThemedButton>
           </Link>
-          <Link href="/custom-booking" className="flex-1 md:flex-initial">
-            <ThemedButton variant="success" className="w-full">
+          <Link href="/custom-booking" className="w-full sm:w-auto">
+            <ThemedButton variant="success" className="w-full min-h-11">
               📦 Custom Booking
             </ThemedButton>
           </Link>
-          <Link href="/custom-bookings" className="flex-1 md:flex-initial">
-            <ThemedButton variant="secondary" className="w-full">
+          <Link href="/custom-bookings" className="w-full sm:w-auto">
+            <ThemedButton variant="secondary" className="w-full min-h-11">
               📋 Custom Bookings
             </ThemedButton>
           </Link>
-          <Link href="/admin" className="flex-1 md:flex-initial">
-            <ThemedButton variant="secondary" className="w-full">
+          <Link href="/admin" className="w-full sm:w-auto">
+            <ThemedButton variant="secondary" className="w-full min-h-11">
               📊 Dashboard
             </ThemedButton>
           </Link>

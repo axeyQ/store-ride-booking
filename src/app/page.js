@@ -615,13 +615,10 @@ function MRTravelsDashboard() {
                 <Badge variant="outline" className="text-cyan-400 border-cyan-400">
                   Bike & Scooter Rentals
                 </Badge>
-                <div className="flex items-center gap-2">
-  <MobileNav />
-  {/* existing user / logout buttons — hide some text on mobile if needed */}
-</div>
+                <MobileNav />
                 <button
                   onClick={handleLogout}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
                 >
                   Logout
                 </button>
@@ -649,110 +646,87 @@ function MRTravelsDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
-      {/* Original Header Navigation with Authentication */}
+      {/* Header — mobile friendly */}
       <header className="border-b border-gray-800 bg-black/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            {/* Left side - Logo and Brand */}
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
-                <span className="text-white font-bold text-xl">MR</span>
+        <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-2">
+            {/* Logo */}
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-9 h-9 sm:w-12 sm:h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center shrink-0">
+                <span className="text-white font-bold text-sm sm:text-xl">MR</span>
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-white">MR Travels</h1>
-                <p className="text-gray-400 text-sm">Rental Management System</p>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-2xl font-bold text-white truncate">MR Travels</h1>
+                <p className="text-gray-400 text-xs sm:text-sm hidden sm:block">Rental Management System</p>
               </div>
             </div>
 
-            {/* Center - Business Status and User Management */}
-            <div className="flex items-center space-x-4">
-              {/* Business Status Indicator */}
+            {/* Right actions */}
+            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+              {/* Day status — tablet+ */}
               {dayOperation && (
-                <div className="flex items-center space-x-2">
+                <div className="hidden md:flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${
-                    dayOperation.status === 'in_progress' ? 'bg-green-400' : 
+                    dayOperation.status === 'in_progress' ? 'bg-green-400' :
                     dayOperation.status === 'ended' ? 'bg-blue-400' : 'bg-orange-400'
-                  }`}></div>
+                  }`} />
                   <span className={`text-sm font-medium ${
-                    dayOperation.status === 'in_progress' ? 'text-green-400' : 
+                    dayOperation.status === 'in_progress' ? 'text-green-400' :
                     dayOperation.status === 'ended' ? 'text-blue-400' : 'text-orange-400'
                   }`}>
-                    {dayOperation.status === 'in_progress' && 'Business Open'}
-                    {dayOperation.status === 'ended' && 'Business Closed'}
-                    {dayOperation.status === 'not_started' && 'Business Not Started'}
+                    {dayOperation.status === 'in_progress' && 'Open'}
+                    {dayOperation.status === 'ended' && 'Closed'}
+                    {dayOperation.status === 'not_started' && 'Not started'}
                   </span>
                 </div>
               )}
 
-              {/* User Management Buttons (only for first user) */}
+              {/* Admin buttons — desktop only */}
               {user?.isFirstUser && (
-                <div className="flex items-center space-x-3">
+                <div className="hidden lg:flex items-center gap-2">
                   <button
                     onClick={() => setShowUserRegistration(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all duration-200 flex items-center space-x-2"
+                    className="px-3 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg text-sm flex items-center gap-1"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
                     <span>Add User</span>
                   </button>
-                  
                   <button
                     onClick={() => setShowUserManagement(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 flex items-center space-x-2"
+                    className="px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg text-sm flex items-center gap-1"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-                    </svg>
                     <span>Manage Users</span>
                   </button>
                 </div>
               )}
-            </div>
 
-            {/* Right side - User Info and System Status */}
-            <div className="flex items-center space-x-4">
-              {/* System Administrator Label */}
-              {user?.isFirstUser && (
+              {/* User — hide name on very small */}
+              <div className="hidden sm:flex items-center gap-2">
                 <div className="text-right">
-                  <div className="text-white font-semibold">System Administrator</div>
-                </div>
-              )}
-
-              {/* User Info */}
-              <div className="flex items-center space-x-3">
-                <div className="text-right">
-                  <div className="text-gray-400 text-sm">@{user?.username}</div>
+                  <div className="text-gray-400 text-xs">@{user?.username}</div>
                   {user?.isFirstUser && (
-                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-yellow-600 text-white">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-600 text-white">
                       Admin
                     </span>
                   )}
                 </div>
-                
-                {/* User Avatar */}
-                <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">
-                    {user?.fullName?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase()}
-                  </span>
-                </div>
+              </div>
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-green-500 rounded-full flex items-center justify-center shrink-0">
+                <span className="text-white font-bold text-sm sm:text-lg">
+                  {user?.fullName?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase()}
+                </span>
               </div>
 
-              {/* Bike & Scooter Rentals Badge */}
-              <Badge className="bg-cyan-500 text-white border-0 px-3 py-1">
-                Bike & Scooter Rentals
-              </Badge>
+              <MobileNav />
 
-              {/* Logout Button */}
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors flex items-center space-x-2"
+                className="px-2.5 sm:px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-1.5 text-sm"
                 title="Logout"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
-                <span>Logout</span>
+                <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
           </div>
@@ -760,13 +734,13 @@ function MRTravelsDashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Hero Section */}
-        <div className="text-center mb-12">
-          <h2 className="text-4xl font-bold text-white mb-4">
+        <div className="text-center mb-6 sm:mb-12 px-1">
+          <h2 className="text-2xl sm:text-4xl font-bold text-white mb-2 sm:mb-4">
             Welcome back, <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">{user?.fullName}!</span>
           </h2>
-          <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+          <p className="text-sm sm:text-xl text-gray-400 max-w-2xl mx-auto">
             Professional rental management system - Now Secure! 🔒
           </p>
         </div>
@@ -775,25 +749,24 @@ function MRTravelsDashboard() {
         <div className="mb-8">
           <DayOperationsControl onStatusChange={handleDayOperationChange} />
         </div>
-
-                {/* Branch name + switcher */}
-                <div className="mb-6 p-4 rounded-xl bg-gray-800/60 border border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        {/* Branch name + switcher */}
+        <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-xl bg-gray-800/60 border border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <div className="text-xs text-gray-400 uppercase tracking-wide">Current branch</div>
-            <div className="text-black font-semibold text-lg">
+            <div className="text-white font-semibold text-base sm:text-lg">
               {settings?.branchName || settings?.businessName || 'MR Travels'}
             </div>
           </div>
-
           {settings?.otherBranchUrl ? (
             <a
               href={settings.otherBranchUrl}
               target="_blank"
               rel="noopener noreferrer"
+              className="w-full sm:w-auto"
             >
               <Button
                 variant="outline"
-                className="border-gray-600 text-gray-200 hover:bg-gray-700"
+                className="w-full sm:w-auto border-gray-600 text-gray-200 hover:bg-gray-700"
               >
                 Switch to {settings.otherBranchName || 'other branch'} →
               </Button>
@@ -805,7 +778,7 @@ function MRTravelsDashboard() {
 
 
         {/* Quick Stats with Revenue Toggle */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6 mb-8 sm:mb-12">
           <Card className="bg-gradient-to-r from-green-900/50 to-green-800/50 border-green-700/50 hover:scale-105 transition-transform">
             <CardContent className="p-6 text-center">
               <div className="flex items-center justify-center mb-2">
@@ -872,7 +845,7 @@ function MRTravelsDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
                   <div className="text-center">
                     <div className="flex items-center justify-center">
                       <div className="text-2xl font-bold text-green-400">
@@ -907,17 +880,17 @@ function MRTravelsDashboard() {
         )}
 
         {/* Main Navigation Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-12">
           {/* New Booking */}
           <Link href="/booking" className="group">
             <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-green-500/50 transition-all duration-300 hover:scale-105 h-full">
-              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-green-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-green-500 to-green-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                   </svg>
                 </div>
-                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-green-400 transition-colors">
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-green-400 transition-colors">
                   New Booking
                 </CardTitle>
                 <CardDescription className="text-gray-400 text-lg">
@@ -933,13 +906,13 @@ function MRTravelsDashboard() {
           {/* Custom Booking Card */}
           <Link href="/custom-booking" className="group">
             <Card className="bg-gradient-to-br from-purple-800 to-purple-900 border-purple-700 hover:border-purple-500/50 transition-all duration-300 hover:scale-105 h-full">
-              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-purple-500 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
                   </svg>
                 </div>
-                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-purple-400 transition-colors">
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-purple-400 transition-colors">
                   Custom Booking
                 </CardTitle>
                 <CardDescription className="text-purple-200 text-lg">
@@ -955,13 +928,13 @@ function MRTravelsDashboard() {
           {/* Active Bookings */}
           <Link href="/active-bookings" className="group">
             <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-orange-500/50 transition-all duration-300 hover:scale-105 h-full">
-              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-orange-500 to-orange-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-orange-500 to-orange-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-orange-400 transition-colors">
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-orange-400 transition-colors">
                   Active Bookings
                 </CardTitle>
                 <CardDescription className="text-gray-400 text-lg">
@@ -976,16 +949,38 @@ function MRTravelsDashboard() {
             </Card>
           </Link>
 
+          {/* Bike Reservations */}
+          <Link href="/admin/reservations" className="group">
+            <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-amber-500/50 transition-all duration-300 hover:scale-105 h-full">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-amber-500 to-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 group-hover:scale-110 transition-transform">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-amber-400 transition-colors">
+                  Reservations
+                </CardTitle>
+                <CardDescription className="text-gray-400 text-base sm:text-lg">
+                  Hold a bike for later today
+                </CardDescription>
+                <Badge className="mt-4 bg-amber-500/20 text-amber-400 border-amber-500/30">
+                  Same-day holds
+                </Badge>
+              </CardContent>
+            </Card>
+          </Link>
+
           {/* Vehicle Management */}
           <Link href="/vehicles" className="group">
             <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-purple-500/50 transition-all duration-300 hover:scale-105 h-full">
-              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-purple-500 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
                 </div>
-                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-purple-400 transition-colors">
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-purple-400 transition-colors">
                   Vehicles
                 </CardTitle>
                 <CardDescription className="text-gray-400 text-lg">
@@ -1006,13 +1001,13 @@ function MRTravelsDashboard() {
           {/* All Bookings Dashboard */}
           <Link href="/admin/bookings" className="group">
             <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-blue-500/50 transition-all duration-300 hover:scale-105 h-full">
-              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-blue-500 to-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
-                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-blue-400 transition-colors">
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-blue-400 transition-colors">
                   All Bookings
                 </CardTitle>
                 <CardDescription className="text-gray-400 text-lg">
@@ -1028,13 +1023,13 @@ function MRTravelsDashboard() {
           {/* Customer Database */}
           <Link href="/customers" className="group">
             <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-cyan-500/50 transition-all duration-300 hover:scale-105 h-full">
-              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-cyan-500 to-cyan-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-cyan-500 to-cyan-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
                   </svg>
                 </div>
-                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-cyan-400 transition-colors">
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-400 transition-colors">
                   Customers
                 </CardTitle>
                 <CardDescription className="text-gray-400 text-lg">
@@ -1052,14 +1047,14 @@ function MRTravelsDashboard() {
           {/* Settings */}
           <Link href="/settings" className="group">
             <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 hover:border-gray-500/50 transition-all duration-300 hover:scale-105 h-full">
-              <CardContent className="p-8 text-center h-full flex flex-col justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-gray-500 to-gray-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+              <CardContent className="p-5 sm:p-8 text-center h-full flex flex-col justify-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-gray-500 to-gray-400 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </div>
-                <CardTitle className="text-2xl font-bold text-white mb-3 group-hover:text-gray-400 transition-colors">
+                <CardTitle className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3 group-hover:text-gray-400 transition-colors">
                   Settings
                 </CardTitle>
                 <CardDescription className="text-gray-400 text-lg">
@@ -1097,7 +1092,7 @@ function MRTravelsDashboard() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
                 <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-6 text-center">
                   <div className="flex items-center justify-center mb-2">
                     <div className="text-3xl font-bold text-green-400">
@@ -1190,7 +1185,7 @@ function MRTravelsDashboard() {
 const LoadingScreen = () => (
   <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
     <div className="text-center">
-      <div className="w-16 h-16 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center mx-auto mb-6">
+      <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center mx-auto mb-6">
         <span className="text-white font-bold text-2xl">MR</span>
       </div>
       <div className="flex items-center space-x-3">
