@@ -797,9 +797,7 @@ function MRTravelsDashboard() {
         </div>
 
         {/* Day Operations Control */}
-        <div className="mb-8">
-          <DayOperationsControl onStatusChange={handleDayOperationChange} />
-        </div>
+
 
         {/* Quick Stats with Revenue Toggle */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
