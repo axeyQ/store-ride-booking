@@ -601,10 +601,10 @@ export default function EnhancedBookingClientPage() {
 
   return (
     <ThemedLayout>
-      <div className="container mx-auto px-6 py-8">
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Progress Header */}
-        <ThemedCard className="mb-8">
-          <div className="flex justify-between items-center p-6">
+        <ThemedCard className="mb-6 sm:mb-8">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-4 sm:p-6">
             <div>
               <h1 className={theme.typography.title}>New Booking</h1>
               <p className="text-gray-400">Step {currentStep} of 3 - {getStepTitle(currentStep)}</p>
@@ -637,12 +637,12 @@ export default function EnhancedBookingClientPage() {
             </ThemedBadge>
           </div>
           
-          <div className="px-6 pb-6">
+          <div className="px-4 sm:px-6 pb-4 sm:pb-6">
             <div className="flex items-center">
               {[1, 2, 3].map((step) => (
                 <div key={step} className="flex items-center flex-1">
                   <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all",
+                    "w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all",
                     step <= currentStep
                       ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white'
                       : 'bg-gray-600 text-gray-300'
@@ -651,7 +651,7 @@ export default function EnhancedBookingClientPage() {
                   </div>
                   {step < 3 && (
                     <div className={cn(
-                      "flex-1 h-2 mx-3 rounded-full transition-all",
+                      "flex-1 h-1.5 sm:h-2 mx-1.5 sm:mx-3 rounded-full transition-all",
                       step < currentStep 
                         ? 'bg-gradient-to-r from-cyan-500 to-blue-500' 
                         : 'bg-gray-600'
@@ -666,9 +666,9 @@ export default function EnhancedBookingClientPage() {
         {/* Step 1: Vehicle Selection */}
         {currentStep === 1 && (
           <ThemedCard title="Select Vehicle">
-            <div className="space-y-8">
+            <div className="space-y-6 sm:space-y-8">
               <div>
-                <h3 className="text-xl font-bold text-white mb-6">Available Vehicles</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-white mb-4 sm:mb-6">Available Vehicles</h3>
                 {availableVehicles.length === 0 ? (
                   <ThemedCard className="text-center p-12">
                     <div className="text-gray-400 text-xl mb-4">
@@ -681,7 +681,7 @@ export default function EnhancedBookingClientPage() {
                     </Link>
                   </ThemedCard>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6">
                     {availableVehicles.map((vehicle) => (
                       <ThemedCard
                         key={vehicle._id}
@@ -695,10 +695,10 @@ export default function EnhancedBookingClientPage() {
                       >
                         <div className="flex justify-between items-start">
                           <div>
-                            <h3 className="text-xl font-bold text-white capitalize">
+                            <h3 className="text-base sm:text-xl font-bold text-white capitalize">
                               {vehicle.type} - {vehicle.model}
                             </h3>
-                            <p className="text-gray-400 text-lg font-mono">{vehicle.plateNumber}</p>
+                            <p className="text-gray-400 text-sm sm:text-lg font-mono">{vehicle.plateNumber}</p>
                             <ThemedBadge status="available" className="mt-2">
                               Available
                             </ThemedBadge>
@@ -722,9 +722,9 @@ export default function EnhancedBookingClientPage() {
 
         {/* Step 2: Customer Information */}
         {currentStep === 2 && (
-          <div className="space-y-8">
+          <div className="space-y-6 sm:space-y-8">
             <ThemedCard title="License Holder Information">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div className="relative">
                   <div ref={nameInputRef}>
                     <ThemedInput
@@ -761,7 +761,7 @@ export default function EnhancedBookingClientPage() {
                   {showSuggestions && customerSuggestions.length > 0 && (
                     <div 
                       ref={suggestionsRef}
-                      className="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-80 overflow-y-auto"
+                      className="absolute z-50 left-0 right-0 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-60 sm:max-h-80 overflow-y-auto"
                     >
                       <div className="p-2 border-b border-gray-700">
                         <div className="text-gray-400 text-xs">Found {customerSuggestions.length} existing customers</div>
@@ -855,7 +855,7 @@ export default function EnhancedBookingClientPage() {
                         </p>
                         
                         <div className="bg-red-800/30 rounded p-3">
-                          <div className="grid grid-cols-2 gap-4 text-xs">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-xs">
                             <div>
                               <div className="text-red-300 font-medium">Existing Customer:</div>
                               <div className="text-red-200">📛 {licenseConflict.existing.name}</div>
@@ -928,8 +928,8 @@ export default function EnhancedBookingClientPage() {
             </ThemedCard>
 
             <ThemedCard>
-              <div className="p-6">
-                <h3 className="text-xl font-semibold text-white mb-4">👥 Passenger Information (Optional)</h3>
+              <div className="p-4 sm:p-6">
+                <h3 className="text-lg sm:text-xl font-semibold text-white mb-3 sm:mb-4">👥 Passenger Information (Optional)</h3>
 
                 <div className="mb-6">
                   <label className="flex items-center space-x-3 cursor-pointer">
@@ -984,7 +984,7 @@ export default function EnhancedBookingClientPage() {
         {/* Step 3: Terms & Digital Signature */}
         {currentStep === 3 && (
           <ThemedCard title="Terms & Digital Signature">
-            <div className="space-y-8">
+            <div className="space-y-6 sm:space-y-8">
 
               {/* ✅ Advance from reservation banner */}
               {reservationId && reservationAdvance > 0 && (
@@ -1000,7 +1000,7 @@ export default function EnhancedBookingClientPage() {
                 </div>
               )}
               
-              <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-6`}>
+              <div className={`${theme.colors.stats.revenue.bg} ${theme.colors.stats.revenue.border} rounded-lg p-4 sm:p-6`}>
                 <h3 className="text-xl font-bold text-green-200 mb-4">Booking Summary</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -1070,7 +1070,7 @@ export default function EnhancedBookingClientPage() {
               </div>
 
               <div className="space-y-6">
-                <div className="bg-blue-900/50 border border-blue-700/50 rounded-lg p-6">
+                <div className="bg-blue-900/50 border border-blue-700/50 rounded-lg p-4 sm:p-6">
                   <h4 className="text-xl font-semibold text-blue-200 mb-4">📋 Rental Agreement</h4>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -1097,14 +1097,14 @@ export default function EnhancedBookingClientPage() {
                   <div className="text-center">
                     <button
                       onClick={() => setShowTermsModal(true)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
+                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 sm:px-8 py-3 rounded-lg font-semibold transition-colors min-h-11"
                     >
                       📖 View Complete Terms & Conditions
                     </button>
                   </div>
                 </div>
 
-                <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-6">
+                <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4 sm:p-6">
                   <label className="flex items-start space-x-4 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1124,7 +1124,7 @@ export default function EnhancedBookingClientPage() {
                   </label>
                 </div>
 
-                <div className="bg-cyan-900/20 border border-cyan-700/50 rounded-lg p-6 space-y-4">
+                <div className="bg-cyan-900/20 border border-cyan-700/50 rounded-lg p-4 sm:p-6 space-y-4">
                   <label className="flex items-start space-x-4 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1185,12 +1185,12 @@ export default function EnhancedBookingClientPage() {
           }}
         />
 
-        <div className="flex justify-between mt-8 gap-4">
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-3 mt-6 sm:mt-8 sticky bottom-0 sm:static bg-gradient-to-t from-gray-950 via-gray-950/95 to-transparent sm:bg-none pt-4 pb-2 sm:p-0 z-20">
           <ThemedButton
             variant="secondary"
             onClick={handlePrevious}
             disabled={currentStep === 1}
-            className={currentStep === 1 ? 'opacity-50 cursor-not-allowed' : ''}
+            className={`w-full sm:w-auto min-h-11 ${currentStep === 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             ← Previous
           </ThemedButton>
@@ -1200,7 +1200,7 @@ export default function EnhancedBookingClientPage() {
               variant="primary"
               onClick={handleNext}
               disabled={!canProceedFromStep(currentStep)}
-              className={!canProceedFromStep(currentStep) ? 'opacity-50 cursor-not-allowed' : ''}
+              className={`w-full sm:w-auto min-h-11 ${!canProceedFromStep(currentStep) ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               Next →
             </ThemedButton>
@@ -1209,15 +1209,15 @@ export default function EnhancedBookingClientPage() {
               variant="success"
               onClick={handleCompleteBooking}
               disabled={!canProceedFromStep(3) || submitting}
-              className={(!canProceedFromStep(3) || submitting) ? 'opacity-50 cursor-not-allowed' : ''}
+              className={`w-full sm:w-auto min-h-11 ${(!canProceedFromStep(3) || submitting) ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {submitting ? (
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
-                  Creating Booking...
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Creating...
                 </div>
               ) : (
-                'Complete Booking & Generate Receipt'
+                'Complete Booking'
               )}
             </ThemedButton>
           )}
