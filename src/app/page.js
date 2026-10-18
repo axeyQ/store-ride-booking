@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { calculateCurrentAmount } from '@/lib/pricing';
 import { useApiRequest } from '@/hooks/useApiRequest';
+import MobileNav from '@/components/MobileNav';
 
 // Day Operations Control Component (updated with authentication)
 function DayOperationsControl({ onStatusChange }) {
@@ -614,6 +615,10 @@ function MRTravelsDashboard() {
                 <Badge variant="outline" className="text-cyan-400 border-cyan-400">
                   Bike & Scooter Rentals
                 </Badge>
+                <div className="flex items-center gap-2">
+  <MobileNav />
+  {/* existing user / logout buttons — hide some text on mobile if needed */}
+</div>
                 <button
                   onClick={handleLogout}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
@@ -775,7 +780,7 @@ function MRTravelsDashboard() {
                 <div className="mb-6 p-4 rounded-xl bg-gray-800/60 border border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <div className="text-xs text-gray-400 uppercase tracking-wide">Current branch</div>
-            <div className="text-white font-semibold text-lg">
+            <div className="text-black font-semibold text-lg">
               {settings?.branchName || settings?.businessName || 'MR Travels'}
             </div>
           </div>

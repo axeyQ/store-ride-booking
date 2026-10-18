@@ -2,6 +2,7 @@
 import { theme } from '@/lib/theme';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
+import MobileNav from '@/components/MobileNav';
 
 export function ThemedLayout({ children, title, subtitle, showHeader = true }) {
   return (
@@ -24,6 +25,7 @@ export function ThemedLayout({ children, title, subtitle, showHeader = true }) {
               <Badge variant="outline" className={theme.colors.primary.cyan.badge}>
                 Bike & Scooter Rentals
               </Badge>
+              <MobileNav />
             </div>
           </div>
         </header>
