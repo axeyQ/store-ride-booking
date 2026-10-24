@@ -49,7 +49,7 @@ export default function EnhancedActiveBookingsPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [currentAmounts, setCurrentAmounts] = useState({});
   const [extraCharges, setExtraCharges] = useState({});
-
+  const [availableVehicleCount, setAvailableVehicleCount] = useState(null);
   // 🔒 Revenue Visibility Toggle State (only for main stats)
   const [showRevenue, setShowRevenue] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -144,6 +144,7 @@ export default function EnhancedActiveBookingsPage() {
     fetchActiveBookings();
     fetchFleetForecast();
     fetchTodayReservations();
+    fetchAvailableCount();
   
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date());
@@ -238,6 +239,19 @@ export default function EnhancedActiveBookingsPage() {
       console.error('Error fetching active bookings:', error);
     } finally {
       setLoading(false);
+    }
+  };
+  const fetchAvailableCount = async () => {
+    try {
+      const res = await fetch('/api/vehicles');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.vehicles)) {
+        setAvailableVehicleCount(
+          data.vehicles.filter((v) => v.status === 'available').length
+        );
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
   const fetchTodayReservations = async () => {
@@ -1143,16 +1157,26 @@ export default function EnhancedActiveBookingsPage() {
           </p>
         </div>
 
-        {/* Today's Reservations Reminder */}
+{/* Today's Enquiries queue */}
 {todayReservations.length > 0 && (() => {
-  const now = currentTime.getTime();
-  const sorted = [...todayReservations].sort(
-    (a, b) => new Date(a.pickupTime) - new Date(b.pickupTime)
-  );
+  const sorted = [...todayReservations].sort((a, b) => {
+    // Priority first, then FIFO (createdAt)
+    if (Boolean(b.isPriority) !== Boolean(a.isPriority)) {
+      return Number(Boolean(b.isPriority)) - Number(Boolean(a.isPriority));
+    }
+    return new Date(a.createdAt) - new Date(b.createdAt);
+  });
   const next = sorted[0];
-  const nextMs = new Date(next.pickupTime).getTime() - now;
-  const isOverdue = nextMs < 0;
-  const isDueSoon = nextMs >= 0 && nextMs <= 30 * 60 * 1000; // 30 min
+  const isNeedNow = next.urgency !== 'later';
+  const preferredMs = next.preferredTime || next.pickupTime
+    ? new Date(next.preferredTime || next.pickupTime).getTime()
+    : null;
+  const isLaterDue =
+    !isNeedNow &&
+    preferredMs != null &&
+    preferredMs - currentTime.getTime() <= 30 * 60 * 1000;
+  const isLaterOverdue =
+    !isNeedNow && preferredMs != null && preferredMs < currentTime.getTime();
 
   const formatPickup = (d) =>
     new Date(d).toLocaleTimeString('en-IN', {
@@ -1167,75 +1191,92 @@ export default function EnhancedActiveBookingsPage() {
       ? 'Bike'
       : 'Any';
 
+  const urgencyText = isNeedNow
+    ? 'Need now'
+    : preferredMs
+    ? `Later · ${formatPickup(preferredMs)}`
+    : 'Later';
+
   return (
     <div
       className={cn(
-        'mb-8 rounded-xl border p-4 md:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4',
-        isOverdue
+        'mb-6 sm:mb-8 rounded-xl border p-4 md:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4',
+        isNeedNow || isLaterOverdue
           ? 'bg-red-900/30 border-red-600/50'
-          : isDueSoon
+          : isLaterDue
           ? 'bg-amber-900/30 border-amber-500/50'
           : 'bg-blue-900/30 border-blue-600/40'
       )}
     >
-      <div className="flex items-start gap-3">
-        <span className="text-2xl mt-0.5">
-          {isOverdue ? '🚨' : isDueSoon ? '⏰' : '📅'}
+      <div className="flex items-start gap-3 min-w-0">
+        <span className="text-2xl mt-0.5 shrink-0">
+          {isNeedNow || isLaterOverdue ? '🚨' : isLaterDue ? '⏰' : '📋'}
         </span>
-        <div>
+        <div className="min-w-0">
           <div
             className={cn(
-              'font-semibold text-lg',
-              isOverdue
+              'font-semibold text-base sm:text-lg',
+              isNeedNow || isLaterOverdue
                 ? 'text-red-200'
-                : isDueSoon
+                : isLaterDue
                 ? 'text-amber-200'
                 : 'text-blue-200'
             )}
           >
-            {todayReservations.length} reservation
-            {todayReservations.length > 1 ? 's' : ''} today
-            {isOverdue && ' · Overdue'}
-            {isDueSoon && !isOverdue && ' · Due soon'}
+            {todayReservations.length} waiting in queue
+            {next.isPriority && ' · ★ Priority next'}
+            {(isNeedNow || isLaterOverdue) && ' · Need vehicle'}
+            {isLaterDue && !isLaterOverdue && ' · Due soon'}
           </div>
           <div
             className={cn(
-              'text-sm mt-1',
-              isOverdue
+              'text-sm mt-1 break-words',
+              isNeedNow || isLaterOverdue
                 ? 'text-red-300'
-                : isDueSoon
+                : isLaterDue
                 ? 'text-amber-300'
                 : 'text-blue-300'
             )}
           >
-            Next: <span className="font-medium text-white">{next.customerName}</span>
+            Next:{' '}
+            <span className="font-medium text-white">{next.customerName}</span>
             {' · '}
-            {formatPickup(next.pickupTime)}
+            {next.customerPhone}
+            {' · '}
+            {urgencyText}
             {' · '}
             {typeLabel}
-            {' · '}
-            ₹{Number(next.advanceAmount || 0).toLocaleString('en-IN')} advance
           </div>
+          {next.notes && (
+            <div className="text-xs text-gray-400 mt-1 truncate" title={next.notes}>
+              📝 {next.notes}
+            </div>
+          )}
           {todayReservations.length > 1 && (
             <div className="text-xs text-gray-400 mt-1">
-              +{todayReservations.length - 1} more — open list to see all
+              +{todayReservations.length - 1} more — open Enquiries for full list
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full sm:w-auto">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full md:w-auto">
+        <a href={`tel:${next.customerPhone}`} className="w-full sm:w-auto">
+          <ThemedButton variant="secondary" className="text-sm w-full min-h-11">
+            📞 Call
+          </ThemedButton>
+        </a>
         <Link href="/admin/reservations" className="w-full sm:w-auto">
           <ThemedButton variant="secondary" className="text-sm w-full min-h-11">
-            View all
+            View queue
           </ThemedButton>
         </Link>
         <Link
-          href={`/booking?customerId=${next.customerId?._id || next.customerId}&reservationId=${next._id}&advance=${next.advanceAmount || 0}`}
+          href={`/booking?customerId=${next.customerId?._id || next.customerId}&reservationId=${next._id}`}
           className="w-full sm:w-auto"
         >
           <ThemedButton variant="success" className="text-sm w-full min-h-11">
-            Start next rental
+            Start rental
           </ThemedButton>
         </Link>
       </div>
@@ -1245,14 +1286,18 @@ export default function EnhancedActiveBookingsPage() {
 
         {/* Stats with booking type breakdown + REVENUE TOGGLE (only here) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-          <ThemedStatsCard
-            title="Total Active"
-            value={bookings.length}
-            subtitle={`${advancedBookings.length} advanced + ${customBookings.length} custom`}
-            colorScheme="bookings"
-            icon={<div className="text-4xl mb-2">🚴</div>}
-            progress={Math.min((bookings.length / 10) * 100, 100)}
-          />
+        <ThemedStatsCard
+  title="Total Active"
+  value={bookings.length}
+  subtitle={
+    availableVehicleCount == null
+      ? 'Loading fleet…'
+      : `${availableVehicleCount} vehicle${availableVehicleCount === 1 ? '' : 's'} available`
+  }
+  colorScheme="bookings"
+  icon={<div className="text-4xl mb-2">🚴</div>}
+  progress={Math.min((bookings.length / 10) * 100, 100)}
+/>
           <ThemedStatsCard
             title="Current Revenue"
             value={formatRevenue(totalCurrentRevenue)}
