@@ -3,13 +3,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import QRCode from 'qrcode';
-import { 
-  ThemedLayout, 
-  ThemedCard, 
-  ThemedButton, 
+import {
+  ThemedLayout,
+  ThemedCard,
+  ThemedButton,
   ThemedInput,
   ThemedSelect,
-  ThemedBadge 
+  ThemedBadge
 } from '@/components/themed';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -32,6 +32,8 @@ export default function ThemedVehicleReturnPage() {
     totalMinutes: 0,
     summary: ''
   });
+  // After successful return: next person in enquiry queue
+  const [queuePrompt, setQueuePrompt] = useState(null);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -80,10 +82,20 @@ export default function ThemedVehicleReturnPage() {
   }, [booking, currentTime]);
 
   useEffect(() => {
-    if (returnData.paymentMethod === 'upi' && booking && advancedPricing.totalAmount > 0) {
+    if (
+      returnData.paymentMethod === 'upi' &&
+      booking &&
+      advancedPricing.totalAmount > 0
+    ) {
       generateUPIQRCode();
     }
-  }, [returnData.paymentMethod, booking, advancedPricing.totalAmount, returnData.discountAmount, returnData.additionalCharges]);
+  }, [
+    returnData.paymentMethod,
+    booking,
+    advancedPricing.totalAmount,
+    returnData.discountAmount,
+    returnData.additionalCharges
+  ]);
 
   const fetchBookingDetails = async () => {
     try {
@@ -108,29 +120,31 @@ export default function ThemedVehicleReturnPage() {
 
   const fetchAdvancedPricing = async () => {
     if (!booking) return;
-    
+
     if (booking.isCustomBooking) {
       const duration = calculateDuration(booking.startTime, currentTime);
-      
+
       setAdvancedPricing({
         totalAmount: booking.finalAmount || 0,
-        breakdown: [{
-          period: `${booking.customBookingLabel || booking.customBookingType} Package`,
-          minutes: duration.totalMinutes,
-          rate: booking.finalAmount || 0,
-          isCustomPackage: true,
-          description: `Fixed rate package - ${booking.customBookingType}`
-        }],
+        breakdown: [
+          {
+            period: `${booking.customBookingLabel || booking.customBookingType} Package`,
+            minutes: duration.totalMinutes,
+            rate: booking.finalAmount || 0,
+            isCustomPackage: true,
+            description: `Fixed rate package - ${booking.customBookingType}`
+          }
+        ],
         totalMinutes: duration.totalMinutes,
         summary: `${booking.customBookingLabel || booking.customBookingType} - Fixed Rate Package`
       });
       return;
     }
-  
+
     try {
       const response = await fetch(`/api/bookings/current-amount/${booking._id}`);
       const data = await response.json();
-      
+
       if (data.success) {
         setAdvancedPricing({
           totalAmount: data.currentAmount,
@@ -189,7 +203,7 @@ export default function ThemedVehicleReturnPage() {
       const finalAmount = calculateFinalAmount();
       const transactionNote = `Vehicle Return ${booking.bookingId} - ${booking.vehicleId.model}`;
       const upiUrl = `upi://pay?pa=${UPI_ID}&pn=${encodeURIComponent(BUSINESS_NAME)}&am=${finalAmount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
-      
+
       const qrDataUrl = await QRCode.toDataURL(upiUrl, {
         width: 300,
         margin: 2,
@@ -198,7 +212,7 @@ export default function ThemedVehicleReturnPage() {
           light: '#FFFFFF'
         }
       });
-      
+
       setQrCodeUrl(qrDataUrl);
     } catch (error) {
       console.error('Error generating QR code:', error);
@@ -212,14 +226,44 @@ export default function ThemedVehicleReturnPage() {
     alert('UPI details copied to clipboard!');
   };
 
-  const handleReturn = async () => {
-    if (!booking) return;
-    
-    if (returnData.paymentMethod === 'upi' && !paymentReceived) {
-      alert('Please confirm that UPI payment has been received before completing the return.');
+  const loadNextInQueue = async () => {
+    try {
+      const res = await fetch('/api/reservations?status=reserved');
+      const data = await res.json();
+      const list = data.success ? data.reservations || [] : [];
+      if (!list.length) return null;
+
+      const sorted = [...list].sort((a, b) => {
+        if (Boolean(b.isPriority) !== Boolean(a.isPriority)) {
+          return Number(Boolean(b.isPriority)) - Number(Boolean(a.isPriority));
+        }
+        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+      });
+
+      return { count: list.length, next: sorted[0] };
+    } catch {
+      return null;
+    }
+  };
+
+  const goToConfirmation = () => {
+    if (!booking) {
+      router.push('/active-bookings');
       return;
     }
-    
+    router.push(`/return/confirmation/${booking.bookingId}`);
+  };
+
+  const handleReturn = async () => {
+    if (!booking) return;
+
+    if (returnData.paymentMethod === 'upi' && !paymentReceived) {
+      alert(
+        'Please confirm that UPI payment has been received before completing the return.'
+      );
+      return;
+    }
+
     setProcessing(true);
     try {
       const duration = calculateDuration(booking.startTime, currentTime);
@@ -242,7 +286,13 @@ export default function ThemedVehicleReturnPage() {
       });
       const data = await response.json();
       if (data.success) {
-        router.push(`/return/confirmation/${booking.bookingId}`);
+        const queue = await loadNextInQueue();
+        if (queue) {
+          setQueuePrompt(queue);
+          setProcessing(false);
+          return;
+        }
+        goToConfirmation();
       } else {
         alert('Error completing return: ' + data.error);
       }
@@ -271,7 +321,9 @@ export default function ThemedVehicleReturnPage() {
           <ThemedCard>
             <div className="flex items-center space-x-3 p-6 sm:p-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
-              <span className="text-white text-lg sm:text-xl">Loading booking details...</span>
+              <span className="text-white text-lg sm:text-xl">
+                Loading booking details...
+              </span>
             </div>
           </ThemedCard>
         </div>
@@ -311,7 +363,9 @@ export default function ThemedVehicleReturnPage() {
           <h2 className={theme.typography.hero}>
             Vehicle <span className={theme.typography.gradient}>Return</span>
           </h2>
-          <p className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-2 sm:mt-4 text-sm sm:text-base`}>
+          <p
+            className={`${theme.typography.subtitle} max-w-2xl mx-auto mt-2 sm:mt-4 text-sm sm:text-base`}
+          >
             Complete the rental and collect payment
           </p>
         </div>
@@ -378,26 +432,63 @@ export default function ThemedVehicleReturnPage() {
           <ThemedCard title="Booking Information">
             <div className="space-y-3 sm:space-y-4">
               <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4">
-                <h4 className="font-semibold text-white mb-2 sm:mb-3 text-sm sm:text-base">Customer Details</h4>
+                <h4 className="font-semibold text-white mb-2 sm:mb-3 text-sm sm:text-base">
+                  Customer Details
+                </h4>
                 <div className="space-y-2 text-sm sm:text-base">
-                  <div><span className="text-gray-400">Name:</span> <span className="ml-2 font-semibold text-white">{booking.customerId.name}</span></div>
+                  <div>
+                    <span className="text-gray-400">Name:</span>{' '}
+                    <span className="ml-2 font-semibold text-white">
+                      {booking.customerId.name}
+                    </span>
+                  </div>
                   <div>
                     <span className="text-gray-400">Phone:</span>{' '}
-                    <a href={`tel:${booking.customerId.phone}`} className="ml-2 font-semibold text-cyan-300 underline">
+                    <a
+                      href={`tel:${booking.customerId.phone}`}
+                      className="ml-2 font-semibold text-cyan-300 underline"
+                    >
                       {booking.customerId.phone}
                     </a>
                   </div>
-                  <div><span className="text-gray-400">License:</span> <span className="ml-2 font-mono text-white text-xs sm:text-base break-all">{booking.customerId.driverLicense}</span></div>
-                  <div><span className="text-gray-400">Booking ID:</span> <span className="ml-2 font-mono font-semibold text-cyan-400 text-xs sm:text-base">{booking.bookingId}</span></div>
+                  <div>
+                    <span className="text-gray-400">License:</span>{' '}
+                    <span className="ml-2 font-mono text-white text-xs sm:text-base break-all">
+                      {booking.customerId.driverLicense}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Booking ID:</span>{' '}
+                    <span className="ml-2 font-mono font-semibold text-cyan-400 text-xs sm:text-base">
+                      {booking.bookingId}
+                    </span>
+                  </div>
                 </div>
               </div>
-              
+
               <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4">
-                <h4 className="font-semibold text-white mb-2 sm:mb-3 text-sm sm:text-base">Vehicle Details</h4>
+                <h4 className="font-semibold text-white mb-2 sm:mb-3 text-sm sm:text-base">
+                  Vehicle Details
+                </h4>
                 <div className="space-y-2 text-sm sm:text-base">
-                  <div><span className="text-gray-400">Vehicle:</span> <span className="ml-2 font-semibold text-white">{booking.vehicleId.model}</span></div>
-                  <div><span className="text-gray-400">Plate:</span> <span className="ml-2 font-mono font-semibold text-white">{booking.vehicleId.plateNumber}</span></div>
-                  <div><span className="text-gray-400">Started:</span> <span className="ml-2 font-semibold text-white text-xs sm:text-base">{formatDateTime(booking.startTime)}</span></div>
+                  <div>
+                    <span className="text-gray-400">Vehicle:</span>{' '}
+                    <span className="ml-2 font-semibold text-white">
+                      {booking.vehicleId.model}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Plate:</span>{' '}
+                    <span className="ml-2 font-mono font-semibold text-white">
+                      {booking.vehicleId.plateNumber}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Started:</span>{' '}
+                    <span className="ml-2 font-semibold text-white text-xs sm:text-base">
+                      {formatDateTime(booking.startTime)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -412,16 +503,20 @@ export default function ThemedVehicleReturnPage() {
               ].map((method) => (
                 <div
                   key={method.id}
-                  onClick={() => setReturnData(prev => ({ ...prev, paymentMethod: method.id }))}
+                  onClick={() =>
+                    setReturnData((prev) => ({ ...prev, paymentMethod: method.id }))
+                  }
                   className={cn(
-                    "p-4 sm:p-6 rounded-lg border-2 cursor-pointer text-center transition-all min-h-[100px] sm:min-h-0",
+                    'p-4 sm:p-6 rounded-lg border-2 cursor-pointer text-center transition-all min-h-[100px] sm:min-h-0',
                     returnData.paymentMethod === method.id
                       ? 'border-green-500 bg-green-500/10'
                       : 'border-gray-600 hover:border-gray-500'
                   )}
                 >
                   <div className="text-3xl sm:text-4xl mb-2 sm:mb-3">{method.icon}</div>
-                  <h4 className="font-semibold text-white text-sm sm:text-base">{method.label}</h4>
+                  <h4 className="font-semibold text-white text-sm sm:text-base">
+                    {method.label}
+                  </h4>
                   <p className="text-xs sm:text-sm text-gray-400">{method.description}</p>
                   {returnData.paymentMethod === method.id && (
                     <div className="mt-2 sm:mt-3">
@@ -438,16 +533,22 @@ export default function ThemedVehicleReturnPage() {
                   📱 UPI — ₹{finalAmount.toLocaleString('en-IN')}
                   {booking.isCustomBooking && (
                     <div className="text-xs sm:text-sm text-purple-300 mt-1">
-                      📦 {booking.customBookingLabel || `${booking.customBookingType} Package`}
+                      📦{' '}
+                      {booking.customBookingLabel ||
+                        `${booking.customBookingType} Package`}
                     </div>
                   )}
                 </h4>
-                
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                   <div className="text-center">
                     <div className="bg-white p-3 sm:p-4 rounded-xl inline-block mb-3 sm:mb-4 max-w-full">
                       {qrCodeUrl ? (
-                        <img src={qrCodeUrl} alt="UPI QR Code" className="w-48 h-48 sm:w-64 sm:h-64 mx-auto" />
+                        <img
+                          src={qrCodeUrl}
+                          alt="UPI QR Code"
+                          className="w-48 h-48 sm:w-64 sm:h-64 mx-auto"
+                        />
                       ) : (
                         <div className="w-48 h-48 sm:w-64 sm:h-64 flex items-center justify-center">
                           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -459,15 +560,21 @@ export default function ThemedVehicleReturnPage() {
 
                   <div className="space-y-3 sm:space-y-4">
                     <div className="bg-blue-800/30 rounded-lg p-3 sm:p-4">
-                      <h5 className="font-semibold text-blue-200 mb-2 text-sm sm:text-base">Payment Details</h5>
+                      <h5 className="font-semibold text-blue-200 mb-2 text-sm sm:text-base">
+                        Payment Details
+                      </h5>
                       <div className="space-y-2 text-xs sm:text-sm">
                         <div className="flex justify-between gap-2">
                           <span className="text-blue-300">Amount:</span>
-                          <span className="font-bold text-white">₹{finalAmount.toLocaleString('en-IN')}</span>
+                          <span className="font-bold text-white">
+                            ₹{finalAmount.toLocaleString('en-IN')}
+                          </span>
                         </div>
                         <div className="flex justify-between gap-2">
                           <span className="text-blue-300 shrink-0">UPI ID:</span>
-                          <span className="font-mono text-white text-right break-all">{UPI_ID}</span>
+                          <span className="font-mono text-white text-right break-all">
+                            {UPI_ID}
+                          </span>
                         </div>
                         <div className="flex justify-between gap-2">
                           <span className="text-blue-300">Payee:</span>
@@ -475,7 +582,9 @@ export default function ThemedVehicleReturnPage() {
                         </div>
                         <div className="flex justify-between gap-2">
                           <span className="text-blue-300">Note:</span>
-                          <span className="text-white text-xs">Return {booking.bookingId}</span>
+                          <span className="text-white text-xs">
+                            Return {booking.bookingId}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -509,15 +618,35 @@ export default function ThemedVehicleReturnPage() {
           <ThemedCard title="Vehicle Condition">
             <div className="space-y-2 sm:space-y-4">
               {[
-                { id: 'good', label: 'Good Condition', icon: '✅', description: 'No issues found' },
-                { id: 'minor_issues', label: 'Minor Issues', icon: '⚠️', description: 'Small scratches or minor wear' },
-                { id: 'damage', label: 'Damage Found', icon: '❌', description: 'Significant damage requiring repair' }
+                {
+                  id: 'good',
+                  label: 'Good Condition',
+                  icon: '✅',
+                  description: 'No issues found'
+                },
+                {
+                  id: 'minor_issues',
+                  label: 'Minor Issues',
+                  icon: '⚠️',
+                  description: 'Small scratches or minor wear'
+                },
+                {
+                  id: 'damage',
+                  label: 'Damage Found',
+                  icon: '❌',
+                  description: 'Significant damage requiring repair'
+                }
               ].map((condition) => (
                 <div
                   key={condition.id}
-                  onClick={() => setReturnData(prev => ({ ...prev, vehicleCondition: condition.id }))}
+                  onClick={() =>
+                    setReturnData((prev) => ({
+                      ...prev,
+                      vehicleCondition: condition.id
+                    }))
+                  }
                   className={cn(
-                    "p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all",
+                    'p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all',
                     returnData.vehicleCondition === condition.id
                       ? 'border-blue-500 bg-blue-500/10'
                       : 'border-gray-600 hover:border-gray-500'
@@ -526,13 +655,25 @@ export default function ThemedVehicleReturnPage() {
                   <div className="flex items-center">
                     <div className="text-xl sm:text-2xl mr-3 shrink-0">{condition.icon}</div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-white text-sm sm:text-base">{condition.label}</h4>
-                      <p className="text-xs sm:text-sm text-gray-400">{condition.description}</p>
+                      <h4 className="font-semibold text-white text-sm sm:text-base">
+                        {condition.label}
+                      </h4>
+                      <p className="text-xs sm:text-sm text-gray-400">
+                        {condition.description}
+                      </p>
                     </div>
                     {returnData.vehicleCondition === condition.id && (
                       <div className="text-blue-400 shrink-0 ml-2">
-                        <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        <svg
+                          className="w-5 h-5 sm:w-6 sm:h-6"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                            clipRule="evenodd"
+                          />
                         </svg>
                       </div>
                     )}
@@ -550,20 +691,32 @@ export default function ThemedVehicleReturnPage() {
                 type="number"
                 min="0"
                 value={returnData.discountAmount}
-                onChange={(e) => setReturnData(prev => ({ ...prev, discountAmount: parseFloat(e.target.value) || 0 }))}
+                onChange={(e) =>
+                  setReturnData((prev) => ({
+                    ...prev,
+                    discountAmount: parseFloat(e.target.value) || 0
+                  }))
+                }
                 placeholder="0"
               />
-              
+
               <ThemedInput
                 label="Additional Charges (₹)"
                 type="number"
                 min="0"
                 value={returnData.additionalCharges}
-                onChange={(e) => setReturnData(prev => ({ ...prev, additionalCharges: parseFloat(e.target.value) || 0 }))}
+                onChange={(e) =>
+                  setReturnData((prev) => ({
+                    ...prev,
+                    additionalCharges: parseFloat(e.target.value) || 0
+                  }))
+                }
                 placeholder="0"
                 containerClassName="mb-2"
               />
-              <p className="text-xs sm:text-sm text-gray-400">Damages, cleaning, late fees, etc.</p>
+              <p className="text-xs sm:text-sm text-gray-400">
+                Damages, cleaning, late fees, etc.
+              </p>
             </div>
           </ThemedCard>
         </div>
@@ -572,22 +725,30 @@ export default function ThemedVehicleReturnPage() {
         <ThemedCard title="Return Notes" className="mt-6 sm:mt-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             <div>
-              <label className="block text-base sm:text-lg font-semibold text-white mb-2">General Notes</label>
+              <label className="block text-base sm:text-lg font-semibold text-white mb-2">
+                General Notes
+              </label>
               <textarea
                 value={returnData.returnNotes}
-                onChange={(e) => setReturnData(prev => ({ ...prev, returnNotes: e.target.value }))}
+                onChange={(e) =>
+                  setReturnData((prev) => ({ ...prev, returnNotes: e.target.value }))
+                }
                 placeholder="General notes about the return..."
-                className={theme.components.input.base + " h-24 resize-none"}
+                className={theme.components.input.base + ' h-24 resize-none'}
                 rows="3"
               />
             </div>
             <div>
-              <label className="block text-base sm:text-lg font-semibold text-white mb-2">Damage Notes</label>
+              <label className="block text-base sm:text-lg font-semibold text-white mb-2">
+                Damage Notes
+              </label>
               <textarea
                 value={returnData.damageNotes}
-                onChange={(e) => setReturnData(prev => ({ ...prev, damageNotes: e.target.value }))}
+                onChange={(e) =>
+                  setReturnData((prev) => ({ ...prev, damageNotes: e.target.value }))
+                }
                 placeholder="Describe any damages or issues..."
-                className={theme.components.input.base + " h-24 resize-none"}
+                className={theme.components.input.base + ' h-24 resize-none'}
                 rows="3"
               />
             </div>
@@ -595,19 +756,23 @@ export default function ThemedVehicleReturnPage() {
         </ThemedCard>
 
         {/* Payment Breakdown */}
-        <div className={cn(
-          "border border-opacity-50 rounded-xl p-4 sm:p-8 mt-6 sm:mt-8",
-          booking.isCustomBooking 
-            ? "bg-gradient-to-r from-purple-900/50 to-purple-800/50 border-purple-700/50"
-            : "bg-gradient-to-r from-blue-900/50 to-blue-800/50 border-blue-700/50"
-        )}>
-          <h3 className={cn(
-            "text-lg sm:text-2xl font-bold mb-4 sm:mb-6 text-center",
-            booking.isCustomBooking ? "text-purple-200" : "text-blue-200"
-          )}>
-            {booking.isCustomBooking ? "📦 Package Breakdown" : "📊 Payment Breakdown"}
+        <div
+          className={cn(
+            'border border-opacity-50 rounded-xl p-4 sm:p-8 mt-6 sm:mt-8',
+            booking.isCustomBooking
+              ? 'bg-gradient-to-r from-purple-900/50 to-purple-800/50 border-purple-700/50'
+              : 'bg-gradient-to-r from-blue-900/50 to-blue-800/50 border-blue-700/50'
+          )}
+        >
+          <h3
+            className={cn(
+              'text-lg sm:text-2xl font-bold mb-4 sm-mb-6 text-center',
+              booking.isCustomBooking ? 'text-purple-200' : 'text-blue-200'
+            )}
+          >
+            {booking.isCustomBooking ? '📦 Package Breakdown' : '📊 Payment Breakdown'}
           </h3>
-          
+
           <div className="space-y-3 sm:space-y-4 text-sm sm:text-lg">
             {booking.isCustomBooking ? (
               <>
@@ -619,29 +784,42 @@ export default function ThemedVehicleReturnPage() {
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-purple-200">Package price:</span>
-                  <span className="font-semibold text-white">₹{booking.finalAmount?.toLocaleString('en-IN')}</span>
+                  <span className="font-semibold text-white">
+                    ₹{booking.finalAmount?.toLocaleString('en-IN')}
+                  </span>
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-purple-200">Duration:</span>
-                  <span className="font-semibold text-white">{duration.hours}h {duration.minutes}m</span>
+                  <span className="font-semibold text-white">
+                    {duration.hours}h {duration.minutes}m
+                  </span>
                 </div>
               </>
             ) : (
               <>
                 <div className="flex justify-between gap-2">
                   <span className="text-blue-200">Calculated amount:</span>
-                  <span className="font-semibold text-white">₹{advancedPricing.totalAmount.toLocaleString('en-IN')}</span>
+                  <span className="font-semibold text-white">
+                    ₹{advancedPricing.totalAmount.toLocaleString('en-IN')}
+                  </span>
                 </div>
-                
+
                 {advancedPricing.breakdown && advancedPricing.breakdown.length > 0 && (
                   <div className="bg-blue-800/30 rounded-lg p-3 sm:p-4">
-                    <h5 className="font-semibold text-blue-200 mb-2 sm:mb-3 text-sm">Detailed breakdown</h5>
+                    <h5 className="font-semibold text-blue-200 mb-2 sm:mb-3 text-sm">
+                      Detailed breakdown
+                    </h5>
                     <div className="space-y-2">
                       {advancedPricing.breakdown.map((block, index) => (
-                        <div key={index} className="flex justify-between text-xs sm:text-sm text-blue-100 gap-2">
+                        <div
+                          key={index}
+                          className="flex justify-between text-xs sm:text-sm text-blue-100 gap-2"
+                        >
                           <span className="min-w-0">
                             {block.period} ({block.minutes}min)
-                            {block.isNightCharge && <span className="ml-1 text-orange-300">🌙</span>}
+                            {block.isNightCharge && (
+                              <span className="ml-1 text-orange-300">🌙</span>
+                            )}
                           </span>
                           <span className="font-medium shrink-0">₹{block.rate}</span>
                         </div>
@@ -656,24 +834,32 @@ export default function ThemedVehicleReturnPage() {
                 )}
               </>
             )}
-            
+
             {returnData.discountAmount > 0 && (
               <div className="flex justify-between text-green-400 gap-2">
                 <span>Discount:</span>
-                <span className="font-semibold">-₹{returnData.discountAmount.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">
+                  -₹{returnData.discountAmount.toLocaleString('en-IN')}
+                </span>
               </div>
             )}
             {returnData.additionalCharges > 0 && (
               <div className="flex justify-between text-red-400 gap-2">
                 <span>Additional:</span>
-                <span className="font-semibold">+₹{returnData.additionalCharges.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">
+                  +₹{returnData.additionalCharges.toLocaleString('en-IN')}
+                </span>
               </div>
             )}
-            <div className={cn(
-              "border-t pt-3 sm:pt-4 flex justify-between text-xl sm:text-2xl font-bold gap-2",
-              booking.isCustomBooking ? "border-purple-600" : "border-blue-600"
-            )}>
-              <span className={booking.isCustomBooking ? "text-purple-200" : "text-blue-200"}>
+            <div
+              className={cn(
+                'border-t pt-3 sm:pt-4 flex justify-between text-xl sm:text-2xl font-bold gap-2',
+                booking.isCustomBooking ? 'border-purple-600' : 'border-blue-600'
+              )}
+            >
+              <span
+                className={booking.isCustomBooking ? 'text-purple-200' : 'text-blue-200'}
+              >
                 Final:
               </span>
               <span className="text-white">₹{finalAmount.toLocaleString('en-IN')}</span>
@@ -681,7 +867,7 @@ export default function ThemedVehicleReturnPage() {
           </div>
         </div>
 
-        {/* Actions — sticky on mobile */}
+        {/* Actions */}
         <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 mt-6 sm:mt-8 sticky bottom-0 sm:static bg-gradient-to-t from-gray-950 via-gray-950/95 to-transparent sm:bg-none pt-4 pb-2 sm:p-0 z-20">
           <Link href={`/active-bookings/${bookingId}`} className="flex-1">
             <ThemedButton variant="secondary" className="w-full min-h-11">
@@ -691,10 +877,14 @@ export default function ThemedVehicleReturnPage() {
           <ThemedButton
             variant="success"
             onClick={handleReturn}
-            disabled={processing || (returnData.paymentMethod === 'upi' && !paymentReceived)}
+            disabled={
+              processing || (returnData.paymentMethod === 'upi' && !paymentReceived)
+            }
             className={cn(
-              "flex-1 min-h-11",
-              (processing || (returnData.paymentMethod === 'upi' && !paymentReceived)) && "opacity-50 cursor-not-allowed"
+              'flex-1 min-h-11',
+              (processing ||
+                (returnData.paymentMethod === 'upi' && !paymentReceived)) &&
+                'opacity-50 cursor-not-allowed'
             )}
           >
             {processing ? (
@@ -710,6 +900,74 @@ export default function ThemedVehicleReturnPage() {
           </ThemedButton>
         </div>
       </div>
+
+      {/* Post-return: next in enquiry queue */}
+      {queuePrompt && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-w-md shadow-2xl p-5 sm:p-6">
+            <div className="text-2xl mb-2">📋</div>
+            <h3 className="text-xl font-bold text-white mb-1">Return complete</h3>
+            <p className="text-gray-300 text-sm mb-4">
+              {queuePrompt.count} waiting in queue
+              {queuePrompt.next.isPriority ? ' · ★ Priority next' : ''}
+            </p>
+
+            <div className="bg-gray-800/80 rounded-lg p-4 mb-5 border border-gray-700">
+              <div className="text-white font-semibold text-lg">
+                {queuePrompt.next.customerName}
+              </div>
+              <a
+                href={`tel:${queuePrompt.next.customerPhone}`}
+                className="text-cyan-300 text-sm underline"
+              >
+                {queuePrompt.next.customerPhone}
+              </a>
+              <div className="text-gray-400 text-xs mt-1">
+                {queuePrompt.next.urgency === 'later' ? 'Can wait / later' : 'Need now'}
+                {' · '}
+                {queuePrompt.next.preferredType === 'scooty'
+                  ? 'Scooty'
+                  : queuePrompt.next.preferredType === 'bike'
+                  ? 'Bike'
+                  : 'Any'}
+              </div>
+              {queuePrompt.next.notes ? (
+                <div className="text-xs text-gray-500 mt-2">
+                  📝 {queuePrompt.next.notes}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <a href={`tel:${queuePrompt.next.customerPhone}`} className="w-full">
+                <ThemedButton
+                  variant="success"
+                  className="w-full min-h-11"
+                  onClick={() => {
+                    setTimeout(goToConfirmation, 400);
+                  }}
+                >
+                  📞 Call {queuePrompt.next.customerName.split(' ')[0]}
+                </ThemedButton>
+              </a>
+              <ThemedButton
+                variant="secondary"
+                className="w-full min-h-11"
+                onClick={() => router.push('/admin/reservations')}
+              >
+                View full queue
+              </ThemedButton>
+              <ThemedButton
+                variant="secondary"
+                className="w-full min-h-11"
+                onClick={goToConfirmation}
+              >
+                Skip · Receipt
+              </ThemedButton>
+            </div>
+          </div>
+        </div>
+      )}
     </ThemedLayout>
   );
 }
