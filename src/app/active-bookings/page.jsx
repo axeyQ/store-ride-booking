@@ -1311,14 +1311,20 @@ export default function EnhancedActiveBookingsPage() {
             }
             progress={75}
           />
-          <ThemedStatsCard
-            title="Advanced Pricing"
-            value={advancedBookings.length}
-            subtitle="⚡ Time-based pricing"
-            colorScheme="vehicles"
-            icon={<div className="text-4xl mb-2">⚡</div>}
-            progress={bookings.length > 0 ? (advancedBookings.length / bookings.length) * 100 : 0}
-          />
+<ThemedStatsCard
+  title="In queue"
+  value={todayReservations.length}
+  subtitle={
+    todayReservations.length === 0
+      ? 'No one waiting'
+      : todayReservations.some((r) => r.isPriority)
+      ? 'Includes priority'
+      : 'Waiting for a vehicle'
+  }
+  colorScheme="vehicles"
+  icon={<div className="text-4xl mb-2">📋</div>}
+  progress={Math.min(todayReservations.length * 20, 100)}
+/>
           <ThemedStatsCard
             title="Custom Packages"
             value={customBookings.length}
