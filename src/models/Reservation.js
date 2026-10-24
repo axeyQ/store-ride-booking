@@ -7,18 +7,16 @@ const reservationSchema = new mongoose.Schema({
     default: function () {
       const timestamp = Date.now().toString();
       const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-      return `RS${timestamp.slice(-8)}${random}`;
+      return `EQ${timestamp.slice(-8)}${random}`; // Enquiry prefix
     }
   },
 
-  // Customer (existing or newly created)
   customerId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Customer',
     required: true
   },
 
-  // Denormalized for list view (avoid extra populate sometimes)
   customerName: {
     type: String,
     required: true,
@@ -30,35 +28,52 @@ const reservationSchema = new mongoose.Schema({
     trim: true
   },
 
-  // Preferred vehicle type (assigned only at pickup)
   preferredType: {
     type: String,
     enum: ['scooty', 'bike', 'any'],
     default: 'any'
   },
 
-  // Pickup time — same day only
+  // When they want a vehicle (still used for "later" / sorting)
   pickupTime: {
     type: Date,
     required: true
   },
 
-  // Advance = first hour payment
-  advanceAmount: {
+  // Need now vs can wait / later
+  urgency: {
+    type: String,
+    enum: ['now', 'later'],
+    default: 'now'
+  },
+
+  // Optional preferred time when urgency === 'later'
+  preferredTime: {
+    type: Date,
+    default: null
+  },
+
+  // Frequent customer — show first in queue
+  isPriority: {
+    type: Boolean,
+    default: false
+  },
+
+advanceAmount: {
     type: Number,
-    required: true,
-    min: 0
+    min: 0,
+    default: 0
   },
   advancePaymentMethod: {
     type: String,
     enum: ['cash', 'upi'],
-    required: true
+    required: false,   // was required — this causes the error
   },
 
   status: {
     type: String,
     enum: ['reserved', 'converted', 'cancelled', 'no_show'],
-    default: 'reserved'
+    default: 'reserved' // UI will show as "Waiting"
   },
 
   notes: {
@@ -67,14 +82,12 @@ const reservationSchema = new mongoose.Schema({
     default: ''
   },
 
-  // Set when converted to a real booking
   bookingId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Booking',
     default: null
   },
 
-  // Staff actions
   cancelledAt: Date,
   cancelledBy: String,
   cancelReason: String,
@@ -93,8 +106,8 @@ const reservationSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes
-reservationSchema.index({ status: 1, pickupTime: 1 });
+reservationSchema.index({ status: 1, createdAt: 1 });
+reservationSchema.index({ status: 1, isPriority: -1, createdAt: 1 });
 reservationSchema.index({ customerId: 1, status: 1 });
 reservationSchema.index({ pickupTime: 1 });
 reservationSchema.index({ customerPhone: 1 });

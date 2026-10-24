@@ -2,7 +2,7 @@ import connectDB from '@/lib/db';
 import Reservation from '@/models/Reservation';
 import { NextResponse } from 'next/server';
 
-// GET single reservation
+// GET single enquiry
 export async function GET(request, { params }) {
   try {
     await connectDB();
@@ -14,14 +14,14 @@ export async function GET(request, { params }) {
 
     if (!reservation) {
       return NextResponse.json(
-        { success: false, error: 'Reservation not found' },
+        { success: false, error: 'Enquiry not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({ success: true, reservation });
   } catch (error) {
-    console.error('Reservation GET error:', error);
+    console.error('Enquiry GET error:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
@@ -29,7 +29,7 @@ export async function GET(request, { params }) {
   }
 }
 
-// PATCH — update status (cancel / no_show / convert)
+// PATCH — status actions OR field updates
 export async function PATCH(request, { params }) {
   try {
     await connectDB();
@@ -39,17 +39,30 @@ export async function PATCH(request, { params }) {
     const reservation = await Reservation.findById(id);
     if (!reservation) {
       return NextResponse.json(
-        { success: false, error: 'Reservation not found' },
+        { success: false, error: 'Enquiry not found' },
         { status: 404 }
       );
     }
 
-    const { action, bookingId, notes, cancelledBy, noShowBy } = body;
+    const {
+      action,
+      bookingId,
+      notes,
+      cancelledBy,
+      noShowBy,
+      // Optional field updates (no action)
+      isPriority,
+      urgency,
+      preferredTime,
+      preferredType,
+      updateNotes
+    } = body;
 
+    // ---- Status actions ----
     if (action === 'cancel') {
       if (reservation.status !== 'reserved') {
         return NextResponse.json(
-          { success: false, error: 'Only reserved reservations can be cancelled' },
+          { success: false, error: 'Only open enquiries can be cancelled' },
           { status: 400 }
         );
       }
@@ -60,7 +73,7 @@ export async function PATCH(request, { params }) {
     } else if (action === 'no_show') {
       if (reservation.status !== 'reserved') {
         return NextResponse.json(
-          { success: false, error: 'Only reserved reservations can be marked no-show' },
+          { success: false, error: 'Only open enquiries can be marked no-show' },
           { status: 400 }
         );
       }
@@ -71,7 +84,7 @@ export async function PATCH(request, { params }) {
     } else if (action === 'convert') {
       if (reservation.status !== 'reserved') {
         return NextResponse.json(
-          { success: false, error: 'Only reserved reservations can be converted' },
+          { success: false, error: 'Only open enquiries can be converted' },
           { status: 400 }
         );
       }
@@ -84,11 +97,43 @@ export async function PATCH(request, { params }) {
       reservation.status = 'converted';
       reservation.bookingId = bookingId;
       reservation.convertedAt = new Date();
-    } else {
+    } else if (action) {
       return NextResponse.json(
         { success: false, error: 'Invalid action. Use: cancel, no_show, or convert' },
         { status: 400 }
       );
+    } else {
+      // ---- Soft updates (open enquiries only) ----
+      if (reservation.status !== 'reserved') {
+        return NextResponse.json(
+          { success: false, error: 'Only open enquiries can be edited' },
+          { status: 400 }
+        );
+      }
+
+      if (typeof isPriority === 'boolean') {
+        reservation.isPriority = isPriority;
+      }
+      if (urgency === 'now' || urgency === 'later') {
+        reservation.urgency = urgency;
+        if (urgency === 'now') {
+          reservation.preferredTime = null;
+        }
+      }
+      if (preferredTime !== undefined) {
+        reservation.preferredTime = preferredTime ? new Date(preferredTime) : null;
+        if (preferredTime) {
+          reservation.pickupTime = new Date(preferredTime);
+        }
+      }
+      if (preferredType && ['scooty', 'bike', 'any'].includes(preferredType)) {
+        reservation.preferredType = preferredType;
+      }
+      if (typeof updateNotes === 'string') {
+        reservation.notes = updateNotes.slice(0, 500);
+      } else if (typeof notes === 'string' && !action) {
+        reservation.notes = notes.slice(0, 500);
+      }
     }
 
     await reservation.save();
@@ -97,13 +142,18 @@ export async function PATCH(request, { params }) {
       .populate('customerId', 'name phone driverLicense')
       .populate('bookingId', 'bookingId status');
 
+    const label =
+      reservation.status === 'reserved' ? 'waiting' : reservation.status;
+
     return NextResponse.json({
       success: true,
       reservation: populated,
-      message: `Reservation marked as ${reservation.status}`
+      message: action
+        ? `Enquiry marked as ${label}`
+        : 'Enquiry updated'
     });
   } catch (error) {
-    console.error('Reservation PATCH error:', error);
+    console.error('Enquiry PATCH error:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }

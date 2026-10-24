@@ -3,9 +3,8 @@ import Reservation from '@/models/Reservation';
 import Customer from '@/models/Customer';
 import Booking from '@/models/Booking';
 import { NextResponse } from 'next/server';
-import { SettingsService } from '@/services/SettingsService';
 
-// GET — list reservations (default: today)
+// GET — list enquiries (default: today by createdAt / queue order)
 export async function GET(request) {
   try {
     await connectDB();
@@ -15,15 +14,18 @@ export async function GET(request) {
     const search = searchParams.get('search') || '';
     const date = searchParams.get('date'); // YYYY-MM-DD, default today
 
-    // Build date range (same day)
     const targetDate = date ? new Date(date) : new Date();
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
 
+    // Open queue = created today OR pickup today (covers "need now" with no special time)
     const query = {
-      pickupTime: { $gte: startOfDay, $lte: endOfDay }
+      $or: [
+        { createdAt: { $gte: startOfDay, $lte: endOfDay } },
+        { pickupTime: { $gte: startOfDay, $lte: endOfDay } }
+      ]
     };
 
     if (status !== 'all') {
@@ -32,17 +34,22 @@ export async function GET(request) {
 
     if (search.trim()) {
       const s = search.trim();
-      query.$or = [
-        { customerName: { $regex: s, $options: 'i' } },
-        { customerPhone: { $regex: s, $options: 'i' } },
-        { reservationId: { $regex: s, $options: 'i' } }
+      query.$and = [
+        {
+          $or: [
+            { customerName: { $regex: s, $options: 'i' } },
+            { customerPhone: { $regex: s, $options: 'i' } },
+            { reservationId: { $regex: s, $options: 'i' } }
+          ]
+        }
       ];
     }
 
+    // Priority first, then FIFO (oldest waiting first)
     const reservations = await Reservation.find(query)
       .populate('customerId', 'name phone driverLicense')
       .populate('bookingId', 'bookingId status')
-      .sort({ pickupTime: 1 });
+      .sort({ isPriority: -1, createdAt: 1 });
 
     return NextResponse.json({
       success: true,
@@ -50,7 +57,7 @@ export async function GET(request) {
       count: reservations.length
     });
   } catch (error) {
-    console.error('Reservations GET error:', error);
+    console.error('Enquiries GET error:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
@@ -58,41 +65,27 @@ export async function GET(request) {
   }
 }
 
-// POST — create reservation
+// POST — create enquiry
 export async function POST(request) {
   try {
     await connectDB();
     const body = await request.json();
 
     const {
-      customerId,          // existing customer
-      customer,            // { name, phone, driverLicense } for new customer
+      customerId,
+      customer,
       preferredType = 'any',
       pickupTime,
-      advanceAmount,
-      advancePaymentMethod,
+      urgency = 'now',
+      preferredTime = null,
+      isPriority = false,
       notes = '',
       createdBy = 'staff'
     } = body;
 
-    // Validate pickup time (must be today)
-    if (!pickupTime) {
+    if (!['now', 'later'].includes(urgency)) {
       return NextResponse.json(
-        { success: false, error: 'Pickup time is required' },
-        { status: 400 }
-      );
-    }
-
-    const pickup = new Date(pickupTime);
-    const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date(now);
-    endOfToday.setHours(23, 59, 59, 999);
-
-    if (pickup < startOfToday || pickup > endOfToday) {
-      return NextResponse.json(
-        { success: false, error: 'Pickup time must be today only' },
+        { success: false, error: 'Urgency must be now or later' },
         { status: 400 }
       );
     }
@@ -104,11 +97,31 @@ export async function POST(request) {
       );
     }
 
-    if (!advancePaymentMethod || !['cash', 'upi'].includes(advancePaymentMethod)) {
-      return NextResponse.json(
-        { success: false, error: 'Advance payment method required (cash or upi)' },
-        { status: 400 }
-      );
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+
+    let pickup;
+    if (urgency === 'later') {
+      const raw = preferredTime || pickupTime;
+      if (!raw) {
+        return NextResponse.json(
+          { success: false, error: 'Preferred time is required when urgency is later' },
+          { status: 400 }
+        );
+      }
+      pickup = new Date(raw);
+      if (pickup < startOfToday || pickup > endOfToday) {
+        return NextResponse.json(
+          { success: false, error: 'Preferred time must be today only' },
+          { status: 400 }
+        );
+      }
+    } else {
+      pickup = pickupTime ? new Date(pickupTime) : now;
+      if (isNaN(pickup.getTime())) pickup = now;
     }
 
     // Resolve customer
@@ -123,7 +136,6 @@ export async function POST(request) {
         );
       }
     } else if (customer?.name && customer?.phone && customer?.driverLicense) {
-      // Create or find by license
       const license = customer.driverLicense.trim().toUpperCase();
       customerDoc = await Customer.findOne({ driverLicense: license });
 
@@ -137,67 +149,58 @@ export async function POST(request) {
         });
         await customerDoc.save();
       } else {
-        // Update name/phone if needed
         customerDoc.name = customer.name.trim();
         customerDoc.phone = customer.phone.trim();
         await customerDoc.save();
       }
     } else {
       return NextResponse.json(
-        { success: false, error: 'Customer ID or full customer details (name, phone, driverLicense) required' },
+        {
+          success: false,
+          error: 'Customer ID or full details (name, phone, driverLicense) required'
+        },
         { status: 400 }
       );
     }
 
-    // Block if customer already has an active booking
     const activeBooking = await Booking.findOne({
       customerId: customerDoc._id,
       status: 'active'
     });
 
     if (activeBooking) {
-      return NextResponse.json({
-        success: false,
-        error: `Customer already has an active booking (${activeBooking.bookingId}). Complete or cancel it first.`,
-        activeBooking: {
-          bookingId: activeBooking.bookingId,
-          startTime: activeBooking.startTime
-        }
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Customer already has an active booking (${activeBooking.bookingId}). Complete or cancel it first.`,
+          activeBooking: {
+            bookingId: activeBooking.bookingId,
+            startTime: activeBooking.startTime
+          }
+        },
+        { status: 400 }
+      );
     }
 
-    // Block if customer already has a reserved reservation for today
-    const existingReservation = await Reservation.findOne({
+    const existingEnquiry = await Reservation.findOne({
       customerId: customerDoc._id,
       status: 'reserved',
-      pickupTime: { $gte: startOfToday, $lte: endOfToday }
+      createdAt: { $gte: startOfToday, $lte: endOfToday }
     });
 
-    if (existingReservation) {
-      return NextResponse.json({
-        success: false,
-        error: `Customer already has a reservation today (${existingReservation.reservationId}) at ${new Date(existingReservation.pickupTime).toLocaleTimeString('en-IN')}.`,
-        existingReservation: {
-          reservationId: existingReservation.reservationId,
-          pickupTime: existingReservation.pickupTime
-        }
-      }, { status: 400 });
+    if (existingEnquiry) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Customer already has an open enquiry today (${existingEnquiry.reservationId}).`,
+          existingReservation: {
+            reservationId: existingEnquiry.reservationId,
+            pickupTime: existingEnquiry.pickupTime
+          }
+        },
+        { status: 400 }
+      );
     }
-
-    // Default advance = hourly rate from settings
-// Default advance = 0 (staff enters amount only if they collect money)
-let finalAdvance = advanceAmount;
-if (finalAdvance == null || finalAdvance === '') {
-  finalAdvance = 0;
-}
-
-finalAdvance = Number(finalAdvance);
-if (isNaN(finalAdvance) || finalAdvance < 0) {
-  return NextResponse.json(
-    { success: false, error: 'Invalid advance amount' },
-    { status: 400 }
-  );
-}
 
     const reservation = new Reservation({
       customerId: customerDoc._id,
@@ -205,8 +208,10 @@ if (isNaN(finalAdvance) || finalAdvance < 0) {
       customerPhone: customerDoc.phone,
       preferredType,
       pickupTime: pickup,
-      advanceAmount: finalAdvance,
-      advancePaymentMethod,
+      urgency,
+      preferredTime: urgency === 'later' ? pickup : null,
+      isPriority: Boolean(isPriority),
+      advanceAmount: 0,
       notes: notes || '',
       status: 'reserved',
       createdBy
@@ -214,16 +219,18 @@ if (isNaN(finalAdvance) || finalAdvance < 0) {
 
     await reservation.save();
 
-    const populated = await Reservation.findById(reservation._id)
-      .populate('customerId', 'name phone driverLicense');
+    const populated = await Reservation.findById(reservation._id).populate(
+      'customerId',
+      'name phone driverLicense'
+    );
 
     return NextResponse.json({
       success: true,
       reservation: populated,
-      message: `Reservation ${reservation.reservationId} created for ${customerDoc.name}`
+      message: `Enquiry ${reservation.reservationId} created for ${customerDoc.name}`
     });
   } catch (error) {
-    console.error('Reservations POST error:', error);
+    console.error('Enquiries POST error:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }

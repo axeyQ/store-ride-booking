@@ -7,30 +7,26 @@ import {
   ThemedCard,
   ThemedButton,
   ThemedInput,
-  ThemedSelect,
-  ThemedBadge
+  ThemedSelect
 } from '@/components/themed';
 import { theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { validatePhoneNumber, validateDrivingLicense } from '@/lib/validations';
 
-export default function ReservationsPage() {
+export default function EnquiriesPage() {
   const router = useRouter();
 
-  // List state
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('reserved');
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Create form state
   const [showCreate, setShowCreate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [settings, setSettings] = useState({ hourlyRate: 80 });
 
-  // Customer search / new customer
-  const [customerMode, setCustomerMode] = useState('search'); // 'search' | 'new'
+  const [customerMode, setCustomerMode] = useState('search');
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [searchingCustomers, setSearchingCustomers] = useState(false);
@@ -44,35 +40,26 @@ export default function ReservationsPage() {
 
   const [form, setForm] = useState({
     preferredType: 'any',
-    pickupTime: '',
-    advanceAmount: 0,
-    advancePaymentMethod: 'cash',
+    urgency: 'now',
+    preferredTime: '',
+    isPriority: false,
     notes: ''
   });
 
-  // Debounce list search
   useEffect(() => {
     const t = setTimeout(() => setSearchTerm(searchInput), 400);
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Fetch settings (for default advance = hourly rate)
   useEffect(() => {
     fetch('/api/settings')
-      .then(r => r.json())
-      .then(data => {
-        if (data.success) {
-          setSettings(data.settings);
-          setForm(prev => ({
-            ...prev,
-            advanceAmount: data.settings.hourlyRate || 80
-          }));
-        }
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) setSettings(data.settings);
       })
       .catch(() => {});
   }, []);
 
-  // Fetch reservations
   const fetchReservations = useCallback(async () => {
     try {
       setLoading(true);
@@ -82,9 +69,7 @@ export default function ReservationsPage() {
       });
       const res = await fetch(`/api/reservations?${params}`);
       const data = await res.json();
-      if (data.success) {
-        setReservations(data.reservations);
-      }
+      if (data.success) setReservations(data.reservations || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -96,7 +81,6 @@ export default function ReservationsPage() {
     fetchReservations();
   }, [fetchReservations]);
 
-  // Customer autocomplete
   useEffect(() => {
     if (customerMode !== 'search' || customerQuery.trim().length < 2) {
       setCustomerSuggestions([]);
@@ -130,8 +114,7 @@ export default function ReservationsPage() {
     setCustomerQuery('');
   };
 
-  // Default pickup time = next round hour
-  const getDefaultPickupTime = () => {
+  const getDefaultLaterTime = () => {
     const now = new Date();
     now.setMinutes(0, 0, 0);
     now.setHours(now.getHours() + 1);
@@ -143,14 +126,13 @@ export default function ReservationsPage() {
   };
 
   const openCreate = () => {
-    setForm(prev => ({
-      ...prev,
-      pickupTime: getDefaultPickupTime(),
-      advanceAmount: 0,
+    setForm({
       preferredType: 'any',
-      advancePaymentMethod: 'cash',
+      urgency: 'now',
+      preferredTime: getDefaultLaterTime(),
+      isPriority: false,
       notes: ''
-    }));
+    });
     setCustomerMode('search');
     setSelectedCustomer(null);
     setCustomerQuery('');
@@ -159,7 +141,6 @@ export default function ReservationsPage() {
   };
 
   const handleCreate = async () => {
-    // Validate
     if (customerMode === 'search' && !selectedCustomer) {
       alert('Please select a customer or switch to Add New Customer');
       return;
@@ -178,26 +159,28 @@ export default function ReservationsPage() {
         return;
       }
     }
-    if (!form.pickupTime) {
-      alert('Pickup time is required');
+    if (form.urgency === 'later' && !form.preferredTime) {
+      alert('Preferred time is required when they want it later');
       return;
     }
-    if (!form.advancePaymentMethod) {
-      alert('Advance payment method is required');
-      return;
-    }
-
+  
     setSubmitting(true);
     try {
       const payload = {
         preferredType: form.preferredType,
-        pickupTime: new Date(form.pickupTime).toISOString(),
-        advanceAmount: Number(form.advanceAmount) || settings.hourlyRate || 80,
-        advancePaymentMethod: form.advancePaymentMethod,
+        urgency: form.urgency,
+        isPriority: Boolean(form.isPriority),
         notes: form.notes,
         createdBy: 'staff'
       };
-
+  
+      if (form.urgency === 'later') {
+        payload.preferredTime = new Date(form.preferredTime).toISOString();
+        payload.pickupTime = new Date(form.preferredTime).toISOString();
+      } else {
+        payload.pickupTime = new Date().toISOString();
+      }
+  
       if (customerMode === 'search') {
         payload.customerId = selectedCustomer._id;
       } else {
@@ -207,25 +190,25 @@ export default function ReservationsPage() {
           driverLicense: newCustomer.driverLicense.trim().toUpperCase()
         };
       }
-
+  
       const res = await fetch('/api/reservations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-
+  
       if (!res.ok || !data.success) {
-        alert(data.error || 'Failed to create reservation');
+        alert(data.error || 'Failed to create enquiry');
         return;
       }
-
+  
       setShowCreate(false);
       fetchReservations();
-      alert(`Reservation ${data.reservation.reservationId} created`);
+      alert(`Enquiry ${data.reservation.reservationId} created`);
     } catch (e) {
       console.error(e);
-      alert('Error creating reservation');
+      alert('Error creating enquiry');
     } finally {
       setSubmitting(false);
     }
@@ -233,8 +216,8 @@ export default function ReservationsPage() {
 
   const handleStatusAction = async (id, action) => {
     const labels = {
-      cancel: 'Cancel this reservation?',
-      no_show: 'Mark as No-Show?'
+      cancel: 'Cancel this enquiry?',
+      no_show: 'Mark as No-Show / no answer?'
     };
     if (!confirm(labels[action] || 'Confirm?')) return;
 
@@ -252,11 +235,29 @@ export default function ReservationsPage() {
       fetchReservations();
     } catch (e) {
       console.error(e);
-      alert('Error updating reservation');
+      alert('Error updating enquiry');
     }
   };
 
-  // Convert → open New Booking with prefill
+  const togglePriority = async (r) => {
+    if (r.status !== 'reserved') return;
+    try {
+      const res = await fetch(`/api/reservations/${r._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPriority: !r.isPriority })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Could not update priority');
+        return;
+      }
+      fetchReservations();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleConvert = (r) => {
     const params = new URLSearchParams({
       customerId: r.customerId?._id || r.customerId,
@@ -269,13 +270,15 @@ export default function ReservationsPage() {
   const formatTime = (d) =>
     new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
-  const formatDateTime = (d) =>
-    new Date(d).toLocaleString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const statusLabel = (status) => {
+    const map = {
+      reserved: 'Waiting',
+      converted: 'Got vehicle',
+      cancelled: 'Cancelled',
+      no_show: 'No answer'
+    };
+    return map[status] || status;
+  };
 
   const statusBadge = (status) => {
     const map = {
@@ -293,28 +296,83 @@ export default function ReservationsPage() {
     return 'Any';
   };
 
+  const urgencyLabel = (r) => {
+    if (r.urgency === 'later') {
+      const t = r.preferredTime || r.pickupTime;
+      return t ? `Later · ${formatTime(t)}` : 'Later';
+    }
+    return 'Need now';
+  };
+
+  const ActionButtons = ({ r }) => (
+    <>
+      {r.status === 'reserved' && (
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2 w-full">
+          <a href={`tel:${r.customerPhone}`} className="flex-1 sm:flex-initial">
+            <ThemedButton variant="secondary" className="w-full sm:w-auto text-sm min-h-11 px-3">
+              📞 Call
+            </ThemedButton>
+          </a>
+          <ThemedButton
+            variant="success"
+            className="flex-1 sm:flex-initial text-sm min-h-11 px-3"
+            onClick={() => handleConvert(r)}
+          >
+            Start Rental
+          </ThemedButton>
+          <ThemedButton
+            variant="secondary"
+            className="flex-1 sm:flex-initial text-sm min-h-11 px-3"
+            onClick={() => handleStatusAction(r._id, 'no_show')}
+          >
+            No answer
+          </ThemedButton>
+          <ThemedButton
+            variant="secondary"
+            className="flex-1 sm:flex-initial text-sm min-h-11 px-3 text-red-400"
+            onClick={() => handleStatusAction(r._id, 'cancel')}
+          >
+            Cancel
+          </ThemedButton>
+        </div>
+      )}
+      {r.status === 'converted' && r.bookingId && (
+        <Link
+          href={`/active-bookings/${r.bookingId.bookingId || r.bookingId}`}
+          className="w-full sm:w-auto"
+        >
+          <ThemedButton variant="secondary" className="w-full text-sm min-h-11 px-3">
+            View Booking
+          </ThemedButton>
+        </Link>
+      )}
+    </>
+  );
+
   return (
     <ThemedLayout>
-      <div className="container mx-auto px-6 py-8">
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 sm:mb-8">
           <div>
-            <h1 className={theme.typography.title}>Bike Reservations</h1>
-            <p className="text-gray-400 mt-1">Same-day holds · Assign vehicle at pickup</p>
+            <h1 className={theme.typography.title}>Enquiries</h1>
+            <p className="text-gray-400 mt-1 text-sm sm:text-base">
+              Waiting list when vehicles are out · FIFO queue
+            </p>
           </div>
-          <ThemedButton variant="primary" onClick={openCreate}>
-            + New Reservation
+          <ThemedButton variant="primary" onClick={openCreate} className="w-full sm:w-auto min-h-11">
+            + New Enquiry
           </ThemedButton>
         </div>
 
         {/* Filters */}
-        <ThemedCard className="mb-6">
-          <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <ThemedCard className="mb-4 sm:mb-6">
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <ThemedInput
               label="Search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Name, phone, reservation ID..."
+              placeholder="Name, phone, ID..."
             />
             <ThemedSelect
               label="Status"
@@ -322,14 +380,18 @@ export default function ReservationsPage() {
               onValueChange={setStatusFilter}
               options={[
                 { value: 'all', label: 'All' },
-                { value: 'reserved', label: 'Reserved' },
-                { value: 'converted', label: 'Converted' },
+                { value: 'reserved', label: 'Waiting' },
+                { value: 'converted', label: 'Got vehicle' },
                 { value: 'cancelled', label: 'Cancelled' },
-                { value: 'no_show', label: 'No-Show' }
+                { value: 'no_show', label: 'No answer' }
               ]}
             />
             <div className="flex items-end">
-              <ThemedButton variant="secondary" onClick={fetchReservations} className="w-full">
+              <ThemedButton
+                variant="secondary"
+                onClick={fetchReservations}
+                className="w-full min-h-11"
+              >
                 🔄 Refresh
               </ThemedButton>
             </div>
@@ -337,156 +399,248 @@ export default function ReservationsPage() {
         </ThemedCard>
 
         {/* List */}
-        <ThemedCard title="Today's Reservations">
+        <ThemedCard title="Today's queue">
           {loading ? (
-            <div className="flex items-center justify-center py-16 gap-3">
+            <div className="flex items-center justify-center py-12 sm:py-16 gap-3">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400" />
               <span className="text-white">Loading...</span>
             </div>
           ) : reservations.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="text-5xl mb-4">📅</div>
-              <h3 className="text-xl text-white font-semibold mb-2">No reservations today</h3>
-              <p className="text-gray-400 mb-6">Create one when a customer calls ahead</p>
-              <ThemedButton variant="primary" onClick={openCreate}>
-                + New Reservation
+            <div className="text-center py-12 sm:py-16 px-4">
+              <div className="text-5xl mb-4">📋</div>
+              <h3 className="text-lg sm:text-xl text-white font-semibold mb-2">
+                No enquiries in queue
+              </h3>
+              <p className="text-gray-400 mb-6 text-sm sm:text-base">
+                Add one when someone calls or walks in and nothing is free
+              </p>
+              <ThemedButton variant="primary" onClick={openCreate} className="min-h-11">
+                + New Enquiry
               </ThemedButton>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-700 text-left text-gray-400">
-                    <th className="py-3 px-4">ID</th>
-                    <th className="py-3 px-4">Customer</th>
-                    <th className="py-3 px-4">Pickup</th>
-                    <th className="py-3 px-4">Type</th>
-                    <th className="py-3 px-4">Advance</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-700">
-                  {reservations.map((r) => (
-                    <tr key={r._id} className="hover:bg-gray-800/40">
-                      <td className="py-4 px-4 font-mono text-cyan-400 text-sm">
-                        {r.reservationId}
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="text-white font-medium">{r.customerName}</div>
-                        <div className="text-gray-400 text-sm">{r.customerPhone}</div>
-                      </td>
-                      <td className="py-4 px-4 text-white font-semibold">
-                        {formatTime(r.pickupTime)}
-                      </td>
-                      <td className="py-4 px-4 text-gray-300">
-                        {preferredLabel(r.preferredType)}
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="text-white font-medium">
-                          ₹{Number(r.advanceAmount).toLocaleString('en-IN')}
-                        </div>
-                        <div className="text-xs text-gray-400 uppercase">
-                          {r.advancePaymentMethod}
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span
-                          className={cn(
-                            'inline-block px-2 py-1 rounded text-xs font-semibold border',
-                            statusBadge(r.status)
+            <>
+              {/* Mobile cards */}
+              <div className="md:hidden space-y-3 p-3">
+                {reservations.map((r, index) => (
+                  <div
+                    key={r._id}
+                    className={cn(
+                      'rounded-xl border p-4 space-y-3',
+                      r.isPriority
+                        ? 'border-amber-500/40 bg-amber-900/10'
+                        : 'border-gray-700 bg-gray-800/40'
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-white font-semibold truncate">
+                            {r.customerName}
+                          </span>
+                          {r.isPriority && (
+                            <span className="text-amber-400 text-xs font-medium">★ Priority</span>
                           )}
+                        </div>
+                        <a
+                          href={`tel:${r.customerPhone}`}
+                          className="text-cyan-300 text-sm underline"
                         >
-                          {r.status.replace('_', ' ').toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex flex-wrap gap-2">
-                        {r.status === 'reserved' && (
-  <>
-    <a href={`tel:${r.customerPhone}`}>
-      <ThemedButton variant="secondary" className="text-xs px-3 py-1">
-        📞 Call
-      </ThemedButton>
-    </a>
-    <ThemedButton
-      variant="success"
-      className="text-xs px-3 py-1"
-      onClick={() => handleConvert(r)}
-    >
-      Start Rental
-    </ThemedButton>
-    <ThemedButton
-      variant="secondary"
-      className="text-xs px-3 py-1"
-      onClick={() => handleStatusAction(r._id, 'no_show')}
-    >
-      No-Show
-    </ThemedButton>
-    <ThemedButton
-      variant="secondary"
-      className="text-xs px-3 py-1 text-red-400"
-      onClick={() => handleStatusAction(r._id, 'cancel')}
-    >
-      Cancel
-    </ThemedButton>
-  </>
-)}
-                          {r.status === 'converted' && r.bookingId && (
-                            <Link href={`/active-bookings/${r.bookingId.bookingId || r.bookingId}`}>
-                              <ThemedButton variant="secondary" className="text-xs px-3 py-1">
-                                View Booking
-                              </ThemedButton>
-                            </Link>
-                          )}
-                          {r.notes && (
-                            <span className="text-xs text-gray-500 self-center" title={r.notes}>
-                              📝
-                            </span>
+                          {r.customerPhone}
+                        </a>
+                        <div className="text-xs text-gray-500 font-mono mt-0.5">
+                          {r.reservationId}
+                          {statusFilter === 'reserved' && (
+                            <span className="ml-2 text-gray-400">#{index + 1} in queue</span>
                           )}
                         </div>
-                      </td>
+                      </div>
+                      <span
+                        className={cn(
+                          'shrink-0 inline-block px-2 py-1 rounded text-xs font-semibold border',
+                          statusBadge(r.status)
+                        )}
+                      >
+                        {statusLabel(r.status)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-gray-500 text-xs">Urgency</div>
+                        <div className="text-white">{urgencyLabel(r)}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500 text-xs">Type</div>
+                        <div className="text-gray-200">{preferredLabel(r.preferredType)}</div>
+                      </div>
+                      {Number(r.advanceAmount) > 0 && (
+                        <div>
+                          <div className="text-gray-500 text-xs">Advance</div>
+                          <div className="text-white">
+                            ₹{Number(r.advanceAmount).toLocaleString('en-IN')}
+                            {r.advancePaymentMethod && (
+                              <span className="text-gray-400 text-xs ml-1 uppercase">
+                                {r.advancePaymentMethod}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {r.notes && (
+                      <p className="text-xs text-gray-400 border-t border-gray-700 pt-2">
+                        📝 {r.notes}
+                      </p>
+                    )}
+
+                    {r.status === 'reserved' && (
+                      <button
+                        type="button"
+                        onClick={() => togglePriority(r)}
+                        className="text-xs text-amber-400/90 underline"
+                      >
+                        {r.isPriority ? 'Remove priority' : 'Mark priority (frequent)'}
+                      </button>
+                    )}
+
+                    <ActionButtons r={r} />
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-700 text-left text-gray-400 text-sm">
+                      <th className="py-3 px-4">#</th>
+                      <th className="py-3 px-4">Customer</th>
+                      <th className="py-3 px-4">Urgency</th>
+                      <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-700">
+                    {reservations.map((r, index) => (
+                      <tr
+                        key={r._id}
+                        className={cn(
+                          'hover:bg-gray-800/40',
+                          r.isPriority && 'bg-amber-900/10'
+                        )}
+                      >
+                        <td className="py-4 px-4 text-gray-500 text-sm">
+                          {statusFilter === 'reserved' ? index + 1 : '—'}
+                          {r.isPriority && (
+                            <span className="block text-amber-400 text-xs">★</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="text-white font-medium flex items-center gap-2">
+                            {r.customerName}
+                            {r.status === 'reserved' && (
+                              <button
+                                type="button"
+                                onClick={() => togglePriority(r)}
+                                className="text-amber-400/80 hover:text-amber-300 text-xs"
+                                title="Toggle priority"
+                              >
+                                {r.isPriority ? '★' : '☆'}
+                              </button>
+                            )}
+                          </div>
+                          <a
+                            href={`tel:${r.customerPhone}`}
+                            className="text-cyan-300 text-sm underline"
+                          >
+                            {r.customerPhone}
+                          </a>
+                          <div className="text-xs text-gray-500 font-mono">
+                            {r.reservationId}
+                          </div>
+                          {r.notes && (
+                            <div className="text-xs text-gray-500 mt-1 max-w-xs truncate" title={r.notes}>
+                              📝 {r.notes}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-white text-sm">{urgencyLabel(r)}</td>
+                        <td className="py-4 px-4 text-gray-300 text-sm">
+                          {preferredLabel(r.preferredType)}
+                          {Number(r.advanceAmount) > 0 && (
+                            <div className="text-xs text-gray-500">
+                              Adv ₹{Number(r.advanceAmount).toLocaleString('en-IN')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
+                          <span
+                            className={cn(
+                              'inline-block px-2 py-1 rounded text-xs font-semibold border',
+                              statusBadge(r.status)
+                            )}
+                          >
+                            {statusLabel(r.status)}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex flex-wrap gap-2">
+                            <ActionButtons r={r} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </ThemedCard>
 
         {/* Quick links */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mt-6 sm:mt-8">
           <Link href="/booking">
-            <ThemedButton variant="primary" className="w-full">➕ New Booking</ThemedButton>
+            <ThemedButton variant="primary" className="w-full min-h-11 text-sm">
+              ➕ New Booking
+            </ThemedButton>
           </Link>
           <Link href="/active-bookings">
-            <ThemedButton variant="success" className="w-full">🔄 Active Rentals</ThemedButton>
+            <ThemedButton variant="success" className="w-full min-h-11 text-sm">
+              🔄 Active Rentals
+            </ThemedButton>
           </Link>
-          <Link href="/admin">
-            <ThemedButton variant="secondary" className="w-full">📊 Dashboard</ThemedButton>
+          <Link href="/">
+            <ThemedButton variant="secondary" className="w-full min-h-11 text-sm">
+              🏠 Home
+            </ThemedButton>
           </Link>
           <Link href="/customers">
-            <ThemedButton variant="secondary" className="w-full">👥 Customers</ThemedButton>
+            <ThemedButton variant="secondary" className="w-full min-h-11 text-sm">
+              👥 Customers
+            </ThemedButton>
           </Link>
         </div>
       </div>
 
-      {/* ========== CREATE MODAL ========== */}
+      {/* Create modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="p-6 border-b border-gray-700 flex justify-between items-center">
-              <h2 className="text-xl font-bold text-white">New Reservation</h2>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl">
+            <div className="p-4 sm:p-6 border-b border-gray-700 flex justify-between items-center sticky top-0 bg-gray-900 z-10">
+              <h2 className="text-lg sm:text-xl font-bold text-white">New Enquiry</h2>
               <button
                 onClick={() => setShowCreate(false)}
-                className="text-gray-400 hover:text-white text-2xl leading-none"
+                className="text-gray-400 hover:text-white text-2xl leading-none w-10 h-10"
+                aria-label="Close"
               >
                 ×
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Customer mode toggle */}
+            <div className="p-4 sm:p-6 space-y-5">
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -495,13 +649,13 @@ export default function ReservationsPage() {
                     setSelectedCustomer(null);
                   }}
                   className={cn(
-                    'flex-1 py-2 rounded-lg text-sm font-medium border transition',
+                    'flex-1 py-2.5 rounded-lg text-sm font-medium border transition min-h-11',
                     customerMode === 'search'
                       ? 'bg-cyan-600 border-cyan-500 text-white'
                       : 'bg-gray-800 border-gray-600 text-gray-300'
                   )}
                 >
-                  Existing Customer
+                  Existing
                 </button>
                 <button
                   type="button"
@@ -511,13 +665,13 @@ export default function ReservationsPage() {
                     setCustomerQuery('');
                   }}
                   className={cn(
-                    'flex-1 py-2 rounded-lg text-sm font-medium border transition',
+                    'flex-1 py-2.5 rounded-lg text-sm font-medium border transition min-h-11',
                     customerMode === 'new'
                       ? 'bg-cyan-600 border-cyan-500 text-white'
                       : 'bg-gray-800 border-gray-600 text-gray-300'
                   )}
                 >
-                  Add New Customer
+                  New customer
                 </button>
               </div>
 
@@ -534,15 +688,17 @@ export default function ReservationsPage() {
                   />
                   {selectedCustomer && (
                     <div className="mt-2 flex items-center justify-between bg-green-500/10 border border-green-500/30 rounded-lg p-3">
-                      <div>
-                        <div className="text-green-300 font-medium">{selectedCustomer.name}</div>
+                      <div className="min-w-0">
+                        <div className="text-green-300 font-medium truncate">
+                          {selectedCustomer.name}
+                        </div>
                         <div className="text-sm text-gray-400">
                           {selectedCustomer.phone} · {selectedCustomer.driverLicense}
                         </div>
                       </div>
                       <button
                         onClick={clearSelectedCustomer}
-                        className="text-red-400 text-sm underline"
+                        className="text-red-400 text-sm underline shrink-0 ml-2"
                       >
                         Clear
                       </button>
@@ -552,7 +708,7 @@ export default function ReservationsPage() {
                     <div className="text-sm text-gray-400 mt-1">Searching...</div>
                   )}
                   {!selectedCustomer && customerSuggestions.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                    <div className="absolute z-20 left-0 right-0 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                       {customerSuggestions.map((c) => (
                         <div
                           key={c._id}
@@ -573,7 +729,7 @@ export default function ReservationsPage() {
                   <ThemedInput
                     label="Full Name *"
                     value={newCustomer.name}
-                    onChange={(e) => setNewCustomer(p => ({ ...p, name: e.target.value }))}
+                    onChange={(e) => setNewCustomer((p) => ({ ...p, name: e.target.value }))}
                     placeholder="Customer full name"
                   />
                   <ThemedInput
@@ -581,7 +737,7 @@ export default function ReservationsPage() {
                     type="tel"
                     maxLength={10}
                     value={newCustomer.phone}
-                    onChange={(e) => setNewCustomer(p => ({ ...p, phone: e.target.value }))}
+                    onChange={(e) => setNewCustomer((p) => ({ ...p, phone: e.target.value }))}
                     placeholder="10-digit phone"
                     error={
                       newCustomer.phone && !validatePhoneNumber(newCustomer.phone)
@@ -593,7 +749,7 @@ export default function ReservationsPage() {
                     label="Driver License *"
                     value={newCustomer.driverLicense}
                     onChange={(e) =>
-                      setNewCustomer(p => ({
+                      setNewCustomer((p) => ({
                         ...p,
                         driverLicense: e.target.value.toUpperCase()
                       }))
@@ -609,24 +765,51 @@ export default function ReservationsPage() {
                 </div>
               )}
 
-              {/* Pickup time */}
+              {/* Urgency */}
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Pickup Time (Today) *
-                </label>
-                <input
-                  type="datetime-local"
-                  value={form.pickupTime}
-                  onChange={(e) => setForm(p => ({ ...p, pickupTime: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-cyan-400"
-                />
+                <label className="block text-sm font-medium text-gray-300 mb-2">Urgency *</label>
+                <div className="flex gap-2">
+                  {[
+                    { id: 'now', label: 'Need now' },
+                    { id: 'later', label: 'Can wait / later' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, urgency: opt.id }))}
+                      className={cn(
+                        'flex-1 py-2.5 rounded-lg text-sm font-medium border transition min-h-11',
+                        form.urgency === opt.id
+                          ? 'bg-cyan-600 border-cyan-500 text-white'
+                          : 'bg-gray-800 border-gray-600 text-gray-300'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Preferred type */}
+              {form.urgency === 'later' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Preferred time (today) *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={form.preferredTime}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, preferredTime: e.target.value }))
+                    }
+                    className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-cyan-400 min-h-11"
+                  />
+                </div>
+              )}
+
               <ThemedSelect
-                label="Preferred Type"
+                label="Preferred type"
                 value={form.preferredType}
-                onValueChange={(v) => setForm(p => ({ ...p, preferredType: v }))}
+                onValueChange={(v) => setForm((p) => ({ ...p, preferredType: v }))}
                 options={[
                   { value: 'any', label: 'Any' },
                   { value: 'scooty', label: '🛵 Scooty' },
@@ -634,59 +817,52 @@ export default function ReservationsPage() {
                 ]}
               />
 
-              {/* Advance */}
-              <div className="grid grid-cols-2 gap-4">
-                <ThemedInput
-                  label="Advance Amount (₹)"
-                  type="number"
-                  min={0}
-                  value={form.advanceAmount}
-                  onChange={(e) => setForm(p => ({ ...p, advanceAmount: e.target.value }))}
-                  placeholder={String(settings.hourlyRate || 80)}
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.isPriority}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, isPriority: e.target.checked }))
+                  }
+                  className="w-5 h-5 rounded border-gray-500 text-amber-500 focus:ring-amber-400"
                 />
-                <ThemedSelect
-                  label="Payment Method"
-                  value={form.advancePaymentMethod}
-                  onValueChange={(v) => setForm(p => ({ ...p, advancePaymentMethod: v }))}
-                  options={[
-                    { value: 'cash', label: '💵 Cash' },
-                    { value: 'upi', label: '📱 UPI' }
-                  ]}
-                />
-              </div>
-              <p className="text-xs text-gray-500 -mt-2">
-                Default = first hour rate (₹{settings.hourlyRate || 80})
-              </p>
+                <span className="text-white text-sm">
+                  ★ Priority (frequent customer — show higher in queue)
+                </span>
+              </label>
 
-              {/* Notes */}
+
+
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Notes</label>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Notes (e.g. needs 2 scooties)
+                </label>
                 <textarea
                   value={form.notes}
-                  onChange={(e) => setForm(p => ({ ...p, notes: e.target.value }))}
+                  onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
                   rows={2}
-                  placeholder="Optional notes..."
+                  placeholder="Optional..."
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-cyan-400 resize-none"
                 />
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-700 flex gap-3">
+            <div className="p-4 sm:p-6 border-t border-gray-700 flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 sticky bottom-0 bg-gray-900">
               <ThemedButton
                 variant="secondary"
-                className="flex-1"
+                className="flex-1 min-h-11"
                 onClick={() => setShowCreate(false)}
                 disabled={submitting}
               >
-                Cancel
+                Close
               </ThemedButton>
               <ThemedButton
                 variant="primary"
-                className="flex-1"
+                className="flex-1 min-h-11"
                 onClick={handleCreate}
                 disabled={submitting}
               >
-                {submitting ? 'Creating...' : 'Create Reservation'}
+                {submitting ? 'Creating...' : 'Add to queue'}
               </ThemedButton>
             </div>
           </div>

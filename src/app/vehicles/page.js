@@ -93,7 +93,32 @@ export default function ThemedVehiclesPage() {
     });
     setShowAddForm(true);
   };
-
+  const handleDelete = async (vehicle) => {
+    if (vehicle.status === 'rented') {
+      alert('Cannot delete a vehicle that is currently rented. Complete the return first.');
+      return;
+    }
+  
+    const ok = window.confirm(
+      `Delete ${vehicle.type} "${vehicle.model}" (${vehicle.plateNumber})?\n\nThis cannot be undone.`
+    );
+    if (!ok) return;
+  
+    try {
+      const response = await fetch(`/api/vehicles/${vehicle._id}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json();
+      if (data.success) {
+        await fetchVehicles();
+      } else {
+        alert(data.error || 'Failed to delete vehicle');
+      }
+    } catch (error) {
+      console.error('Error deleting vehicle:', error);
+      alert('Error deleting vehicle. Please try again.');
+    }
+  };
   const resetForm = () => {
     setFormData({ type: 'bike', model: '', plateNumber: '', status: 'available' });
     setEditingVehicle(null);
@@ -342,16 +367,32 @@ export default function ThemedVehiclesPage() {
                     </div>
 
                     {/* Edit Button */}
-                    <ThemedButton
-                      variant="secondary"
-                      onClick={() => handleEdit(vehicle)}
-                      className="w-full flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      Edit Details
-                    </ThemedButton>
+{/* Edit + Delete */}
+<div className="flex gap-2">
+  <ThemedButton
+    variant="secondary"
+    onClick={() => handleEdit(vehicle)}
+    className="flex-1 flex items-center justify-center gap-2 text-sm min-h-11"
+  >
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
+    Edit
+  </ThemedButton>
+
+  <ThemedButton
+    variant="danger"
+    onClick={() => handleDelete(vehicle)}
+    disabled={vehicle.status === 'rented'}
+    className={cn(
+      'flex-1 flex items-center justify-center gap-2 text-sm min-h-11',
+      vehicle.status === 'rented' && 'opacity-50 cursor-not-allowed'
+    )}
+    title={vehicle.status === 'rented' ? 'Return vehicle before deleting' : 'Delete vehicle'}
+  >
+    🗑️ Delete
+  </ThemedButton>
+</div>
                   </div>
                 </ThemedCard>
               );
