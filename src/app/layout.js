@@ -1,31 +1,31 @@
 // src/app/layout.js
 import './globals.css'
 import { BusinessErrorBoundary } from '@/components/BusinessErrorBoundary'
-import ServiceRegistry from '@/lib/serviceRegistry'
+import { AuthProvider } from '@/contexts/AuthContext'
+import DynamicTitle from '@/components/DynamicTitle'
 import { Analytics } from "@vercel/analytics/next"
 import { SpeedInsights } from "@vercel/speed-insights/next"
-export const metadata = {
-  title: 'MR Travels - Bike Rental System',
-  description: 'Digital bike and scooter rental management system with enhanced pricing engine',
-}
+import AuthGate from '@/components/AuthGate'
 
-// 🚀 NEW: Service initialization component
-function ServiceInitializer({ children }) {
-  // Services are auto-initialized when imported, but we can add explicit initialization here if needed
-  return children;
+// Fallback only — DynamicTitle overwrites after settings load
+export const metadata = {
+  title: 'MR Travels',
+  description: 'Bike and scooter rental management',
 }
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="bg-gray-50 min-h-screen font-sans">
-        {/* 🚀 NEW: Top-level error boundary for entire app */}
         <BusinessErrorBoundary>
-          <ServiceInitializer>
+          <AuthProvider>
+          <AuthGate>
+            <DynamicTitle />
             <div className="max-w-6xl mx-auto">
               {children}
             </div>
-          </ServiceInitializer>
+          </AuthGate>
+          </AuthProvider>
         </BusinessErrorBoundary>
         <Analytics />
         <SpeedInsights />

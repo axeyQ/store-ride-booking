@@ -25,6 +25,7 @@ export default function EnhancedBookingClientPage() {
   const advanceFromReservation = searchParams.get('advance');
   const customerIdFromUrl = searchParams.get('customerId');
 
+  const [vehicleSearch, setVehicleSearch] = useState('');
   const [currentStep, setCurrentStep] = useState(1);
   const [availableVehicles, setAvailableVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -118,7 +119,15 @@ export default function EnhancedBookingClientPage() {
   
     return () => clearTimeout(timer);
   }, [bookingData.customer.driverLicense, selectedCustomerId]);
-  
+  const filteredVehicles = availableVehicles.filter((v) => {
+    const q = vehicleSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (v.model || '').toLowerCase().includes(q) ||
+      (v.plateNumber || '').toLowerCase().includes(q) ||
+      (v.type || '').toLowerCase().includes(q)
+    );
+  });
   const checkLicenseConflict = async (licenseNumber) => {
     if (!licenseNumber || selectedCustomerId) return;
     
@@ -663,62 +672,96 @@ export default function EnhancedBookingClientPage() {
           </div>
         </ThemedCard>
 
-        {/* Step 1: Vehicle Selection */}
-        {currentStep === 1 && (
-          <ThemedCard title="Select Vehicle">
-            <div className="space-y-6 sm:space-y-8">
-              <div>
-                <h3 className="text-lg sm:text-xl font-bold text-white mb-4 sm:mb-6">Available Vehicles</h3>
-                {availableVehicles.length === 0 ? (
-                  <ThemedCard className="text-center p-12">
-                    <div className="text-gray-400 text-xl mb-4">
-                      No vehicles available for booking
-                    </div>
-                    <Link href="/vehicles">
-                      <ThemedButton variant="secondary">
-                        Manage Vehicles →
-                      </ThemedButton>
-                    </Link>
-                  </ThemedCard>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6">
-                    {availableVehicles.map((vehicle) => (
-                      <ThemedCard
-                        key={vehicle._id}
-                        className={cn(
-                          "cursor-pointer transition-all duration-300",
-                          bookingData.vehicleId === vehicle._id
-                            ? 'border-cyan-500 bg-cyan-500/10'
-                            : 'hover:border-gray-500'
-                        )}
-                        onClick={() => handleVehicleSelect(vehicle)}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h3 className="text-base sm:text-xl font-bold text-white capitalize">
-                              {vehicle.type} - {vehicle.model}
-                            </h3>
-                            <p className="text-gray-400 text-sm sm:text-lg font-mono">{vehicle.plateNumber}</p>
-                            <ThemedBadge status="available" className="mt-2">
-                              Available
-                            </ThemedBadge>
-                          </div>
-                          {bookingData.vehicleId === vehicle._id && (
-                            <div className="text-cyan-400">
-                              <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
-                            </div>
-                          )}
-                        </div>
-                      </ThemedCard>
-                    ))}
-                  </div>
-                )}
-              </div>
+{/* Step 1: Vehicle Selection */}
+{currentStep === 1 && (
+  <ThemedCard title="Select Vehicle">
+    <div className="space-y-4 sm:space-y-6">
+      <ThemedInput
+        label="Search vehicles"
+        placeholder="Model, plate number, or type (bike / scooter)…"
+        value={vehicleSearch}
+        onChange={(e) => setVehicleSearch(e.target.value)}
+      />
+
+      <div>
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <h3 className="text-lg sm:text-xl font-bold text-white">
+            Available Vehicles
+          </h3>
+          <span className="text-sm text-gray-400">
+            {filteredVehicles.length} of {availableVehicles.length}
+          </span>
+        </div>
+
+        {availableVehicles.length === 0 ? (
+          <ThemedCard className="text-center p-8 sm:p-12">
+            <div className="text-gray-400 text-lg mb-4">
+              No vehicles available for booking
             </div>
+            <Link href="/vehicles">
+              <ThemedButton variant="secondary">
+                Manage Vehicles →
+              </ThemedButton>
+            </Link>
           </ThemedCard>
+        ) : filteredVehicles.length === 0 ? (
+          <ThemedCard className="text-center p-8">
+            <div className="text-gray-400 mb-3">
+              No vehicles match “{vehicleSearch}”
+            </div>
+            <ThemedButton
+              variant="secondary"
+              onClick={() => setVehicleSearch('')}
+              className="min-h-11"
+            >
+              Clear search
+            </ThemedButton>
+          </ThemedCard>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6">
+            {filteredVehicles.map((vehicle) => (
+              <ThemedCard
+                key={vehicle._id}
+                className={cn(
+                  'cursor-pointer transition-all duration-300',
+                  bookingData.vehicleId === vehicle._id
+                    ? 'border-cyan-500 bg-cyan-500/10'
+                    : 'hover:border-gray-500'
+                )}
+                onClick={() => handleVehicleSelect(vehicle)}
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-base sm:text-xl font-bold text-white capitalize">
+                      {vehicle.type} - {vehicle.model}
+                    </h3>
+                    <p className="text-gray-400 text-sm sm:text-lg font-mono">
+                      {vehicle.plateNumber}
+                    </p>
+                    <ThemedBadge status="available" className="mt-2">
+                      Available
+                    </ThemedBadge>
+                  </div>
+                  {bookingData.vehicleId === vehicle._id && (
+                    <div className="text-cyan-400 shrink-0">
+                      <svg className="w-7 h-7 sm:w-8 sm:h-8" fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                          fillRule="evenodd"
+                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </ThemedCard>
+            ))}
+          </div>
         )}
+      </div>
+    </div>
+  </ThemedCard>
+)}
 
         {/* Step 2: Customer Information */}
         {currentStep === 2 && (
